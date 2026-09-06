@@ -27,10 +27,6 @@ export default function Admin_Logs() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  if (!fontsLoaded) {
-    return null;
-  }
-
   const [logs, setLogs] = useState([]);
 
   const formatLogTime = (iso) => {
@@ -120,6 +116,10 @@ export default function Admin_Logs() {
       return matchesFilter && matchesSearch;
     });
   }, [searchText, selectedFilter, logs]);
+
+  if (!fontsLoaded) {
+    return null;
+  }
 
   const totalLogs = logs.length;
   const verifiedLogs = logs.filter(

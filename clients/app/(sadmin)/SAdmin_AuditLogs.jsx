@@ -224,10 +224,6 @@ export default function SAdmin_AuditLogs() {
 
   useAutoRefresh(loadLogs, 30000);
 
-  if (!fontsLoaded) {
-    return null;
-  }
-
   const auditLogs = logs;
 
   const filters = [
@@ -258,6 +254,10 @@ export default function SAdmin_AuditLogs() {
       return matchesFilter && matchesSearch;
     });
   }, [searchText, selectedFilter, logs]);
+
+  if (!fontsLoaded) {
+    return null;
+  }
 
   const deletedCount = auditLogs.filter(
     (log) => log.actionType === "Report Deleted"

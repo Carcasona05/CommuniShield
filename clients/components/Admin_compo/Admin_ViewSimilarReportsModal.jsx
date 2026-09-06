@@ -59,7 +59,7 @@ export default function Admin_ViewSimilarReportsModal({
       };
     }
 
-    if (status === "Fake") {
+    if (status === "Marked Fake") {
       return {
         color: "#B42318",
         bg: "#FFF1F0",

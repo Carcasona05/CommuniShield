@@ -32,7 +32,7 @@ export const notificationService = {
   },
 
   async createNotification(input: {
-    userId: string;
+    userId?: string | null;
     type: NotifType;
     title: string;
     message?: string;
@@ -49,7 +49,7 @@ export const notificationService = {
     const { data: inserted, error } = await supabaseAdmin
       .from("notifications")
       .insert({
-        user_id: input.userId,
+        user_id: input.userId ?? null,
         type_id: typeId,
         title: input.title,
         message: input.message ?? "",
@@ -144,9 +144,16 @@ export const notificationService = {
       }
     );
 
+    const { data: adminRows } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .in("role", ["admin", "super_admin"]);
+    const adminIds = new Set((adminRows || []).map((a: { id: string }) => a.id));
+
     let notified = 0;
     for (const [userId, coords] of latestByUser.entries()) {
       if (excludeUserId && userId === excludeUserId) continue;
+      if (adminIds.has(userId)) continue;
 
       const distance = this.haversineMeters(
         latitude,
@@ -164,6 +171,40 @@ export const notificationService = {
         reportId,
         distanceMeters: distance,
         level,
+      });
+      if (!error) notified += 1;
+    }
+
+    return { data: notified, error: null };
+  },
+
+  async notifyAllAdmins(input: {
+    reportId: string;
+    title: string;
+    message: string;
+    priority?: "Low" | "Medium" | "High";
+    excludeUserId?: string;
+  }) {
+    const { reportId, title, message, priority = "High", excludeUserId } = input;
+
+    const { data: admins, error: adminError } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .in("role", ["admin", "super_admin"]);
+
+    if (adminError) return { data: null, error: adminError.message };
+
+    let notified = 0;
+    for (const admin of admins || []) {
+      if (excludeUserId && admin.id === excludeUserId) continue;
+
+      const { error } = await this.createNotification({
+        userId: admin.id,
+        type: "report_submitted",
+        title,
+        message,
+        priority,
+        reportId,
       });
       if (!error) notified += 1;
     }
@@ -297,7 +338,7 @@ export const notificationService = {
     return { data: activities, error: null };
   },
 
-  async listAdminNotifications() {
+  async listAdminNotifications(userId?: string) {
     const { data: types, error: typesError } = await supabaseAdmin
       .from("notification_types")
       .select("id, name");
@@ -330,6 +371,10 @@ export const notificationService = {
 
     if (adminTypeIds.length > 0) {
       query = query.in("type_id", adminTypeIds);
+    }
+
+    if (userId) {
+      query = query.eq("user_id", userId);
     }
 
     const { data, error } = await query.limit(50);

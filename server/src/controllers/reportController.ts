@@ -56,6 +56,31 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
       isVerified: verified,
     });
 
+    const auditActionType = verified
+      ? "Report Verified"
+      : newStatus === "Rejected"
+        ? "Report Rejected"
+        : newStatus === "Marked Fake"
+          ? "Report Rejected"
+          : newStatus === "Mapped"
+            ? "Report Mapped"
+            : "Report Verified";
+
+    await reportService.insertAuditLog({
+      actorId: user.id,
+      actorName: profile?.fullname || "Admin",
+      actionType: auditActionType,
+      title: verified
+        ? `Report verified: ${result.data.incidentType}`
+        : `Report status updated: ${result.data.incidentType}`,
+      details: verified
+        ? `Report ${result.data.id} was reviewed and verified by ${profile?.fullname || "admin"}.`
+        : `Report ${result.data.id} status changed from "${result.data.previousStatus}" to "${newStatus}" by ${profile?.fullname || "admin"}.`,
+      reportId: result.data.id,
+      oldValue: result.data.previousStatus,
+      newValue: verified ? "Verified" : newStatus,
+    }).catch(() => {});
+
     if (verified || newStatus === "Resolved") {
       const { data: coords } = await reportService.getReportCoords(
         result.data.id
@@ -126,7 +151,13 @@ export const createReport = async (req: AuthRequest, res: Response) => {
   const user = req.user;
   if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
 
-  const result = await reportService.createReport(user.id, req.body ?? {});
+  const { data: profile } = await profileService.getProfile(user.id);
+  const userRole = profile?.role === "super_admin" ? "super_admin" : profile?.role === "admin" ? "admin" : "user";
+
+  const result = await reportService.createReport(user.id, {
+    ...req.body,
+    role: userRole,
+  });
 
   if (result.error) return res.status(400).json({ error: result.error });
 
@@ -150,6 +181,16 @@ export const createReport = async (req: AuthRequest, res: Response) => {
       title: req.body?.incident_type || "Incident report near you",
       message: `A new "${req.body?.incident_type || "incident"}" report was filed near your location.`,
       level: "Moderate",
+      excludeUserId: user.id,
+    })
+    .catch(() => {});
+
+  await notificationService
+    .notifyAllAdmins({
+      reportId: result.data ?? "",
+      title: req.body?.incident_type || "New Incident Report",
+      message: `A new "${req.body?.incident_type || "incident"}" report was filed at ${req.body?.location || "an unspecified location"}.`,
+      priority: "High",
       excludeUserId: user.id,
     })
     .catch(() => {});
@@ -219,6 +260,17 @@ export const deleteReport = async (req: AuthRequest, res: Response) => {
   const result = await reportService.deleteReport(user.id, String(id));
 
   if (result.error) return res.status(400).json({ error: result.error });
+
+  const { data: profile } = await profileService.getProfile(user.id);
+
+  await reportService.insertAuditLog({
+    actorId: user.id,
+    actorName: profile?.fullname || "Admin",
+    actionType: "Report Deleted",
+    title: "Report deleted",
+    details: `Report ${result.data} was deleted by ${profile?.fullname || "admin"}.`,
+    reportId: result.data ?? null,
+  }).catch(() => {});
 
   res.json({ message: "Report deleted successfully" });
 };
@@ -329,6 +381,14 @@ export const createAdminAnnouncement = async (req: AuthRequest, res: Response) =
   });
 
   if (result.error) return res.status(400).json({ error: result.error });
+
+  await reportService.insertAuditLog({
+    actorId: user.id,
+    actorName: profile?.fullname || "Admin",
+    actionType: "Announcement Created",
+    title: "Announcement created",
+    details: `A new ${type || "incident"} announcement was published by ${profile?.fullname || "admin"}.`,
+  }).catch(() => {});
 
   res.status(201).json({ message: "Announcement published", announcement_id: result.data });
 };

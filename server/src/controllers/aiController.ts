@@ -1,6 +1,7 @@
 import type { Response } from "express";
 import { aiService } from "../services/aiService.ts";
 import { reportService } from "../services/reportService.ts";
+import { profileService } from "../services/authService.ts";
 
 type AuthRequest = import("express").Request & { user?: { id: string } };
 
@@ -80,6 +81,18 @@ export const analyzeReport = async (req: AuthRequest, res: Response) => {
       latitude: fullReport.latitude,
       longitude: fullReport.longitude,
     });
+
+    const { data: profile } = await profileService.getProfile(user.id);
+
+    await reportService.insertAuditLog({
+      actorId: user.id,
+      actorName: profile?.fullname || "Admin",
+      actionType: "AI Analysis Completed",
+      title: `AI analysis: ${typeData.name}`,
+      details: `AI credibility analysis completed for report ${reportId}. Score: ${result?.ai_score ?? "N/A"}, Severity: ${result?.severity ?? "N/A"}.`,
+      reportId,
+      newValue: result?.ai_score != null ? `Score: ${result.ai_score}` : null,
+    }).catch(() => {});
 
     res.json({ analysis: result });
   } catch (error) {

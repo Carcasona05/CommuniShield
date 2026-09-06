@@ -126,10 +126,6 @@ export default function SAdmin_AdminAccounts() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  if (!fontsLoaded) {
-    return null;
-  }
-
   const [adminAccounts, setAdminAccounts] = useState([]);
 
   const currentAdminEmail = (globalThis.adminAccount?.email || "").toLowerCase();
@@ -162,6 +158,10 @@ export default function SAdmin_AdminAccounts() {
   useEffect(() => {
     fetchAccounts();
   }, [fetchAccounts]);
+
+  if (!fontsLoaded) {
+    return null;
+  }
 
   const filteredAdmins = visibleAdmins.filter((admin) => {
     const query = searchText.trim().toLowerCase();

@@ -119,10 +119,6 @@ const handleAddAnnouncement = () => {
 
   useAutoRefresh(loadValidation, 30000);
 
-  if (!fontsLoaded) {
-    return null;
-  }
-
   const statusFilters = [
     "All",
     "Pending Review",
@@ -293,6 +289,10 @@ const handleAddAnnouncement = () => {
     });
   }, [groupedReports, selectedStatus, selectedWeekRange]);
 
+  if (!fontsLoaded) {
+    return null;
+  }
+
   const totalReports = reports.length;
 
   const compiledIncidents = groupedReports.filter(
@@ -345,6 +345,14 @@ const handleAddAnnouncement = () => {
         icon: "archive-outline",
         color: "#6B7280",
         bg: "#EEF1F5",
+      };
+    }
+
+    if (status === "Marked Fake") {
+      return {
+        icon: "warning-outline",
+        color: "#B42318",
+        bg: "#FFF1F0",
       };
     }
 
@@ -433,6 +441,10 @@ const handleAddAnnouncement = () => {
     applyValidation(target, "Resolved");
   };
 
+  const handleMarkAsFake = (report, group) => {
+    applyValidation(group || report, "Marked Fake");
+  };
+
   const handleAnnouncementSubmit = async (announcement) => {
     try {
       const token = await AsyncStorage.getItem("access_token");
@@ -458,7 +470,7 @@ const handleAddAnnouncement = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setAddReportVisible(false);
+      setAddAnnouncementVisible(false);
       Alert.alert(
         "Announcement Published",
         "The announcement has been posted."
@@ -469,6 +481,10 @@ const handleAddAnnouncement = () => {
         error.response?.data?.error || "Could not publish the announcement."
       );
     }
+  };
+
+  const handleReportSubmit = () => {
+    setAddReportVisible(false);
   };
 
 
@@ -846,18 +862,19 @@ const handleAddAnnouncement = () => {
         </ScrollView>
 
         <Admin_ViewSimilarReportsModal
-          visible={viewVisible}
-          compiledGroup={selectedCompiledGroup}
-          onClose={closeReport}
-          onVerify={handleVerify}
-          onReject={handleReject}
-          onMapAndVerify={handleMapAndVerify}
-        />
+        visible={viewVisible}
+        compiledGroup={selectedCompiledGroup}
+        onClose={closeReport}
+        onVerify={handleVerify}
+        onReject={handleReject}
+        onMapAndVerify={handleMapAndVerify}
+        onMarkAsFake={handleMarkAsFake}
+    />
 
         <Admin_AddReportModal
         visible={addReportVisible}
         onClose={() => setAddReportVisible(false)}
-        onSubmit={handleAnnouncementSubmit}
+        onSubmit={handleReportSubmit}
     />
 
     <Admin_AddAnnouncementModal

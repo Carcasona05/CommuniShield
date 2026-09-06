@@ -41,7 +41,7 @@ export const getAdminNotifications = async (
     return res.status(403).json({ error: "Admin access only" });
   }
 
-  const { data, error } = await notificationService.listAdminNotifications();
+  const { data, error } = await notificationService.listAdminNotifications(user.id);
 
   if (error) return res.status(500).json({ error });
 

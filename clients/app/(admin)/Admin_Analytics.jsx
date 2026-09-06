@@ -822,7 +822,7 @@ const styles = {
 
   yAxisTitle: {
     position: "absolute",
-    left: -58,
+    left: -83,
     top: 56,
     transform: [{ rotate: "-90deg" }],
     fontSize: 12,

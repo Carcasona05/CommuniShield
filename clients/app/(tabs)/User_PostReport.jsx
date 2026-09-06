@@ -200,6 +200,70 @@ function UserPostReportInner() {
     }
   }, [incidentCategory, incidentType, incidentTypes]);
 
+  const fetchPlaceName = async (lat, lng) => {
+    try {
+      const [geocode] = await Location.reverseGeocodeAsync({
+        latitude: lat,
+        longitude: lng,
+      });
+
+      if (geocode) {
+        const barangay = (geocode.district || geocode.subregion || geocode.name || "").trim();
+        const city = (geocode.city || geocode.subregion || "").trim();
+        const province = (geocode.region || "").trim();
+
+        const parts = [];
+        [barangay, city, province].forEach((item) => {
+          if (item && !parts.some((p) => p.toLowerCase() === item.toLowerCase())) {
+            parts.push(item);
+          }
+        });
+
+        if (parts.length > 0) {
+          return parts.join(", ");
+        }
+      }
+    } catch {
+      // ignore native error & fallback to openstreetmap
+    }
+
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+        {
+          headers: {
+            "Accept-Language": "en",
+            "User-Agent": "ARGUS-App/1.0",
+          },
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const addr = data.address;
+        if (addr) {
+          const barangay = (addr.suburb || addr.village || addr.neighbourhood || addr.quarter || addr.hamlet || addr.road || "").trim();
+          const city = (addr.town || addr.city || addr.municipality || addr.district || "").trim();
+          const province = (addr.state || addr.region || addr.county || "").trim();
+
+          const parts = [];
+          [barangay, city, province].forEach((item) => {
+            if (item && !parts.some((p) => p.toLowerCase() === item.toLowerCase())) {
+              parts.push(item);
+            }
+          });
+
+          if (parts.length > 0) {
+            return parts.join(", ");
+          }
+        }
+      }
+    } catch {
+      // fallback
+    }
+
+    return null;
+  };
+
   const getCurrentLocation = async () => {
     try {
       setLoadingLocation(true);
@@ -218,12 +282,17 @@ function UserPostReportInner() {
         accuracy: Location.Accuracy.High,
       });
 
-      const fetchedLatitude = currentLocation.coords.latitude.toFixed(6);
-      const fetchedLongitude = currentLocation.coords.longitude.toFixed(6);
+      const lat = currentLocation.coords.latitude;
+      const lng = currentLocation.coords.longitude;
+
+      const fetchedLatitude = lat.toFixed(6);
+      const fetchedLongitude = lng.toFixed(6);
 
       setLatitude(fetchedLatitude);
       setLongitude(fetchedLongitude);
-      setLocation(`${fetchedLatitude}, ${fetchedLongitude}`);
+
+      const placeName = await fetchPlaceName(lat, lng);
+      setLocation(placeName || `Location near ${fetchedLatitude}, ${fetchedLongitude}`);
     } catch {
       setLocation("Unable to fetch current location");
       setLatitude("");
@@ -478,11 +547,7 @@ function UserPostReportInner() {
 
               <TextInput
                 style={styles.locationInput}
-                value={
-                  location && !location.startsWith("-") && location.includes(",")
-                    ? "Location fetched"
-                    : location
-                }
+                value={location}
                 editable={false}
                 pointerEvents="none"
                 placeholder={

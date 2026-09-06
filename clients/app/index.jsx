@@ -4,7 +4,8 @@ import { router } from "expo-router";
 import ThemedView from "../components/ThemedView";
 import ThemedText from "../components/ThemedText";
 import { getAuth } from "../services/auth";
-import { prefetchAllData } from "../services/dataStore";
+import { prefetchAllData, getCache, setCache } from "../services/dataStore";
+import apiClient from "../services/apiClient";
 
 const LoadingScreen = () => {
   useEffect(() => {
@@ -22,6 +23,23 @@ const LoadingScreen = () => {
         }
         return;
       }
+
+      try {
+        await apiClient.get("/profile", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        const { clearAuth } = await import("../services/auth");
+        await clearAuth();
+        if (Platform.OS === "web") {
+          router.replace("/(auth)/Admin_Login");
+        } else {
+          router.replace("/(auth)/User_Login");
+        }
+        return;
+      }
+
+      if (!active) return;
 
       prefetchAllData();
 

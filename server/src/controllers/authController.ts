@@ -5,6 +5,7 @@ import type { User } from "@supabase/supabase-js";
 import { profileService } from "../services/authService.ts";
 import { notificationService } from "../services/notificationService.ts";
 import { credibilityService } from "../services/credibilityService.ts";
+import { reportService } from "../services/reportService.ts";
 
 type AuthRequest = Request & { user?: User; token?: string };
 
@@ -156,6 +157,17 @@ export const adminRegister = async (
 
     const result = await profileService.createAdmin(email, password, name, role, department, phone);
     if (result.error) return res.status(400).json({ error: result.error.message });
+
+    const { data: actorProfile } = await profileService.getProfile(user.id);
+
+    await reportService.insertAuditLog({
+      actorId: user.id,
+      actorName: actorProfile?.fullname || "Super Admin",
+      actionType: "Admin Added",
+      title: "Admin account created",
+      details: `New admin account "${name}" (${email}) was created by ${actorProfile?.fullname || "super admin"}.`,
+      newValue: email,
+    }).catch(() => {});
 
     res.json({ message: "Admin created successfully" });
   } catch {

@@ -48,12 +48,16 @@ export async function reverseGeocode(
     const addr = data.address;
 
     if (addr) {
-      const parts = [
-        [addr.road, addr.neighbourhood].filter(Boolean)[0],
-        addr.suburb || addr.village || addr.town,
-        addr.city || addr.county || addr.state || addr.region,
-        addr.country,
-      ].filter(Boolean);
+      const barangay = (addr.suburb || addr.village || addr.neighbourhood || addr.road || "").trim();
+      const city = (addr.town || addr.city || addr.county || "").trim();
+      const province = (addr.state || addr.region || "").trim();
+
+      const parts: string[] = [];
+      [barangay, city, province].forEach((item) => {
+        if (item && !parts.some((p) => p.toLowerCase() === item.toLowerCase())) {
+          parts.push(item);
+        }
+      });
 
       if (parts.length) return parts.join(", ");
     }

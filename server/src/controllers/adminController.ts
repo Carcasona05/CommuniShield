@@ -2,6 +2,7 @@ import type { Response } from "express";
 import { supabaseAdmin } from "../config/supabaseAdmin.ts";
 import type { User } from "@supabase/supabase-js";
 import { profileService } from "../services/authService.ts";
+import { reportService } from "../services/reportService.ts";
 
 type AuthRequest = import("express").Request & { user?: User; token?: string };
 
@@ -79,6 +80,18 @@ export const updateAccount = async (req: AuthRequest, res: Response) => {
       if (emailError) return res.status(500).json({ error: emailError.message });
     }
 
+    const { data: actorProfile } = await profileService.getProfile(user.id);
+    const changedFields = Object.keys(updates).join(", ") || (email !== undefined ? "email" : "");
+
+    await reportService.insertAuditLog({
+      actorId: user.id,
+      actorName: actorProfile?.fullname || "Super Admin",
+      actionType: "Admin Updated",
+      title: "Admin account updated",
+      details: `Admin account ${id} was updated by ${actorProfile?.fullname || "super admin"}. Changed: ${changedFields}.`,
+      oldValue: changedFields || null,
+    }).catch(() => {});
+
     res.json({ message: "Account updated successfully" });
   } catch {
     res.status(500).json({ error: "Internal server error" });
@@ -98,6 +111,17 @@ export const deleteAccount = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { error } = await supabaseAdmin.auth.admin.deleteUser(String(id));
     if (error) return res.status(500).json({ error: error.message });
+
+    const { data: actorProfile } = await profileService.getProfile(user.id);
+
+    await reportService.insertAuditLog({
+      actorId: user.id,
+      actorName: actorProfile?.fullname || "Super Admin",
+      actionType: "Admin Deleted",
+      title: "Admin account deleted",
+      details: `Admin account ${id} was deleted by ${actorProfile?.fullname || "super admin"}.`,
+      reportId: String(id),
+    }).catch(() => {});
 
     res.json({ message: "Account deleted successfully" });
   } catch {
@@ -131,6 +155,19 @@ export const toggleStatus = async (req: AuthRequest, res: Response) => {
       .eq("id", id);
 
     if (error) return res.status(500).json({ error: error.message });
+
+    const { data: actorProfile } = await profileService.getProfile(user.id);
+
+    await reportService.insertAuditLog({
+      actorId: user.id,
+      actorName: actorProfile?.fullname || "Super Admin",
+      actionType: newStatus === "Disabled" ? "Admin Disabled" : "Admin Updated",
+      title: `Admin account ${newStatus.toLowerCase()}`,
+      details: `Admin account ${id} was ${newStatus.toLowerCase()} by ${actorProfile?.fullname || "super admin"}.`,
+      reportId: String(id),
+      oldValue: target?.status || "Active",
+      newValue: newStatus,
+    }).catch(() => {});
 
     res.json({ message: `Account ${newStatus.toLowerCase()}`, status: newStatus });
   } catch {

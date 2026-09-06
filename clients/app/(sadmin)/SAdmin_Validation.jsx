@@ -122,10 +122,6 @@ export default function SAdmin_Validation() {
 
   useAutoRefresh(loadValidation, 30000);
 
-  if (!fontsLoaded) {
-    return null;
-  }
-
   const statusFilters = [
     "All",
     "Pending Review",
@@ -296,6 +292,10 @@ export default function SAdmin_Validation() {
     });
   }, [groupedReports, selectedStatus, selectedWeekRange]);
 
+  if (!fontsLoaded) {
+    return null;
+  }
+
   const totalReports = reports.length;
 
   const compiledIncidents = groupedReports.filter(
@@ -348,6 +348,14 @@ export default function SAdmin_Validation() {
         icon: "archive-outline",
         color: "#6B7280",
         bg: "#EEF1F5",
+      };
+    }
+
+    if (status === "Marked Fake") {
+      return {
+        icon: "warning-outline",
+        color: "#B42318",
+        bg: "#FFF1F0",
       };
     }
 
@@ -434,6 +442,10 @@ export default function SAdmin_Validation() {
 
   const handleMapAndVerify = (target) => {
     applyValidation(target, "Resolved");
+  };
+
+  const handleMarkAsFake = (report, group) => {
+    applyValidation(group || report, "Marked Fake");
   };
 
   const handleAnnouncementSubmit = async (announcement) => {
@@ -853,6 +865,7 @@ export default function SAdmin_Validation() {
           onVerify={handleVerify}
           onReject={handleReject}
           onMapAndVerify={handleMapAndVerify}
+          onMarkAsFake={handleMarkAsFake}
         />
 
         <Admin_AddReportModal

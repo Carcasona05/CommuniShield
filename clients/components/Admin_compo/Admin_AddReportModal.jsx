@@ -201,6 +201,70 @@ export default function Admin_AddReportModal({
     }
   };
 
+  const fetchPlaceName = async (lat, lng) => {
+    try {
+      const [geocode] = await Location.reverseGeocodeAsync({
+        latitude: lat,
+        longitude: lng,
+      });
+
+      if (geocode) {
+        const barangay = (geocode.district || geocode.subregion || geocode.name || "").trim();
+        const city = (geocode.city || geocode.subregion || "").trim();
+        const province = (geocode.region || "").trim();
+
+        const parts = [];
+        [barangay, city, province].forEach((item) => {
+          if (item && !parts.some((p) => p.toLowerCase() === item.toLowerCase())) {
+            parts.push(item);
+          }
+        });
+
+        if (parts.length > 0) {
+          return parts.join(", ");
+        }
+      }
+    } catch {
+      // fallback
+    }
+
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+        {
+          headers: {
+            "Accept-Language": "en",
+            "User-Agent": "ARGUS-App/1.0",
+          },
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const addr = data.address;
+        if (addr) {
+          const barangay = (addr.suburb || addr.village || addr.neighbourhood || addr.quarter || addr.hamlet || addr.road || "").trim();
+          const city = (addr.town || addr.city || addr.municipality || addr.district || "").trim();
+          const province = (addr.state || addr.region || addr.county || "").trim();
+
+          const parts = [];
+          [barangay, city, province].forEach((item) => {
+            if (item && !parts.some((p) => p.toLowerCase() === item.toLowerCase())) {
+              parts.push(item);
+            }
+          });
+
+          if (parts.length > 0) {
+            return parts.join(", ");
+          }
+        }
+      }
+    } catch {
+      // fallback
+    }
+
+    return null;
+  };
+
   const getCurrentLocation = async () => {
     try {
       setLoadingLocation(true);
@@ -220,15 +284,17 @@ export default function Admin_AddReportModal({
           accuracy: Location.Accuracy.High,
         });
 
-      const fetchedLatitude =
-        currentLocation.coords.latitude.toFixed(6);
+      const lat = currentLocation.coords.latitude;
+      const lng = currentLocation.coords.longitude;
 
-      const fetchedLongitude =
-        currentLocation.coords.longitude.toFixed(6);
+      const fetchedLatitude = lat.toFixed(6);
+      const fetchedLongitude = lng.toFixed(6);
 
       setLatitude(fetchedLatitude);
       setLongitude(fetchedLongitude);
-      setLocation(`${fetchedLatitude}, ${fetchedLongitude}`);
+
+      const placeName = await fetchPlaceName(lat, lng);
+      setLocation(placeName || `Location near ${fetchedLatitude}, ${fetchedLongitude}`);
     } catch {
       setLocation("Unable to fetch current location");
       setLatitude("");
@@ -528,11 +594,7 @@ export default function Admin_AddReportModal({
 
                 <TextInput
                   style={styles.locationInput}
-                  value={
-                    location && location.includes(",") && !isNaN(Number(location.split(",")[0]))
-                      ? "Location fetched"
-                      : location
-                  }
+                  value={location}
                   editable={false}
                   placeholder={
                     loadingLocation

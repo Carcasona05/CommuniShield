@@ -48,10 +48,6 @@ export default function Admin_Layout({ children }) {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  if (!fontsLoaded) {
-    return null;
-  }
-
   const navItems = [
     {
       label: "Dashboard",
@@ -120,6 +116,10 @@ export default function Admin_Layout({ children }) {
   }, []);
 
   useAutoRefresh(loadNotifications, 30000);
+
+  if (!fontsLoaded) {
+    return null;
+  }
 
   const unreadCount = notifications.filter((item) => item.unread).length;
 

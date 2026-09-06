@@ -13,6 +13,7 @@ type ReportInput = {
   photos?: string[];
   status?: string;
   is_verified?: boolean;
+  role?: "user" | "admin" | "super_admin";
 };
 
 const VALID_STATUSES = [
@@ -21,6 +22,7 @@ const VALID_STATUSES = [
   "Resolved",
   "Rejected",
   "Archived",
+  "Marked Fake",
 ];
 
 const ARGAO_BARANGAYS = [
@@ -144,6 +146,7 @@ export const reportService = {
         details: (input.details || "").trim(),
         status,
         is_verified: input.is_verified ?? false,
+        role: input.role ?? "user",
       })
       .select("id")
       .maybeSingle();
@@ -204,7 +207,7 @@ export const reportService = {
     const { data: reports, error: reportError } = await supabaseAdmin
       .from("reports")
       .select(
-        "id, user_id, location, latitude, longitude, details, poster_name, display_name_type, status, is_verified, created_at, incident_type_id"
+        "id, user_id, location, latitude, longitude, details, poster_name, display_name_type, status, is_verified, created_at, incident_type_id, role"
       )
       .order("created_at", { ascending: false });
 
@@ -631,7 +634,7 @@ export const reportService = {
     const { data: reports, error: reportError } = await supabaseAdmin
       .from("reports")
       .select(
-        "id, location, latitude, longitude, details, poster_name, status, is_verified, created_at, incident_type_id"
+        "id, location, latitude, longitude, details, poster_name, status, is_verified, created_at, incident_type_id, role"
       )
       .order("created_at", { ascending: false });
 
@@ -737,7 +740,7 @@ export const reportService = {
         credibility_review: analysis.credibility_review ?? "",
         comments: commentsByReport.get(r.id) || [],
         images: imagesByReport.get(r.id) || [],
-        source: "User",
+        source: r.role === "admin" || r.role === "super_admin" ? "Admin" : "User",
       };
     });
 
@@ -1061,7 +1064,7 @@ export const reportService = {
   }) {
     const { data: report, error: findError } = await supabaseAdmin
       .from("reports")
-      .select("id, user_id, location, status, is_verified, incident_type_id")
+      .select("id, user_id, location, status, is_verified, incident_type_id, incident_types(name)")
       .eq("id", reportId)
       .maybeSingle();
 
@@ -1079,6 +1082,8 @@ export const reportService = {
 
     if (updateError) return { error: updateError.message };
 
+    const incidentTypeData = report.incident_types as unknown as { name?: string };
+
     return {
       data: {
         id: report.id,
@@ -1086,8 +1091,34 @@ export const reportService = {
         location: report.location ?? "",
         previousStatus: report.status,
         previousVerified: report.is_verified ?? false,
+        incidentType: incidentTypeData?.name ?? "an incident",
       },
       error: null,
     };
+  },
+
+  async insertAuditLog(input: {
+    actorId?: string | null;
+    actorName: string;
+    actionType: string;
+    title: string;
+    details?: string;
+    reportId?: string | null;
+    oldValue?: string | null;
+    newValue?: string | null;
+  }) {
+    const { error } = await supabaseAdmin.from("audit_logs").insert({
+      actor_id: input.actorId ?? null,
+      actor_name: input.actorName,
+      action_type: input.actionType,
+      title: input.title,
+      details: input.details ?? "",
+      report_id: input.reportId ?? null,
+      old_value: input.oldValue ?? null,
+      new_value: input.newValue ?? null,
+    });
+
+    if (error) return { error: error.message };
+    return { data: true };
   },
 };
