@@ -5,3 +5,6 @@ node_modules/
 .env*.local
 dist/
 *.tsbuildinfo
+
+.vercel
+.env*
