@@ -102,7 +102,7 @@ export default function SAdmin_Dashboard() {
   });
   const [accounts, setAccounts] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
 
   const fetchDashboard = useCallback(async () => {
     try {

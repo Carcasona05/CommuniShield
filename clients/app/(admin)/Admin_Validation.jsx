@@ -47,7 +47,10 @@ const handleAddAnnouncement = () => {
 
 
 
-  const [reports, setReports] = useState([]);
+  const [reports, setReports] = useState(() => {
+    const cached = getCache("api:/admin/dashboard");
+    return cached?.reports || [];
+  });
 
   const formatSubmittedAt = (iso) => {
     if (!iso) return "";

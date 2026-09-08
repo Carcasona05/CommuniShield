@@ -89,25 +89,40 @@ const ScatterChart = ({ data = [] }) => {
 };
 
 export default function Admin_Analytics() {
-  const [summary, setSummary] = useState({
-    activeIncidents: 0,
-    criticalHotspots: 0,
-    avgSentiment: "0.0",
-    sentimentLabel: "Neutral",
-    credibilityRate: 0,
+  const [summary, setSummary] = useState(() => {
+    const cached = getCache("api:/admin/analytics");
+    return cached?.summary || {
+      activeIncidents: 0,
+      criticalHotspots: 0,
+      avgSentiment: "0.0",
+      sentimentLabel: "Neutral",
+      credibilityRate: 0,
+    };
   });
-  const [sentimentTrend, setSentimentTrend] = useState([]);
-  const [forecast, setForecast] = useState([]);
-  const [forecastSummary, setForecastSummary] = useState({
-    zone: "Argao",
-    riskLevel: "LOW",
-    probability: 0,
-    crimeTypes: [],
-    timeWindow: "",
-    trend: 0,
-    recommendedActions: [],
+  const [sentimentTrend, setSentimentTrend] = useState(() => {
+    const cached = getCache("api:/admin/analytics");
+    return cached?.sentimentTrend || [];
   });
-  const [reports, setReports] = useState([]);
+  const [forecast, setForecast] = useState(() => {
+    const cached = getCache("api:/admin/analytics");
+    return cached?.forecast || [];
+  });
+  const [forecastSummary, setForecastSummary] = useState(() => {
+    const cached = getCache("api:/admin/analytics");
+    return cached?.forecastSummary || {
+      zone: "Argao",
+      riskLevel: "LOW",
+      probability: 0,
+      crimeTypes: [],
+      timeWindow: "",
+      trend: 0,
+      recommendedActions: [],
+    };
+  });
+  const [reports, setReports] = useState(() => {
+    const cached = getCache("api:/admin/dashboard");
+    return cached?.reports || [];
+  });
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),

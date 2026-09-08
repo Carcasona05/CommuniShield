@@ -27,7 +27,10 @@ export default function Admin_Logs() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const [logs, setLogs] = useState([]);
+  const [logs, setLogs] = useState(() => {
+    const cached = getCache("api:/admin/logs");
+    return cached?.logs || [];
+  });
 
   const formatLogTime = (iso) => {
     if (!iso) return "";

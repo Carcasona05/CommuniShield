@@ -39,7 +39,7 @@ export default function Admin_Dashboard() {
     hotspots: 0,
   });
   const [reports, setReports] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),

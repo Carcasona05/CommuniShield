@@ -530,7 +530,10 @@ const MyReportsInner = () => {
 
   const [selectedStatus, setSelectedStatus] = useState("All Status");
   const [openDropdown, setOpenDropdown] = useState(null);
-  const [myReports, setMyReports] = useState([]);
+  const [myReports, setMyReports] = useState(() => {
+    const cached = getCache("api:/reports/mine");
+    return cached?.data || cached || [];
+  });
   const [refreshing, setRefreshing] = useState(false);
   const scrollRef = useScrollToTop();
 

@@ -127,7 +127,10 @@ export default function SAdmin_AdminAccounts() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const [adminAccounts, setAdminAccounts] = useState([]);
+  const [adminAccounts, setAdminAccounts] = useState(() => {
+    const cached = getCache("api:/admin/accounts");
+    return cached?.accounts || [];
+  });
 
   const currentAdminEmail = (globalThis.adminAccount?.email || "").toLowerCase();
 

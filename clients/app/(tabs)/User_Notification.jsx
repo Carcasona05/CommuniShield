@@ -269,9 +269,18 @@ const User_Notification = () => {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const [userReports, setUserReports] = useState([]);
-  const [nearbyIncidents, setNearbyIncidents] = useState([]);
-  const [loginActivity, setLoginActivity] = useState([]);
+  const [userReports, setUserReports] = useState(() => {
+    const cached = getCache("api:/notifications");
+    return cached?.reports || [];
+  });
+  const [nearbyIncidents, setNearbyIncidents] = useState(() => {
+    const cached = getCache("api:/notifications");
+    return cached?.nearby || [];
+  });
+  const [loginActivity, setLoginActivity] = useState(() => {
+    const cached = getCache("api:/notifications/login-activity");
+    return cached?.activity || [];
+  });
   const [refreshing, setRefreshing] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
     reports: false,
