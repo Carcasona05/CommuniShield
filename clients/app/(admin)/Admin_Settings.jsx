@@ -14,6 +14,8 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import apiClient from "../../services/apiClient";
+import { getCache, setCache } from "../../services/dataStore";
+import useAutoRefresh from "../../hooks/useAutoRefresh";
 
 const COLORS = {
   primary: "#294880",
@@ -169,11 +171,23 @@ export default function Admin_Settings() {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
+      const cached = getCache("api:/profile");
+      if (cached) {
+        setProfile({
+          fullName: cached.name || cached.fullname || "",
+          username: cached.user_name || "",
+          phone: cached.phone || "",
+          department: cached.department || "",
+        });
+        setEmailData((prev) => ({ ...prev, currentEmail: cached.email || "" }));
+      }
+
       const res = await apiClient.get("/profile", {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       const data = res.data ?? {};
+      setCache("api:/profile", data);
 
       setProfile({
         fullName: data.name || data.fullname || "",
@@ -187,6 +201,8 @@ export default function Admin_Settings() {
       // keep empty defaults on failure
     }
   }, []);
+
+  useAutoRefresh(loadProfile, 30000);
 
   useEffect(() => {
     loadProfile();

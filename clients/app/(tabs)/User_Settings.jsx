@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -16,6 +16,7 @@ import ThemedText from "../../components/ThemedText";
 import apiClient from "../../services/apiClient";
 import { clearAuth } from "../../services/auth";
 import { getCache, setCache } from "../../services/dataStore";
+import useAutoRefresh from "../../hooks/useAutoRefresh";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -33,37 +34,40 @@ const UserSettings = () => {
   const [displayName, setDisplayName] = useState("");
   const [displayEmail, setDisplayEmail] = useState("");
 
-  useEffect(() => {
-    const applyProfile = (profile) => {
+  const loadProfile = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+
+      const cached = getCache("api:/profile");
+      if (cached !== undefined) {
+        setDisplayName(
+          cached.user_name || cached.name || cached.email || "SafeZone User"
+        );
+        setDisplayEmail(cached.email || "youraccount@email.com");
+      }
+
+      const res = await apiClient.get("/profile", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const profile = res.data ?? {};
+      setCache("api:/profile", profile);
       setDisplayName(
         profile.user_name || profile.name || profile.email || "SafeZone User"
       );
       setDisplayEmail(profile.email || "youraccount@email.com");
-    };
-
-    const loadProfile = async () => {
-      try {
-        const token = await AsyncStorage.getItem("access_token");
-        if (!token) return;
-
-        const cached = getCache("api:/profile");
-        if (cached !== undefined) applyProfile(cached);
-
-        const res = await apiClient.get("/profile", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        const profile = res.data ?? {};
-        setCache("api:/profile", profile);
-        applyProfile(profile);
-      } catch {
-        setDisplayName("SafeZone User");
-        setDisplayEmail("youraccount@email.com");
-      }
-    };
-
-    loadProfile();
+    } catch {
+      setDisplayName("SafeZone User");
+      setDisplayEmail("youraccount@email.com");
+    }
   }, []);
+
+  useAutoRefresh(loadProfile, 30000);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   if (!fontsLoaded) {
     return null;

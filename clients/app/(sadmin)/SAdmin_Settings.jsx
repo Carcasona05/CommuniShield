@@ -17,6 +17,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import SAdmin_Layout from "../../components/SAdmin_Compo/SAdmin_Layout";
 import { saveAdminInfo } from "../../services/auth";
 import apiClient from "../../services/apiClient";
+import { getCache, setCache } from "../../services/dataStore";
+import useAutoRefresh from "../../hooks/useAutoRefresh";
 
 const validateNewPassword = (value) => {
   if (!value) return "Password is required.";
@@ -194,6 +196,31 @@ export default function SAdmin_Settings() {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
+      const cachedProfile = getCache("api:/profile");
+      if (cachedProfile) {
+        setFullName(cachedProfile.name || cachedProfile.fullname || "CommuniShield SuperAdmin");
+        setEmailAddress(cachedProfile.email || "");
+        setPhoneNumber(cachedProfile.phone || "");
+        setInitialEmail(cachedProfile.email || "");
+      }
+
+      const cachedSettings = getCache("api:/admin/settings");
+      if (cachedSettings?.settings) {
+        const s = cachedSettings.settings;
+        setAutoMapVerified(s.map_auto_map_verified !== "false");
+        setAiCredibilityEnabled(s.ai_scoring_enabled !== "false");
+        setEmailNotifications(s.notification_email !== "false");
+        setPushNotifications(s.notification_push === "true");
+        setClusterOverlay(s.map_cluster_overlay !== "false");
+        setHeatmapOverlay(s.map_heatmap_overlay !== "false");
+        setHighThreshold(s.ai_high_threshold || "85");
+        setMediumThreshold(s.ai_medium_threshold || "60");
+        setDefaultMapZoom(s.map_default_zoom || "13");
+        setMapCenter(s.map_center || "Argao, Cebu");
+        setModelVersion(s.ai_model_version || "CommuniShield-AI v1.0");
+        setApiEndpoint(s.ai_api_endpoint || "");
+      }
+
       const [profileRes, settingsRes] = await Promise.all([
         apiClient.get("/profile", {
           headers: { Authorization: `Bearer ${token}` },
@@ -204,12 +231,15 @@ export default function SAdmin_Settings() {
       ]);
 
       const profile = profileRes.data ?? {};
+      setCache("api:/profile", profile);
       setFullName(profile.name || profile.fullname || "CommuniShield SuperAdmin");
       setEmailAddress(profile.email || "");
       setPhoneNumber(profile.phone || "");
       setInitialEmail(profile.email || "");
 
-      const settings = settingsRes.data?.settings ?? {};
+      const settingsData = settingsRes.data ?? {};
+      setCache("api:/admin/settings", settingsData);
+      const settings = settingsData.settings ?? {};
       setAutoMapVerified(settings.map_auto_map_verified !== "false");
       setAiCredibilityEnabled(settings.ai_scoring_enabled !== "false");
       setEmailNotifications(settings.notification_email !== "false");
@@ -226,6 +256,8 @@ export default function SAdmin_Settings() {
       // keep existing defaults on failure
     }
   }, []);
+
+  useAutoRefresh(loadAccountData, 30000);
 
   useEffect(() => {
     loadAccountData();

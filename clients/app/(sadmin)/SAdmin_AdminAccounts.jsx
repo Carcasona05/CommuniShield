@@ -14,6 +14,7 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
+import useAutoRefresh from "../../hooks/useAutoRefresh";
 
 import SAdmin_Layout from "../../components/SAdmin_Compo/SAdmin_Layout";
 import Admin_AddAdmin from "../../components/modals/Admin_AddAdmin";
@@ -154,6 +155,8 @@ export default function SAdmin_AdminAccounts() {
       // silent fail
     }
   }, []);
+
+  useAutoRefresh(fetchAccounts, 30000);
 
   useEffect(() => {
     fetchAccounts();
