@@ -39,8 +39,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "c66faf59-4aa7-4bf5-81d3-25ffad540f51"
+        "projectId": "625685c1-0063-49e6-93ee-abbfe85f128d"
       }
-    }
+    },
+    "owner": "ojiees-team"
   }
 }
