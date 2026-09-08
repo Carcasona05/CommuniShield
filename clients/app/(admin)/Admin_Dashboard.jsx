@@ -9,6 +9,7 @@ import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
+import { AdminDashboardSkeleton } from "../../components/AdminSkeleton";
 
 const formatFeedTime = (iso) => {
   if (!iso) return "";
@@ -38,6 +39,7 @@ export default function Admin_Dashboard() {
     hotspots: 0,
   });
   const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -75,6 +77,8 @@ export default function Admin_Dashboard() {
       }
     } catch {
       // keep last loaded data on failure
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -82,6 +86,14 @@ export default function Admin_Dashboard() {
 
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <Admin_Layout>
+        <AdminDashboardSkeleton />
+      </Admin_Layout>
+    );
   }
 
   const summaryCards = [

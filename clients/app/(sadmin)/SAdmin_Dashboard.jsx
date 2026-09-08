@@ -14,6 +14,7 @@ import SAdmin_Layout from "../../components/SAdmin_Compo/SAdmin_Layout";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
+import { SAdminDashboardSkeleton } from "../../components/AdminSkeleton";
 
 const formatRelativeTime = (iso) => {
   if (!iso) return "";
@@ -101,6 +102,7 @@ export default function SAdmin_Dashboard() {
   });
   const [accounts, setAccounts] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -167,12 +169,21 @@ export default function SAdmin_Dashboard() {
 
   const loadDashboard = useCallback(async () => {
     await Promise.all([fetchDashboard(), fetchAccounts(), fetchLogs()]);
+    setLoading(false);
   }, [fetchDashboard, fetchAccounts, fetchLogs]);
 
   useAutoRefresh(loadDashboard, 30000);
 
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <SAdmin_Layout>
+        <SAdminDashboardSkeleton />
+      </SAdmin_Layout>
+    );
   }
 
   const totalReports = summary.total || 0;
