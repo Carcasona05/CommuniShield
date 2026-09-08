@@ -165,7 +165,7 @@ export default function Admin_Login() {
         role: user?.role || "Admin",
       });
 
-      await prefetchAllData();
+      prefetchAllData();
 
       if (user?.role === "super_admin") {
         router.replace("/(sadmin)/SAdmin_Dashboard");

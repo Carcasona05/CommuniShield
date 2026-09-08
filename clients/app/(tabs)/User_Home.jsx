@@ -5,6 +5,7 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -217,7 +218,7 @@ const User_Home = () => {
   const [selectedSource, setSelectedSource] = useState("All");
   const [openDropdown, setOpenDropdown] = useState(null);
   const [reports, setReports] = useState([]);
-  const [, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const scrollRef = useScrollToTop();
 
@@ -435,7 +436,14 @@ const User_Home = () => {
             );
           })}
 
-          {filteredReports.length === 0 ? (
+          {loading && filteredReports.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <ActivityIndicator size="large" color={PRIMARY} />
+              <ThemedText style={[styles.emptyTitle, { marginTop: 12 }]}>
+                Loading reports...
+              </ThemedText>
+            </View>
+          ) : filteredReports.length === 0 ? (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIcon}>
                 <Ionicons name="search-outline" size={24} color="#9CA3AF" />
