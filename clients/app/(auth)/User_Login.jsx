@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   useWindowDimensions,
+  ActivityIndicator,
 } from "react-native";
 import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
@@ -38,6 +39,7 @@ export default function UserLogin() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [passwordError, setPasswordError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
@@ -92,6 +94,7 @@ export default function UserLogin() {
       return;
     }
 
+    setLoading(true);
     try {
       const res = await apiClient.post("/login", {
         email: cleanEmail,
@@ -110,7 +113,7 @@ export default function UserLogin() {
         console.warn("Failed to store access token:", storageError);
       }
 
-      prefetchAllData();
+      await prefetchAllData();
 
       Alert.alert("Success", "Login successful!");
       router.replace("/(tabs)/User_Home");
@@ -119,6 +122,8 @@ export default function UserLogin() {
         "Login Failed",
         error.response?.data?.error || "Invalid credentials"
       );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -292,12 +297,18 @@ export default function UserLogin() {
                   styles.loginButton,
                   {
                     marginBottom: isShortScreen ? 26 : 36,
+                    opacity: loading ? 0.6 : 1,
                   },
                 ]}
                 onPress={handleLogin}
                 activeOpacity={0.85}
+                disabled={loading}
               >
-                <Text style={styles.loginButtonText}>Login</Text>
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.loginButtonText}>Login</Text>
+                )}
               </TouchableOpacity>
 
               <View style={styles.signupSection}>

@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   useWindowDimensions,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
@@ -120,6 +121,7 @@ function UserPostReportInner() {
   const [details, setDetails] = useState("");
   const [photos, setPhotos] = useState([]);
   const [loadingLocation, setLoadingLocation] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   const incidentOptions = categoryOptions.length
     ? categoryOptions
@@ -349,6 +351,7 @@ function UserPostReportInner() {
       return;
     }
 
+    setSubmitting(true);
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) {
@@ -390,6 +393,8 @@ function UserPostReportInner() {
       toast.error(
         error.response?.data?.error || "Could not submit your report. Please try again."
       );
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -657,11 +662,16 @@ function UserPostReportInner() {
           </View>
 
           <TouchableOpacity
-            style={styles.postButton}
+            style={[styles.postButton, { opacity: submitting ? 0.6 : 1 }]}
             onPress={handlePostReport}
             activeOpacity={0.88}
+            disabled={submitting}
           >
-            <ThemedText style={styles.postButtonText}>Post Report</ThemedText>
+            {submitting ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <ThemedText style={styles.postButtonText}>Post Report</ThemedText>
+            )}
           </TouchableOpacity>
         </View>
       </ScrollView>

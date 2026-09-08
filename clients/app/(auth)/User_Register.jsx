@@ -12,6 +12,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   useWindowDimensions,
+  ActivityIndicator,
 } from "react-native";
 import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -50,6 +51,7 @@ export default function Register() {
   const [submitted, setSubmitted] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handlePasswordChange = (text) => {
     setPassword(text);
@@ -89,6 +91,7 @@ export default function Register() {
       return;
     }
 
+    setLoading(true);
     try {
       const res = await apiClient.post("/register", {
         userName: userName.trim(),
@@ -119,6 +122,8 @@ export default function Register() {
         serverMessage ||
           "Network error. Please check your connection and try again."
       );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -303,12 +308,18 @@ export default function Register() {
                   styles.loginButton,
                   {
                     marginBottom: isShortScreen ? 26 : 36,
+                    opacity: loading ? 0.6 : 1,
                   },
                 ]}
                 onPress={handleRegister}
                 activeOpacity={0.85}
+                disabled={loading}
               >
-                <Text style={styles.loginButtonText}>Register</Text>
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.loginButtonText}>Register</Text>
+                )}
               </TouchableOpacity>
 
               <View style={styles.signupSection}>

@@ -12,6 +12,7 @@ import {
   Alert,
   ScrollView,
   Modal,
+  ActivityIndicator,
 } from "react-native";
 import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -95,6 +96,7 @@ export default function Admin_Login() {
 
   const [submitted, setSubmitted] = useState(false);
   const [passwordError, setPasswordError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const [forgotSubmitted, setForgotSubmitted] = useState(false);
   const [newPasswordError, setNewPasswordError] = useState("");
@@ -141,6 +143,7 @@ export default function Admin_Login() {
       return;
     }
 
+    setLoading(true);
     try {
       const res = await apiClient.post("/admin/login", {
         email: cleanEmail,
@@ -162,7 +165,7 @@ export default function Admin_Login() {
         role: user?.role || "Admin",
       });
 
-      prefetchAllData();
+      await prefetchAllData();
 
       if (user?.role === "super_admin") {
         router.replace("/(sadmin)/SAdmin_Dashboard");
@@ -174,6 +177,8 @@ export default function Admin_Login() {
         "Login Failed",
         error.response?.data?.error || "Invalid admin email or password."
       );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -598,11 +603,16 @@ export default function Admin_Login() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.loginButton}
+                style={[styles.loginButton, { opacity: loading ? 0.6 : 1 }]}
                 onPress={handleLogin}
                 activeOpacity={0.85}
+                disabled={loading}
               >
-                <Text style={styles.loginButtonText}>Login</Text>
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.loginButtonText}>Login</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>

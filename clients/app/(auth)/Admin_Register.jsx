@@ -11,6 +11,7 @@ import {
   Platform,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -46,6 +47,7 @@ export default function Admin_Register() {
   const [submitted, setSubmitted] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handlePasswordChange = (text) => {
     setPassword(text);
@@ -92,11 +94,13 @@ export default function Admin_Register() {
       return;
     }
 
+    setLoading(true);
     await saveAdminInfo({
       fullName: cleanName,
       email: cleanEmail,
       password,
     });
+    setLoading(false);
 
     Alert.alert(
       "Success",
@@ -298,11 +302,16 @@ export default function Admin_Register() {
               ) : null}
 
               <TouchableOpacity
-                style={styles.registerButton}
+                style={[styles.registerButton, { opacity: loading ? 0.6 : 1 }]}
                 onPress={handleRegister}
                 activeOpacity={0.85}
+                disabled={loading}
               >
-                <Text style={styles.registerButtonText}>Register as Admin</Text>
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.registerButtonText}>Register as Admin</Text>
+                )}
               </TouchableOpacity>
 
               <View style={styles.bottomSection}>

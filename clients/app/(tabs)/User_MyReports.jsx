@@ -9,6 +9,7 @@ import {
   TextInput,
   Image,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
@@ -228,6 +229,7 @@ const EditReportModal = ({ visible, report, onClose, onSave }) => {
   const [categoryOptions, setCategoryOptions] = useState(FALLBACK_CATEGORIES);
   const [details, setDetails] = useState("");
   const [photos, setPhotos] = useState([]);
+  const [saving, setSaving] = useState(false);
 
   const incidentTypes = useMemo(() => {
     const found = categoryOptions.find((o) => o.category === incidentCategory);
@@ -298,12 +300,13 @@ const EditReportModal = ({ visible, report, onClose, onSave }) => {
     setPhotos((prev) => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
     if (!incidentCategory || !incidentType || !details.trim()) {
       toast.error("Please complete the category, incident type, and details.");
       return;
     }
 
+    setSaving(true);
     const updatedReport = {
       ...report,
       location,
@@ -313,7 +316,11 @@ const EditReportModal = ({ visible, report, onClose, onSave }) => {
       images: photos,
     };
 
-    onSave(updatedReport);
+    try {
+      await onSave(updatedReport);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!report) {
@@ -482,13 +489,18 @@ const EditReportModal = ({ visible, report, onClose, onSave }) => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.saveButton}
+                style={[styles.saveButton, { opacity: saving ? 0.6 : 1 }]}
                 activeOpacity={0.88}
                 onPress={handleSaveChanges}
+                disabled={saving}
               >
-                <ThemedText style={styles.saveButtonText}>
-                  Save Changes
-                </ThemedText>
+                {saving ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <ThemedText style={styles.saveButtonText}>
+                    Save Changes
+                  </ThemedText>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>
