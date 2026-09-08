@@ -113,9 +113,8 @@ export default function UserLogin() {
         console.warn("Failed to store access token:", storageError);
       }
 
-      prefetchAllData();
+      await prefetchAllData();
 
-      Alert.alert("Success", "Login successful!");
       router.replace("/(tabs)/User_Home");
     } catch (error) {
       Alert.alert(

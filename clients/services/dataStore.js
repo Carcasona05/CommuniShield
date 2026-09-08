@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
 import { Image } from "expo-image";
 import apiClient from "./apiClient";
 import { ROLE_KEY } from "./auth";
@@ -6,18 +7,39 @@ import { ROLE_KEY } from "./auth";
 const CACHE_KEY = "communishield_data_cache";
 const cache = new Map();
 let persistTimer = null;
-let hydrated = false;
+
+const isWeb = Platform.OS === "web";
+
+const readStorageSync = () => {
+  if (isWeb && typeof localStorage !== "undefined") {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+const writeStorage = (obj) => {
+  try {
+    const json = JSON.stringify(obj);
+    if (isWeb && typeof localStorage !== "undefined") {
+      localStorage.setItem(CACHE_KEY, json);
+    }
+    AsyncStorage.setItem(CACHE_KEY, json).catch(() => {});
+  } catch {}
+};
 
 const persistCache = () => {
   if (persistTimer) return;
-  persistTimer = setTimeout(async () => {
+  persistTimer = setTimeout(() => {
     persistTimer = null;
-    try {
-      const obj = {};
-      cache.forEach((v, k) => { obj[k] = v; });
-      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(obj));
-    } catch {}
-  }, 500);
+    const obj = {};
+    cache.forEach((v, k) => { obj[k] = v; });
+    writeStorage(obj);
+  }, 300);
 };
 
 export const setCache = (key, value) => {
@@ -25,13 +47,21 @@ export const setCache = (key, value) => {
   persistCache();
 };
 
-export const getCache = (key) => {
-  if (!hydrated) return undefined;
-  return cache.has(key) ? cache.get(key) : undefined;
+export const getCache = (key) => (cache.has(key) ? cache.get(key) : undefined);
+
+const hydrateFromStorage = () => {
+  const obj = readStorageSync();
+  if (obj) {
+    Object.entries(obj).forEach(([k, v]) => cache.set(k, v));
+  }
 };
 
+if (isWeb) {
+  hydrateFromStorage();
+}
+
 export const hydrateCache = async () => {
-  if (hydrated) return;
+  if (cache.size > 0) return;
   try {
     const raw = await AsyncStorage.getItem(CACHE_KEY);
     if (raw) {
@@ -39,12 +69,13 @@ export const hydrateCache = async () => {
       Object.entries(obj).forEach(([k, v]) => cache.set(k, v));
     }
   } catch {}
-  hydrated = true;
 };
 
 export const clearDataCache = () => {
   cache.clear();
-  hydrated = false;
+  if (isWeb && typeof localStorage !== "undefined") {
+    localStorage.removeItem(CACHE_KEY);
+  }
   AsyncStorage.removeItem(CACHE_KEY).catch(() => {});
 };
 
