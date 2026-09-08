@@ -23,33 +23,23 @@ import { IMAGES } from "../../constants/assets";
 const { width, height } = Dimensions.get("window");
 
 function seedAdminStore() {
-  if (!globalThis.argusAdmins) {
-    globalThis.argusAdmins = [];
+  if (!globalThis.communishieldAdmins) {
+    globalThis.communishieldAdmins = [];
   }
 
   if (
     globalThis.adminAccount?.email &&
-    !globalThis.argusAdmins.some(
+    !globalThis.communishieldAdmins.some(
       (a) => a.email === globalThis.adminAccount.email
     )
   ) {
-    globalThis.argusAdmins.push({
+    globalThis.communishieldAdmins.push({
       email: globalThis.adminAccount.email,
-      fullName: globalThis.adminAccount.fullName || "ARGUS Admin",
+      fullName: globalThis.adminAccount.fullName || "CommuniShield Admin",
       password: globalThis.adminAccount.password || "",
       role: globalThis.adminAccount.role || "admin",
       type:
         globalThis.adminAccount.role === "super_admin" ? "sadmin" : "nadmin",
-    });
-  }
-
-  if (globalThis.argusAdmins.length === 0) {
-    globalThis.argusAdmins.push({
-      email: "admin@argus.com",
-      fullName: "ARGUS Admin",
-      password: "Admin123",
-      role: "admin",
-      type: "nadmin",
     });
   }
 }
@@ -58,7 +48,7 @@ const getAdminByEmail = (email) => {
   seedAdminStore();
   const clean = (email || "").trim().toLowerCase();
   return (
-    globalThis.argusAdmins.find(
+    globalThis.communishieldAdmins.find(
       (a) => (a.email || "").toLowerCase() === clean
     ) || null
   );
@@ -538,7 +528,7 @@ export default function Admin_Login() {
               <Text style={styles.title}>Admin Login</Text>
 
               <Text style={styles.subtitle}>
-                Sign in to access the ARGUS admin dashboard
+                Sign in to access the CommuniShield admin dashboard
               </Text>
 
               <View style={styles.inputWrapper}>

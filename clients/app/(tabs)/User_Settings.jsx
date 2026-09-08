@@ -17,7 +17,7 @@ import apiClient from "../../services/apiClient";
 import { clearAuth } from "../../services/auth";
 import { getCache, setCache } from "../../services/dataStore";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 const UserSettings = () => {
   const router = useRouter();
@@ -115,7 +115,7 @@ const UserSettings = () => {
       >
         <View style={styles.profileCard}>
           <View style={styles.avatarCircle}>
-            <Ionicons name="person" size={24} color={ARGUS_BLUE} />
+            <Ionicons name="person" size={24} color={COMMUNISHIELD_BLUE} />
           </View>
 
           <View style={styles.profileInfo}>
@@ -132,7 +132,7 @@ const UserSettings = () => {
           <SettingItem
             icon="shield-checkmark-outline"
             iconBg="#EEF3FF"
-            iconColor={ARGUS_BLUE}
+            iconColor={COMMUNISHIELD_BLUE}
             title="Account Settings"
             subtitle="Manage personal information, password, and security"
             onPress={() => router.push("/User_ProfileSettings")}
@@ -155,7 +155,7 @@ const UserSettings = () => {
             rightComponent={
               <Switch
                 trackColor={{ false: "#D1D5DB", true: "#BFD2FF" }}
-                thumbColor={notifications ? ARGUS_BLUE : "#F9FAFB"}
+                thumbColor={notifications ? COMMUNISHIELD_BLUE : "#F9FAFB"}
                 onValueChange={setNotifications}
                 value={notifications}
               />

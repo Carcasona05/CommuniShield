@@ -187,7 +187,7 @@ const User_RepPostView_Layout = ({ post }) => {
 
             <View style={styles.userTextWrap}>
               <Text style={styles.userName} numberOfLines={1}>
-                {post.userName || "ARGUS User"}
+                {post.userName || "CommuniShield User"}
               </Text>
 
               <View style={styles.locationRow}>
@@ -306,7 +306,7 @@ const User_RepPostView_Layout = ({ post }) => {
               <View style={styles.commentContent}>
                 <View style={styles.commentBubble}>
                   <Text style={styles.commentUser}>
-                    {comment.user || "ARGUS User"}
+                    {comment.user || "CommuniShield User"}
                   </Text>
 
                   <Text style={styles.commentText}>{comment.text}</Text>

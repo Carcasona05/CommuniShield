@@ -12,7 +12,7 @@ import { useRouter, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scrollToTop } from "../services/scrollToTopBus";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 const INACTIVE = "#6C7A96";
 
 const BottomNavBar = () => {
@@ -122,7 +122,7 @@ const BottomNavBar = () => {
         <Ionicons
           name={isActive ? tab.icon : `${tab.icon}-outline`}
           size={iconSize}
-          color={isActive ? ARGUS_BLUE : INACTIVE}
+          color={isActive ? COMMUNISHIELD_BLUE : INACTIVE}
         />
 
         <Text
@@ -133,7 +133,7 @@ const BottomNavBar = () => {
             styles.label,
             {
               fontSize: labelSize,
-              color: isActive ? ARGUS_BLUE : INACTIVE,
+              color: isActive ? COMMUNISHIELD_BLUE : INACTIVE,
               fontWeight: isActive ? "800" : "700",
               maxWidth: isTinyScreen ? 58 : isSmallScreen ? 70 : 82,
             },
@@ -237,13 +237,13 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 5,
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     marginTop: 3,
   },
 
   plusButton: {
     position: "absolute",
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     justifyContent: "center",
     alignItems: "center",
     borderColor: "#FFFFFF",

@@ -1,4 +1,4 @@
-# ARGUS — Admin Analytics: Sentiment, Predictive Trend & Crime Forecast
+# CommuniShield — Admin Analytics: Sentiment, Predictive Trend & Crime Forecast
 
 > This document explains the three analytics widgets on the Admin Analytics
 > screen (`Admin_Analytics.jsx`) and how much "AI" each one actually needs.

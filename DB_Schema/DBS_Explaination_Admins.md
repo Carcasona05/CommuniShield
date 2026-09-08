@@ -1,4 +1,4 @@
-# ARGUS — Admin & Super Admin Schema Explanation
+# CommuniShield — Admin & Super Admin Schema Explanation
 
 > Schema files: `admins_schema.sql` (audit logs, validation history, system
 > settings, announcements) and `admin_reports_schema.sql` (admin-filed incident

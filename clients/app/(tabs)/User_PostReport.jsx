@@ -26,7 +26,7 @@ import apiClient from "../../services/apiClient";
 import { uploadImages } from "../../services/imageUpload";
 import { getCache, setCache } from "../../services/dataStore";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 const FALLBACK_CATEGORIES = [
   {
@@ -233,7 +233,7 @@ function UserPostReportInner() {
         {
           headers: {
             "Accept-Language": "en",
-            "User-Agent": "ARGUS-App/1.0",
+            "User-Agent": "CommuniShield-App/1.0",
           },
         }
       );
@@ -446,7 +446,7 @@ function UserPostReportInner() {
                   }
                   size={16}
                   color={
-                    displayNameType === "Fullname" ? ARGUS_BLUE : "#8A94A6"
+                    displayNameType === "Fullname" ? COMMUNISHIELD_BLUE : "#8A94A6"
                   }
                 />
 
@@ -478,7 +478,7 @@ function UserPostReportInner() {
                   }
                   size={16}
                   color={
-                    displayNameType === "Username" ? ARGUS_BLUE : "#8A94A6"
+                    displayNameType === "Username" ? COMMUNISHIELD_BLUE : "#8A94A6"
                   }
                 />
 
@@ -530,7 +530,7 @@ function UserPostReportInner() {
                 <Ionicons
                   name="refresh-outline"
                   size={14}
-                  color={ARGUS_BLUE}
+                  color={COMMUNISHIELD_BLUE}
                 />
                 <ThemedText style={styles.refreshText}>
                   {loadingLocation ? "Fetching" : "Refresh"}
@@ -542,7 +542,7 @@ function UserPostReportInner() {
               <Ionicons
                 name="location-outline"
                 size={18}
-                color={ARGUS_BLUE}
+                color={COMMUNISHIELD_BLUE}
               />
 
               <TextInput
@@ -626,7 +626,7 @@ function UserPostReportInner() {
               activeOpacity={0.88}
               onPress={handlePickPhoto}
             >
-              <Ionicons name="images-outline" size={18} color={ARGUS_BLUE} />
+              <Ionicons name="images-outline" size={18} color={COMMUNISHIELD_BLUE} />
 
               <ThemedText style={styles.uploadButtonText}>
                 Choose from Album
@@ -701,7 +701,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     marginBottom: 8,
   },
 
@@ -742,7 +742,7 @@ const styles = StyleSheet.create({
 
   nameChoiceButtonActive: {
     backgroundColor: "#EEF3FF",
-    borderColor: ARGUS_BLUE,
+    borderColor: COMMUNISHIELD_BLUE,
   },
 
   nameChoiceText: {
@@ -753,7 +753,7 @@ const styles = StyleSheet.create({
   },
 
   nameChoiceTextActive: {
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontFamily: "PoppinsSemiBold",
   },
 
@@ -777,7 +777,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     fontSize: 11,
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   locationInputWrap: {
@@ -840,7 +840,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 14,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   helperText: {
@@ -889,7 +889,7 @@ const styles = StyleSheet.create({
   },
 
   postButton: {
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     borderRadius: 14,
     paddingVertical: 15,
     justifyContent: "center",

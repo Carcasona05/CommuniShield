@@ -1,5 +1,5 @@
-CREATE DATABASE IF NOT EXISTS argus_db;
-USE argus_db;
+CREATE DATABASE IF NOT EXISTS communishield_db;
+USE communishield_db;
 
 -- =========================
 -- 1. USER TABLE

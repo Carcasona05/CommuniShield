@@ -108,36 +108,36 @@
 
 # MINOR ERRORS ( DOES NOT REALLY AFFECT THE SYSTEM BUT NEEDED TO BE FIXED) [-CRITICAL-]
 # TO run eslint just type npx eslint .
-C:\Users\Administrator\Desktop\ARGUS\clients\app\(admin)\Admin_Settings.jsx
+C:\Users\Administrator\Desktop\CommuniShield\clients\app\(admin)\Admin_Settings.jsx
   29:10  error  'InfoCard' is defined but never used  @typescript-eslint/no-unused-vars
 
-C:\Users\Administrator\Desktop\ARGUS\clients\app\(sadmin)\SAdmin_AdminAccounts.jsx
+C:\Users\Administrator\Desktop\CommuniShield\clients\app\(sadmin)\SAdmin_AdminAccounts.jsx
   133:10  error  'loading' is assigned a value but never used  @typescript-eslint/no-unused-vars
 
-C:\Users\Administrator\Desktop\ARGUS\clients\app\(tabs)\MyUser_RepPostView_Edit.jsx
+C:\Users\Administrator\Desktop\CommuniShield\clients\app\(tabs)\MyUser_RepPostView_Edit.jsx
   87:14  error  'error' is defined but never used  @typescript-eslint/no-unused-vars
 
-C:\Users\Administrator\Desktop\ARGUS\clients\app\(tabs)\User_Home.jsx
+C:\Users\Administrator\Desktop\CommuniShield\clients\app\(tabs)\User_Home.jsx
    55:7   error  'formatDatePosted' is assigned a value but never used  @typescript-eslint/no-unused-vars
   190:10  error  'loading' is assigned a value but never used           @typescript-eslint/no-unused-vars
 
-C:\Users\Administrator\Desktop\ARGUS\clients\app\(tabs)\User_PostReport.jsx
+C:\Users\Administrator\Desktop\CommuniShield\clients\app\(tabs)\User_PostReport.jsx
   188:14  error  'error' is defined but never used         @typescript-eslint/no-unused-vars
   257:13  error  'res' is assigned a value but never used  @typescript-eslint/no-unused-vars
 
-C:\Users\Administrator\Desktop\ARGUS\clients\app\(tabs)\User_RepPostView.jsx
+C:\Users\Administrator\Desktop\CommuniShield\clients\app\(tabs)\User_RepPostView.jsx
   12:12  error  'error' is defined but never used  @typescript-eslint/no-unused-vars
 
-C:\Users\Administrator\Desktop\ARGUS\clients\components\Admin_ViewValidation.jsx
+C:\Users\Administrator\Desktop\CommuniShield\clients\components\Admin_ViewValidation.jsx
   32:10  error  'StatusBadge' is defined but never used  @typescript-eslint/no-unused-vars
 
-C:\Users\Administrator\Desktop\ARGUS\clients\components\BottomNavBar.jsx
+C:\Users\Administrator\Desktop\CommuniShield\clients\components\BottomNavBar.jsx
   25:9  error  'isMediumScreen' is assigned a value but never used  @typescript-eslint/no-unused-vars
 
-C:\Users\Administrator\Desktop\ARGUS\clients\components\ReportByAdmin.jsx
+C:\Users\Administrator\Desktop\CommuniShield\clients\components\ReportByAdmin.jsx
   89:9  error  'getTypeIcon' is assigned a value but never used  @typescript-eslint/no-unused-vars
 
-C:\Users\Administrator\Desktop\ARGUS\clients\components\ThemedHeader.jsx
+C:\Users\Administrator\Desktop\CommuniShield\clients\components\ThemedHeader.jsx
   3:8  error  'Colors' is defined but never used  @typescript-eslint/no-unused-vars
 
 

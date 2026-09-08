@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 export default function Admin_ViewSimilarReportsModal({
   visible,
@@ -41,7 +41,7 @@ export default function Admin_ViewSimilarReportsModal({
 
     if (status === "Under Verification") {
       return {
-        color: ARGUS_BLUE,
+        color: COMMUNISHIELD_BLUE,
         bg: "#EAF2FF",
         icon: "sync-outline",
       };
@@ -444,7 +444,7 @@ export default function Admin_ViewSimilarReportsModal({
                   <Ionicons
                     name="analytics-outline"
                     size={16}
-                    color={ARGUS_BLUE}
+                    color={COMMUNISHIELD_BLUE}
                   />
                   <Text style={styles.sentimentTitle}>
                     Gathered Comments Sentiment Analysis
@@ -637,7 +637,7 @@ export default function Admin_ViewSimilarReportsModal({
                       <Ionicons
                         name="sparkles-outline"
                         size={15}
-                        color={ARGUS_BLUE}
+                        color={COMMUNISHIELD_BLUE}
                       />
                       <Text style={styles.aiTitle}>AI Credibility Review</Text>
                     </View>
@@ -658,7 +658,7 @@ export default function Admin_ViewSimilarReportsModal({
               onPress={() => onVerify(compiledGroup)}
               activeOpacity={0.85}
             >
-              <Ionicons name="sync-outline" size={17} color={ARGUS_BLUE} />
+              <Ionicons name="sync-outline" size={17} color={COMMUNISHIELD_BLUE} />
               <Text style={styles.underVerificationText}>
                 Under Verification
               </Text>
@@ -745,7 +745,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 22,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   modalSubtitle: {
@@ -848,7 +848,7 @@ const styles = StyleSheet.create({
   summaryValue: {
     fontSize: 14,
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     lineHeight: 19,
   },
 
@@ -863,7 +863,7 @@ const styles = StyleSheet.create({
   listTitle: {
     fontSize: 16,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   listCount: {
@@ -904,7 +904,7 @@ const styles = StyleSheet.create({
   reportId: {
     fontSize: 13,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     marginBottom: 3,
   },
 
@@ -975,7 +975,7 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: 13,
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   severityBadge: {
@@ -1008,7 +1008,7 @@ const styles = StyleSheet.create({
   aiTitle: {
     fontSize: 13,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   aiText: {
@@ -1045,7 +1045,7 @@ const styles = StyleSheet.create({
   sentimentTitle: {
     fontSize: 13,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   sentimentBadge: {
@@ -1150,7 +1150,7 @@ const styles = StyleSheet.create({
   underVerificationText: {
     fontSize: 13,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   resolvedButton: {

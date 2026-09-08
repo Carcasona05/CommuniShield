@@ -42,7 +42,7 @@ async function loadAIConfig(): Promise<AIConfig> {
   };
 }
 
-const SYSTEM_PROMPT = `You are an AI safety analyst for ARGUS, a community incident reporting system in Argao, Cebu. Analyze incident reports and return a JSON object with exactly these fields:
+const SYSTEM_PROMPT = `You are an AI safety analyst for CommuniShield, a community incident reporting system in Argao, Cebu. Analyze incident reports and return a JSON object with exactly these fields:
 
 - ai_score: number 0-100
 - severity: "Low" | "Medium" | "High" | "Critical"

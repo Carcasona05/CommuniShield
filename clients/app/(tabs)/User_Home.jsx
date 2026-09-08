@@ -80,7 +80,7 @@ const mapFeed = (reportsData, adminData) => {
   const adminPosts = (adminData?.posts || []).map((p) => ({
     id: p.id,
     postSource: "Admin",
-    adminName: p.adminName || "ARGUS Admin",
+    adminName: p.adminName || "CommuniShield Admin",
     type: p.type,
     location: p.location,
     details: p.details,

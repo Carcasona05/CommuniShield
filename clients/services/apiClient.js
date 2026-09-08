@@ -1,5 +1,8 @@
 import axios from "axios";
 import { Platform } from "react-native";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const BASE_URL =
   Platform.OS === "web"

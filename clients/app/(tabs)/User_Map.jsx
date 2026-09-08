@@ -24,7 +24,7 @@ import useScrollToTop from "../../hooks/useScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
 import { getCache, setCache } from "../../services/dataStore";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 const { width } = Dimensions.get("window");
 
@@ -223,8 +223,8 @@ const UserMap = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            colors={[ARGUS_BLUE]}
-            tintColor={ARGUS_BLUE}
+            colors={[COMMUNISHIELD_BLUE]}
+            tintColor={COMMUNISHIELD_BLUE}
           />
         }
       >
@@ -238,7 +238,7 @@ const UserMap = () => {
               lat: facility.lat,
               lng: facility.lng,
               label: facility.name,
-              color: facility.type === "police" ? ARGUS_BLUE : "#D9534F",
+              color: facility.type === "police" ? COMMUNISHIELD_BLUE : "#D9534F",
             }))}
             onMarkerPress={(id) => {
               const facility = facilities.find((f) => f.id === id);
@@ -261,7 +261,7 @@ const UserMap = () => {
               activeOpacity={0.8}
               onPress={() => setShowFilters(true)}
             >
-              <Ionicons name="options-outline" size={22} color={ARGUS_BLUE} />
+              <Ionicons name="options-outline" size={22} color={COMMUNISHIELD_BLUE} />
             </TouchableOpacity>
           </View>
 
@@ -366,7 +366,7 @@ const UserMap = () => {
                 activeOpacity={0.8}
                 onPress={() => openCall(selectedFacility)}
               >
-                <Ionicons name="call-outline" size={16} color={ARGUS_BLUE} />
+                <Ionicons name="call-outline" size={16} color={COMMUNISHIELD_BLUE} />
                 <ThemedText style={styles.secondaryButtonText}>
                   Call
                 </ThemedText>
@@ -425,7 +425,7 @@ const UserMap = () => {
           </View>
 
           <ThemedText style={styles.bottomNote}>
-            Facility pins are loaded from the ARGUS database for Argao, Cebu.
+            Facility pins are loaded from the CommuniShield database for Argao, Cebu.
           </ThemedText>
         </View>
       </ScrollView>
@@ -487,7 +487,7 @@ const UserMap = () => {
                     <Ionicons
                       name={getFacilityIcon(type)}
                       size={18}
-                      color={active ? ARGUS_BLUE : "#9CA3AF"}
+                      color={active ? COMMUNISHIELD_BLUE : "#9CA3AF"}
                     />
                   )}
                 </TouchableOpacity>
@@ -618,7 +618,7 @@ const styles = StyleSheet.create({
   },
 
   policeDot: {
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
   },
 
   fireDot: {
@@ -642,7 +642,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     alignItems: "center",
     justifyContent: "center",
     elevation: 5,
@@ -690,7 +690,7 @@ const styles = StyleSheet.create({
   },
 
   policeIconBox: {
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
   },
 
   fireIconBox: {
@@ -717,7 +717,7 @@ const styles = StyleSheet.create({
   distanceText: {
     fontSize: 12,
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   infoRow: {
@@ -751,7 +751,7 @@ const styles = StyleSheet.create({
     flex: 1.3,
     height: 40,
     borderRadius: 999,
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
@@ -777,7 +777,7 @@ const styles = StyleSheet.create({
 
   secondaryButtonText: {
     marginLeft: 6,
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontSize: 12,
     fontFamily: "PoppinsMedium",
   },
@@ -807,7 +807,7 @@ const styles = StyleSheet.create({
   filtersTagText: {
     fontSize: 12,
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   summaryRow: {
@@ -933,14 +933,14 @@ const styles = StyleSheet.create({
   },
 
   radioCircleActive: {
-    borderColor: ARGUS_BLUE,
+    borderColor: COMMUNISHIELD_BLUE,
   },
 
   radioInner: {
     width: 9,
     height: 9,
     borderRadius: 5,
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
   },
 
   filterOptionText: {
@@ -951,7 +951,7 @@ const styles = StyleSheet.create({
 
   filterOptionTextActive: {
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   modalButtonsRow: {
@@ -969,14 +969,14 @@ const styles = StyleSheet.create({
   },
 
   resetButtonText: {
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontSize: 14,
     fontFamily: "PoppinsMedium",
   },
 
   applyButton: {
     flex: 1.3,
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     borderRadius: 999,
     paddingVertical: 12,
     alignItems: "center",

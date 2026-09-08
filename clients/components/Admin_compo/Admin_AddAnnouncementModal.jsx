@@ -15,7 +15,7 @@ import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 const announcementTypes = [
   "Curfew",
@@ -144,7 +144,7 @@ export default function Admin_AddAnnouncementModal({
                 <Ionicons
                   name="add-circle-outline"
                   size={22}
-                  color={ARGUS_BLUE}
+                  color={COMMUNISHIELD_BLUE}
                 />
 
               </View>
@@ -208,7 +208,7 @@ export default function Admin_AddAnnouncementModal({
                     : "chevron-down"
                 }
                 size={20}
-                color={ARGUS_BLUE}
+                color={COMMUNISHIELD_BLUE}
               />
 
             </TouchableOpacity>
@@ -281,7 +281,7 @@ export default function Admin_AddAnnouncementModal({
               <Ionicons
                 name="image-outline"
                 size={22}
-                color={ARGUS_BLUE}
+                color={COMMUNISHIELD_BLUE}
               />
 
               <Text style={styles.uploadText}>
@@ -401,7 +401,7 @@ const styles = StyleSheet.create({
 
   title: {
     fontSize: 20,
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontFamily: "PoppinsSemiBold",
   },
 
@@ -417,7 +417,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginHorizontal: 20,
     fontSize: 14,
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontFamily: "PoppinsSemiBold",
   },
 
@@ -493,7 +493,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 2,
     borderStyle: "dashed",
-    borderColor: ARGUS_BLUE,
+    borderColor: COMMUNISHIELD_BLUE,
     justifyContent: "center",
     alignItems: "center",
     flexDirection: "row",
@@ -502,7 +502,7 @@ const styles = StyleSheet.create({
   },
 
   uploadText: {
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontSize: 14,
     fontFamily: "PoppinsSemiBold",
   },
@@ -559,7 +559,7 @@ const styles = StyleSheet.create({
   },
 
   submitButton: {
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     height: 46,
     paddingHorizontal: 24,
     borderRadius: 12,

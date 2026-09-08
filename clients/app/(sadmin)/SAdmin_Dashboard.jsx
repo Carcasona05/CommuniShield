@@ -316,7 +316,7 @@ export default function SAdmin_Dashboard() {
     },
     {
       label: "Model Version",
-      value: "ARGUS-AI v1.0",
+      value: "CommuniShield-AI v1.0",
       status: "normal",
     },
   ];

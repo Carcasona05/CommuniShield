@@ -89,7 +89,7 @@ insert into public.system_settings (key, value) values
   ('map_center', 'Argao, Cebu'),
   ('notification_email', 'true'),
   ('notification_push', 'false'),
-  ('ai_model_version', 'ARGUS-AI v1.0'),
+  ('ai_model_version', 'CommuniShield-AI v1.0'),
   ('ai_api_endpoint', ''),
   ('ai_ollama_url', 'http://localhost:11434'),
   ('ai_model_name', 'tinyllama:1.1b'),

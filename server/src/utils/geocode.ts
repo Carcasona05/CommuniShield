@@ -35,7 +35,7 @@ export async function reverseGeocode(
     const res = await fetch(url, {
       headers: {
         "Accept-Language": "en",
-        "User-Agent": "ARGUS-App/1.0",
+        "User-Agent": "CommuniShield-App/1.0",
       },
       signal: controller.signal,
     });

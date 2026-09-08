@@ -21,7 +21,7 @@ import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
 
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 export default function SAdmin_Validation() {
   const [selectedStatus, setSelectedStatus] = useState("All");
@@ -338,7 +338,7 @@ export default function SAdmin_Validation() {
     if (status === "Under Verification") {
       return {
         icon: "sync-outline",
-        color: ARGUS_BLUE,
+        color: COMMUNISHIELD_BLUE,
         bg: "#EAF2FF",
       };
     }
@@ -513,7 +513,7 @@ export default function SAdmin_Validation() {
               icon="documents-outline"
               title="Total Reports"
               value={totalReports}
-              color={ARGUS_BLUE}
+              color={COMMUNISHIELD_BLUE}
               bg="#EAF2FF"
             />
 
@@ -537,7 +537,7 @@ export default function SAdmin_Validation() {
               icon="sync-outline"
               title="Under Verification"
               value={verifyingReports}
-              color={ARGUS_BLUE}
+              color={COMMUNISHIELD_BLUE}
               bg="#EAF2FF"
             />
 
@@ -562,7 +562,7 @@ export default function SAdmin_Validation() {
             <View style={styles.filterTopRow}>
               <View style={styles.filterHeaderTitleBox}>
                 <View style={styles.filterMainIconBox}>
-                  <Ionicons name="options-outline" size={20} color={ARGUS_BLUE} />
+                  <Ionicons name="options-outline" size={20} color={COMMUNISHIELD_BLUE} />
                 </View>
 
                 <View>
@@ -602,7 +602,7 @@ export default function SAdmin_Validation() {
               <View style={styles.filterColumn}>
                 <View style={styles.filterHeaderRow}>
                   <View style={styles.filterTitleBox}>
-                    <Ionicons name="funnel-outline" size={17} color={ARGUS_BLUE} />
+                    <Ionicons name="funnel-outline" size={17} color={COMMUNISHIELD_BLUE} />
                     <Text style={styles.filterTitle}>Status</Text>
                   </View>
 
@@ -647,7 +647,7 @@ export default function SAdmin_Validation() {
                     <Ionicons
                       name="calendar-outline"
                       size={17}
-                      color={ARGUS_BLUE}
+                      color={COMMUNISHIELD_BLUE}
                     />
                     <Text style={styles.filterTitle}>Date Range</Text>
                   </View>
@@ -676,7 +676,7 @@ export default function SAdmin_Validation() {
                         <Ionicons
                           name={isActive ? "calendar" : "calendar-outline"}
                           size={15}
-                          color={isActive ? "#FFFFFF" : ARGUS_BLUE}
+                          color={isActive ? "#FFFFFF" : COMMUNISHIELD_BLUE}
                         />
 
                         <Text
@@ -982,7 +982,7 @@ const styles = StyleSheet.create({
   filterMainTitle: {
     fontSize: 16,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   filterMainSubtitle: {
@@ -996,7 +996,7 @@ const styles = StyleSheet.create({
     height: 42,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -1042,7 +1042,7 @@ const styles = StyleSheet.create({
   filterTitle: {
     fontSize: 14,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   filterSelectedText: {
@@ -1068,14 +1068,14 @@ const styles = StyleSheet.create({
   },
 
   activeFilterPill: {
-    backgroundColor: ARGUS_BLUE,
-    borderColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
+    borderColor: COMMUNISHIELD_BLUE,
   },
 
   filterPillText: {
     fontSize: 13,
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   activeFilterPillText: {
@@ -1096,14 +1096,14 @@ const styles = StyleSheet.create({
   },
 
   activeDatePill: {
-    backgroundColor: ARGUS_BLUE,
-    borderColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
+    borderColor: COMMUNISHIELD_BLUE,
   },
 
   datePillText: {
     fontSize: 13,
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   activeDatePillText: {
@@ -1138,13 +1138,13 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 21,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   resultText: {
     fontSize: 15,
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   reportRow: {
@@ -1240,7 +1240,7 @@ const styles = StyleSheet.create({
 
   infoValue: {
     fontSize: 14,
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontFamily: "PoppinsMedium",
     lineHeight: 19,
   },
@@ -1254,7 +1254,7 @@ const styles = StyleSheet.create({
   infoLocationText: {
     flex: 1,
     fontSize: 14,
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontFamily: "PoppinsMedium",
     lineHeight: 19,
   },
@@ -1283,7 +1283,7 @@ const styles = StyleSheet.create({
     height: 42,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     flexDirection: "row",
     alignItems: "center",
     gap: 7,

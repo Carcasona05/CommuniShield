@@ -25,7 +25,7 @@ import ThemedHeader from "../../components/ThemedHeader";
 import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -82,7 +82,7 @@ const credibilityLevels = [
   },
   {
     label: "Limited",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     bg: "#E8EEF9",
   },
   {
@@ -143,7 +143,7 @@ const CredibilityScore = ({ statusIndex = 3, score = 60 }) => {
           <Ionicons
             name="shield-checkmark-outline"
             size={moderateScale(22)}
-            color={ARGUS_BLUE}
+            color={COMMUNISHIELD_BLUE}
           />
         </View>
 
@@ -617,7 +617,7 @@ const UserProfileSettings = () => {
                   <Ionicons
                     name="calendar-outline"
                     size={18}
-                    color={ARGUS_BLUE}
+                    color={COMMUNISHIELD_BLUE}
                   />
                   <ThemedText style={styles.label}>Birthdate</ThemedText>
                 </View>
@@ -635,7 +635,7 @@ const UserProfileSettings = () => {
                     <Ionicons
                       name="chevron-down"
                       size={moderateScale(16)}
-                      color={ARGUS_BLUE}
+                      color={COMMUNISHIELD_BLUE}
                     />
                   </TouchableOpacity>
                 ) : (
@@ -732,7 +732,7 @@ const UserProfileSettings = () => {
                     <Ionicons
                       name="lock-closed-outline"
                       size={18}
-                      color={ARGUS_BLUE}
+                      color={COMMUNISHIELD_BLUE}
                     />
 
                     <TextInput
@@ -776,7 +776,7 @@ const UserProfileSettings = () => {
                     <Ionicons
                       name="key-outline"
                       size={18}
-                      color={ARGUS_BLUE}
+                      color={COMMUNISHIELD_BLUE}
                     />
 
                     <TextInput
@@ -816,7 +816,7 @@ const UserProfileSettings = () => {
                     <Ionicons
                       name="checkmark-circle-outline"
                       size={18}
-                      color={ARGUS_BLUE}
+                      color={COMMUNISHIELD_BLUE}
                     />
 
                     <TextInput
@@ -859,7 +859,7 @@ const UserProfileSettings = () => {
                     <Ionicons
                       name="shield-checkmark-outline"
                       size={20}
-                      color={ARGUS_BLUE}
+                      color={COMMUNISHIELD_BLUE}
                     />
                   </View>
 
@@ -926,7 +926,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: moderateScale(20),
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   editButtons: {
@@ -937,7 +937,7 @@ const styles = StyleSheet.create({
   editText: {
     fontSize: moderateScale(14),
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   cancelText: {
@@ -950,7 +950,7 @@ const styles = StyleSheet.create({
   saveText: {
     fontSize: moderateScale(14),
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   saveTextDisabled: {
@@ -1010,14 +1010,14 @@ const styles = StyleSheet.create({
     color: "#111827",
     textAlign: "right",
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: ARGUS_BLUE,
+    borderBottomColor: COMMUNISHIELD_BLUE,
     paddingVertical: moderateScale(4),
   },
 
   dateInput: {
     flex: 1,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: ARGUS_BLUE,
+    borderBottomColor: COMMUNISHIELD_BLUE,
     paddingVertical: moderateScale(5),
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -1219,7 +1219,7 @@ const DetailRow = React.memo(function DetailRow({ icon, label, value, editValue,
   return (
     <View style={[styles.detailsRow, isLast && styles.noBorder]}>
       <View style={styles.detailLabelWrap}>
-        <Ionicons name={icon} size={moderateScale(18)} color={ARGUS_BLUE} />
+        <Ionicons name={icon} size={moderateScale(18)} color={COMMUNISHIELD_BLUE} />
         <ThemedText style={styles.label}>{label}</ThemedText>
       </View>
 

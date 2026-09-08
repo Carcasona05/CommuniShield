@@ -19,14 +19,6 @@ import { IMAGES } from "../../constants/assets";
 
 const { width, height } = Dimensions.get("window");
 
-if (!globalThis.adminAccount) {
-  globalThis.adminAccount = {
-    fullName: "ARGUS Admin",
-    email: "admin@argus.com",
-    password: "Admin123",
-  };
-}
-
 const validatePassword = (value) => {
   if (!value) return "Password is required.";
   if (value.length < 6) return "Password must be at least 6 characters.";
@@ -186,7 +178,7 @@ export default function Admin_Register() {
               <Text style={styles.title}>Admin Register</Text>
 
               <Text style={styles.subtitle}>
-                Create an admin account for ARGUS web access
+                Create an admin account for CommuniShield web access
               </Text>
 
               <View style={styles.inputWrapper}>

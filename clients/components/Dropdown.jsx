@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 export default function Dropdown({
   options = [],
@@ -48,7 +48,7 @@ export default function Dropdown({
         <Ionicons
           name="chevron-down"
           size={18}
-          color={disabled ? "#B4BDCA" : ARGUS_BLUE}
+          color={disabled ? "#B4BDCA" : COMMUNISHIELD_BLUE}
         />
       </TouchableOpacity>
 
@@ -82,7 +82,7 @@ export default function Dropdown({
                 onPress={() => setOpen(false)}
                 activeOpacity={0.8}
               >
-                <Ionicons name="close" size={20} color={ARGUS_BLUE} />
+                <Ionicons name="close" size={20} color={COMMUNISHIELD_BLUE} />
               </TouchableOpacity>
             </View>
 
@@ -119,7 +119,7 @@ export default function Dropdown({
                       <Ionicons
                         name="checkmark-circle"
                         size={20}
-                        color={ARGUS_BLUE}
+                        color={COMMUNISHIELD_BLUE}
                       />
                     ) : null}
                   </TouchableOpacity>
@@ -192,7 +192,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   closeButton: {
@@ -225,6 +225,6 @@ const styles = StyleSheet.create({
 
   optionTextSelected: {
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 });

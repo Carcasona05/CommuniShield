@@ -129,8 +129,8 @@ function SettingRow({ icon, title, description, rightContent, isLast = false }) 
 }
 
 export default function SAdmin_Settings() {
-  const [fullName, setFullName] = useState("ARGUS SuperAdmin");
-  const [emailAddress, setEmailAddress] = useState("superadmin@argus.com");
+  const [fullName, setFullName] = useState("CommuniShield SuperAdmin");
+  const [emailAddress, setEmailAddress] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("0912 345 6789");
 
   const [currentPassword, setCurrentPassword] = useState("");
@@ -179,8 +179,8 @@ export default function SAdmin_Settings() {
   const [mediumThreshold, setMediumThreshold] = useState("60");
   const [defaultMapZoom, setDefaultMapZoom] = useState("13");
   const [mapCenter, setMapCenter] = useState("Argao, Cebu");
-  const [modelVersion, setModelVersion] = useState("ARGUS-AI v1.0");
-  const [apiEndpoint, setApiEndpoint] = useState("https://api.argus.local/v1");
+  const [modelVersion, setModelVersion] = useState("CommuniShield-AI v1.0");
+  const [apiEndpoint, setApiEndpoint] = useState("");
   const [initialEmail, setInitialEmail] = useState("");
 
   const [fontsLoaded] = useFonts({
@@ -204,7 +204,7 @@ export default function SAdmin_Settings() {
       ]);
 
       const profile = profileRes.data ?? {};
-      setFullName(profile.name || profile.fullname || "ARGUS SuperAdmin");
+      setFullName(profile.name || profile.fullname || "CommuniShield SuperAdmin");
       setEmailAddress(profile.email || "");
       setPhoneNumber(profile.phone || "");
       setInitialEmail(profile.email || "");
@@ -220,7 +220,7 @@ export default function SAdmin_Settings() {
       setMediumThreshold(settings.ai_medium_threshold || "60");
       setDefaultMapZoom(settings.map_default_zoom || "13");
       setMapCenter(settings.map_center || "Argao, Cebu");
-      setModelVersion(settings.ai_model_version || "ARGUS-AI v1.0");
+      setModelVersion(settings.ai_model_version || "CommuniShield-AI v1.0");
       setApiEndpoint(settings.ai_api_endpoint || "");
     } catch {
       // keep existing defaults on failure
@@ -907,7 +907,7 @@ export default function SAdmin_Settings() {
                       value={modelVersion}
                       onChangeText={setModelVersion}
                       style={styles.textInput}
-                      placeholder="ARGUS-AI v4.3.01"
+                      placeholder="CommuniShield-AI v4.3.01"
                       placeholderTextColor="#5D6F92"
                     />
                   </View>
@@ -918,7 +918,7 @@ export default function SAdmin_Settings() {
                       value={apiEndpoint}
                       onChangeText={setApiEndpoint}
                       style={styles.textInput}
-                      placeholder="https://api.argus.local/v1"
+                      placeholder="https://api.communishield.local/v1"
                       placeholderTextColor="#5D6F92"
                     />
                   </View>

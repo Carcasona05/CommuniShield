@@ -1,4 +1,4 @@
-# ARGUS — Leaflet That Works on BOTH Web and Mobile (JSX Only)
+# CommuniShield — Leaflet That Works on BOTH Web and Mobile (JSX Only)
 
 The old guide said "Leaflet only works on web." That's only half-true:
 
@@ -90,7 +90,7 @@ const MAP_HTML = `
     let follow = true;
 
     // Called from the app to set position + markers.
-    window.__argusInit = function (cfg) {
+    window.__communishieldInit = function (cfg) {
       const c = cfg || {};
       if (c.lat !== undefined && c.lng !== undefined) {
         userMarker.setLatLng([c.lat, c.lng]);
@@ -107,7 +107,7 @@ const MAP_HTML = `
     };
 
     // Re-center from the app's button.
-    window.__argusRecenter = function (lat, lng) {
+    window.__communishieldRecenter = function (lat, lng) {
       follow = true;
       if (lat !== undefined && lng !== undefined) userMarker.setLatLng([lat, lng]);
       map.setView([lat, lng], 15);
@@ -117,8 +117,8 @@ const MAP_HTML = `
     window.addEventListener("message", (e) => {
       try {
         const d = JSON.parse(e.data);
-        if (d.type === "init") window.__argusInit(d);
-        if (d.type === "recenter") window.__argusRecenter(d.lat, d.lng);
+        if (d.type === "init") window.__communishieldInit(d);
+        if (d.type === "recenter") window.__communishieldRecenter(d.lat, d.lng);
         if (d.type === "setFollow") follow = !!d.follow;
       } catch (_) {}
     });
@@ -126,7 +126,7 @@ const MAP_HTML = `
     // User drags the map -> stop following.
     map.on("dragstart", () => { follow = false; });
 
-    // Browser GPS (web). On native the app injects position via __argusInit.
+    // Browser GPS (web). On native the app injects position via __communishieldInit.
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (p) => { userMarker.setLatLng([p.coords.latitude, p.coords.longitude]); if (follow) map.setView([p.coords.latitude, p.coords.longitude], 15); },
@@ -170,7 +170,7 @@ const MapView = React.forwardRef(({ position, markers = [], onMarkerPress, onLoc
       mapRef.current.contentWindow?.postMessage(cfg, "*");
     } else {
       mapRef.current.injectJavaScript(
-        `window.__argusInit && window.__argusInit(${cfg}); true;`
+        `window.__communishieldInit && window.__communishieldInit(${cfg}); true;`
       );
     }
   }, [buildConfig]);
@@ -184,7 +184,7 @@ const MapView = React.forwardRef(({ position, markers = [], onMarkerPress, onLoc
       );
     } else {
       mapRef.current.injectJavaScript(
-        `window.__argusRecenter && window.__argusRecenter(${position[0]}, ${position[1]}); true;`
+        `window.__communishieldRecenter && window.__communishieldRecenter(${position[0]}, ${position[1]}); true;`
       );
     }
   }, [position]);
@@ -243,7 +243,7 @@ export default MapView;
 What this does:
 
 - `MAP_HTML` is the whole Leaflet page as a string — no `.html` file anywhere.
-- The page exposes `window.__argusInit(cfg)` and `window.__argusRecenter(lat, lng)`.
+- The page exposes `window.__communishieldInit(cfg)` and `window.__communishieldRecenter(lat, lng)`.
 - **Native** calls those via `injectJavaScript` (WebView) and gets events back via
   `onMessage`.
 - **Web** calls them via `postMessage` on the iframe's `contentWindow` and gets

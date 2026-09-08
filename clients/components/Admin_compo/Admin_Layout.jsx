@@ -16,7 +16,7 @@ import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
 import { IMAGES } from "../../constants/assets";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 const formatRelativeTime = (iso) => {
   if (!iso) return "";
@@ -176,7 +176,7 @@ export default function Admin_Layout({ children }) {
   const currentPage = getCurrentPage();
 
   const getIcon = (item, isActive) => {
-    const color = isActive ? ARGUS_BLUE : "#5F6F8C";
+    const color = isActive ? COMMUNISHIELD_BLUE : "#5F6F8C";
 
     if (item.iconType === "Feather") {
       return <Feather name={item.icon} size={21} color={color} />;
@@ -188,7 +188,7 @@ export default function Admin_Layout({ children }) {
   const getNotificationIcon = (type) => {
     if (type === "report") {
       return (
-        <Ionicons name="document-text-outline" size={20} color={ARGUS_BLUE} />
+        <Ionicons name="document-text-outline" size={20} color={COMMUNISHIELD_BLUE} />
       );
     }
 
@@ -205,7 +205,7 @@ export default function Admin_Layout({ children }) {
     }
 
     return (
-      <Ionicons name="notifications-outline" size={20} color={ARGUS_BLUE} />
+      <Ionicons name="notifications-outline" size={20} color={COMMUNISHIELD_BLUE} />
     );
   };
 
@@ -226,7 +226,7 @@ export default function Admin_Layout({ children }) {
 
     return {
       backgroundColor: "#E8EEF9",
-      color: ARGUS_BLUE,
+      color: COMMUNISHIELD_BLUE,
     };
   };
 
@@ -348,7 +348,7 @@ export default function Admin_Layout({ children }) {
                 <Ionicons
                   name="notifications-outline"
                   size={23}
-                  color={ARGUS_BLUE}
+                  color={COMMUNISHIELD_BLUE}
                 />
 
                 {unreadCount > 0 && (
@@ -454,7 +454,7 @@ export default function Admin_Layout({ children }) {
                     <Ionicons
                       name="arrow-forward-outline"
                       size={16}
-                      color={ARGUS_BLUE}
+                      color={COMMUNISHIELD_BLUE}
                     />
                   </TouchableOpacity>
                 </View>
@@ -469,7 +469,7 @@ export default function Admin_Layout({ children }) {
               onPress={handleSettingsPress}
               activeOpacity={0.75}
             >
-              <Ionicons name="settings-outline" size={23} color={ARGUS_BLUE} />
+              <Ionicons name="settings-outline" size={23} color={COMMUNISHIELD_BLUE} />
             </TouchableOpacity>
 
             <View style={styles.profileWrapper}>
@@ -643,7 +643,7 @@ const styles = {
   },
 
   activeNavText: {
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontFamily: "PoppinsSemiBold",
   },
 
@@ -661,7 +661,7 @@ const styles = {
     zIndex: 20,
     borderBottomWidth: 1,
     borderBottomColor: "#DCE5F2",
-    shadowColor: ARGUS_BLUE,
+    shadowColor: COMMUNISHIELD_BLUE,
     shadowOpacity: 0.06,
     shadowRadius: 10,
     shadowOffset: {
@@ -682,7 +682,7 @@ const styles = {
     width: 5,
     height: 54,
     borderRadius: 999,
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     marginRight: 16,
   },
 
@@ -759,7 +759,7 @@ const styles = {
     borderRadius: 20,
     borderWidth: 1,
     borderColor: "#E1E8F4",
-    shadowColor: ARGUS_BLUE,
+    shadowColor: COMMUNISHIELD_BLUE,
     shadowOpacity: 0.14,
     shadowRadius: 24,
     shadowOffset: {
@@ -902,7 +902,7 @@ const styles = {
   viewAllText: {
     fontSize: 14,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   profileWrapper: {
@@ -926,7 +926,7 @@ const styles = {
     width: 34,
     height: 34,
     borderRadius: 12,
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -963,7 +963,7 @@ const styles = {
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "#E1E8F4",
-    shadowColor: ARGUS_BLUE,
+    shadowColor: COMMUNISHIELD_BLUE,
     shadowOpacity: 0.14,
     shadowRadius: 24,
     shadowOffset: {

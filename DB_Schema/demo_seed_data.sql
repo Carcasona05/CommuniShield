@@ -1,5 +1,5 @@
 -- ============================================================
--- ARGUS — demo seed data (accounts NOT included)
+-- CommuniShield — demo seed data (accounts NOT included)
 -- Run the whole file in the Supabase SQL editor. Re-run safe.
 -- Tables that require a user account are skipped by design:
 --   notifications, login_activities, user_credibility,
@@ -196,7 +196,7 @@ select s.id, s.score,
   end,
   (array['Negative','Neutral','Positive','Concerned','Anxious','Unclear'])[1+floor(random()*6)],
   'Sample AI review: generated score ' || s.score || '.',
-  'ARGUS-AI v1.0'
+  'CommuniShield-AI v1.0'
 from scored s
 left join public.report_credibility_analysis a on a.report_id = s.id
 where a.report_id is null;
@@ -254,8 +254,8 @@ limit 20;
 -- 8) audit logs
 insert into public.audit_logs (actor_id, actor_name, action_type, title, details, old_value, new_value) values
   (null, 'System', 'System Settings Updated', 'Sample log: settings updated', 'AI credibility thresholds were updated.', '60', '65'),
-  (null, 'ARGUS Admin', 'Admin Added', 'Sample log: admin account created', 'A new admin account was added to the system.', null, 'admin@example.com'),
-  (null, 'ARGUS Admin', 'Report Verified', 'Sample log: report verified', 'A sample report was reviewed and verified.', 'Pending', 'Verified');
+  (null, 'CommuniShield Admin', 'Admin Added', 'Sample log: admin account created', 'A new admin account was added to the system.', null, 'admin@example.com'),
+  (null, 'CommuniShield Admin', 'Report Verified', 'Sample log: report verified', 'A sample report was reviewed and verified.', 'Pending', 'Verified');
 
 -- 8b) admin/system notifications (no user account required)
 insert into public.notifications (user_id, type_id, title, message, priority, is_read, created_at)
@@ -287,6 +287,6 @@ insert into public.system_settings (key, value) values
   ('map_center', 'Argao, Cebu'),
   ('notification_email', 'true'),
   ('notification_push', 'false'),
-  ('ai_model_version', 'ARGUS-AI v1.0'),
+  ('ai_model_version', 'CommuniShield-AI v1.0'),
   ('ai_api_endpoint', '')
 on conflict (key) do nothing;

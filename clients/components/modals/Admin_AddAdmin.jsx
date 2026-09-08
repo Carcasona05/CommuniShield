@@ -187,7 +187,7 @@ export default function Admin_AddAdmin({ visible, onClose, onSubmit }) {
               <View style={styles.headerTextWrap}>
                 <Text style={styles.modalTitle}>Add Admin</Text>
                 <Text style={styles.modalSubtitle}>
-                  Create a new administrator account for ARGUS.
+                  Create a new administrator account for CommuniShield.
                 </Text>
               </View>
             </View>

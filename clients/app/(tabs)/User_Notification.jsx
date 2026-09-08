@@ -19,7 +19,7 @@ import useScrollToTop from "../../hooks/useScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
 import { getCache, setCache } from "../../services/dataStore";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 const formatRelativeTime = (iso) => {
   if (!iso) return "";
@@ -374,8 +374,8 @@ const User_Notification = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            colors={[ARGUS_BLUE]}
-            tintColor={ARGUS_BLUE}
+            colors={[COMMUNISHIELD_BLUE]}
+            tintColor={COMMUNISHIELD_BLUE}
           />
         }
       >
@@ -489,7 +489,7 @@ const styles = StyleSheet.create({
   sectionAction: {
     fontSize: 13,
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   card: {

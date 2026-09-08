@@ -1,4 +1,4 @@
-# ARGUS — `profiles` Table Schema Explanation
+# CommuniShield — `profiles` Table Schema Explanation
 
 ## 1. Table Structure
 

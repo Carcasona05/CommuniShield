@@ -9,7 +9,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 const User_RepPost_Layout = ({
   userName = "Anonymous User",
@@ -33,7 +33,7 @@ const User_RepPost_Layout = ({
           {userAvatar ? (
             <Image source={userAvatar} style={styles.avatarImage} cachePolicy="memory-disk" transition={200} />
           ) : (
-            <Ionicons name="person" size={20} color={ARGUS_BLUE} />
+            <Ionicons name="person" size={20} color={COMMUNISHIELD_BLUE} />
           )}
         </View>
 
@@ -83,7 +83,7 @@ const User_RepPost_Layout = ({
 
       {images?.length > 0 ? (
         <View style={styles.imagePreview}>
-          <Ionicons name="image-outline" size={22} color={ARGUS_BLUE} />
+          <Ionicons name="image-outline" size={22} color={COMMUNISHIELD_BLUE} />
           <Text style={styles.imageText}>{images.length} attached media</Text>
         </View>
       ) : null}
@@ -94,7 +94,7 @@ const User_RepPost_Layout = ({
           activeOpacity={0.75}
           onPress={onLike}
         >
-          <Ionicons name="heart-outline" size={19} color={ARGUS_BLUE} />
+          <Ionicons name="heart-outline" size={19} color={COMMUNISHIELD_BLUE} />
           <Text style={styles.actionText}>{likes}</Text>
         </TouchableOpacity>
 
@@ -103,7 +103,7 @@ const User_RepPost_Layout = ({
           activeOpacity={0.75}
           onPress={onComment}
         >
-          <Ionicons name="chatbubble-outline" size={19} color={ARGUS_BLUE} />
+          <Ionicons name="chatbubble-outline" size={19} color={COMMUNISHIELD_BLUE} />
           <Text style={styles.actionText}>{comments} Comments</Text>
         </TouchableOpacity>
 
@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
   actionText: {
     fontSize: 12,
     fontWeight: "700",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     marginLeft: 5,
   },
 
@@ -287,7 +287,7 @@ const styles = StyleSheet.create({
   viewButtonText: {
     fontSize: 12,
     fontWeight: "800",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 });
 

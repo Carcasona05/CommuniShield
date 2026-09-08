@@ -36,7 +36,7 @@ const User_ViewPost = ({ post, onBack }) => {
 
   const safePost = post || {
     id: "report_001",
-    userName: "ARGUS User",
+    userName: "CommuniShield User",
     userAvatar: null,
     location: "Mabini Street, Manila",
     incidentCategory: "Suspicious Activities",
@@ -89,7 +89,7 @@ const User_ViewPost = ({ post, onBack }) => {
 
     const commentToAdd = {
       id: Date.now().toString(),
-      user: "ARGUS User",
+      user: "CommuniShield User",
       text: newComment.trim(),
     };
 
@@ -180,7 +180,7 @@ const User_ViewPost = ({ post, onBack }) => {
 
                 <View style={styles.userTextWrap}>
                   <Text style={styles.userName} numberOfLines={1}>
-                    {safePost.userName || "ARGUS User"}
+                    {safePost.userName || "CommuniShield User"}
                   </Text>
 
                   <View style={styles.locationRow}>
@@ -267,7 +267,7 @@ const User_ViewPost = ({ post, onBack }) => {
                     </View>
 
                     <Text style={styles.commentUser}>
-                      {comment.user || "ARGUS User"}
+                      {comment.user || "CommuniShield User"}
                     </Text>
                   </View>
 

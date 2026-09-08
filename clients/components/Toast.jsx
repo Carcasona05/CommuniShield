@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 const ERROR_RED = "#C0392B";
 
 const ToastContext = createContext(null);
@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
   toast: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 13,

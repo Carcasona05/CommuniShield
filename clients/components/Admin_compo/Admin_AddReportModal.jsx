@@ -23,7 +23,7 @@ import apiClient from "../../services/apiClient";
 import { uploadImages } from "../../services/imageUpload";
 import { getCache, setCache } from "../../services/dataStore";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 const FALLBACK_CATEGORIES = [
   {
@@ -234,7 +234,7 @@ export default function Admin_AddReportModal({
         {
           headers: {
             "Accept-Language": "en",
-            "User-Agent": "ARGUS-App/1.0",
+            "User-Agent": "CommuniShield-App/1.0",
           },
         }
       );
@@ -491,7 +491,7 @@ export default function Admin_AddReportModal({
                 <Ionicons
                   name="document-text-outline"
                   size={22}
-                  color={ARGUS_BLUE}
+                  color={COMMUNISHIELD_BLUE}
                 />
               </View>
 
@@ -546,7 +546,7 @@ export default function Admin_AddReportModal({
                 <Ionicons
                   name="person-outline"
                   size={18}
-                  color={ARGUS_BLUE}
+                  color={COMMUNISHIELD_BLUE}
                 />
 
                 <Text style={styles.nameInputText}>
@@ -574,7 +574,7 @@ export default function Admin_AddReportModal({
                   <Ionicons
                     name="refresh-outline"
                     size={14}
-                    color={ARGUS_BLUE}
+                    color={COMMUNISHIELD_BLUE}
                   />
 
                   <Text style={styles.refreshText}>
@@ -589,7 +589,7 @@ export default function Admin_AddReportModal({
                 <Ionicons
                   name="location-outline"
                   size={18}
-                  color={ARGUS_BLUE}
+                  color={COMMUNISHIELD_BLUE}
                 />
 
                 <TextInput
@@ -685,7 +685,7 @@ export default function Admin_AddReportModal({
                 <Ionicons
                   name="images-outline"
                   size={18}
-                  color={ARGUS_BLUE}
+                  color={COMMUNISHIELD_BLUE}
                 />
 
                 <Text style={styles.uploadButtonText}>
@@ -820,7 +820,7 @@ const styles = StyleSheet.create({
 
   title: {
     fontSize: 20,
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontFamily: "PoppinsSemiBold",
   },
 
@@ -840,7 +840,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginHorizontal: 20,
     fontSize: 14,
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontFamily: "PoppinsSemiBold",
   },
 
@@ -903,7 +903,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     fontSize: 11,
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   locationInputWrap: {
@@ -960,7 +960,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 2,
     borderStyle: "dashed",
-    borderColor: ARGUS_BLUE,
+    borderColor: COMMUNISHIELD_BLUE,
     justifyContent: "center",
     alignItems: "center",
     flexDirection: "row",
@@ -969,7 +969,7 @@ const styles = StyleSheet.create({
   },
 
   uploadButtonText: {
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     fontSize: 14,
     fontFamily: "PoppinsSemiBold",
   },
@@ -1038,7 +1038,7 @@ const styles = StyleSheet.create({
   },
 
   submitButton: {
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     height: 46,
     paddingHorizontal: 24,
     borderRadius: 12,

@@ -13,7 +13,7 @@ import { useFonts } from "expo-font";
 import BottomNavBar from "../../components/BottomNavBar";
 import { scrollToTop } from "../../services/scrollToTopBus";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 export default function TabLayout() {
   const router = useRouter();
@@ -52,7 +52,7 @@ export default function TabLayout() {
     if (pathname.includes("User_Settings")) return "Settings";
     if (pathname.includes("User_PostReport")) return "Post Report";
 
-    return "ARGUS";
+    return "CommuniShield";
   };
 
   const handleNotification = () => {
@@ -70,7 +70,7 @@ export default function TabLayout() {
             activeOpacity={0.75}
             onPress={() => router.back()}
           >
-            <Ionicons name="chevron-back" size={24} color={ARGUS_BLUE} />
+            <Ionicons name="chevron-back" size={24} color={COMMUNISHIELD_BLUE} />
           </TouchableOpacity>
 
           <View style={styles.childTitleWrap}>
@@ -102,7 +102,7 @@ export default function TabLayout() {
           <Ionicons
             name="notifications-outline"
             size={22}
-            color={ARGUS_BLUE}
+            color={COMMUNISHIELD_BLUE}
           />
         </TouchableOpacity>
       </View>
@@ -231,7 +231,7 @@ const styles = StyleSheet.create({
   majorTitle: {
     fontSize: 24,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     letterSpacing: 0.2,
   },
 
@@ -270,7 +270,7 @@ const styles = StyleSheet.create({
   childTitle: {
     fontSize: 18,
     fontFamily: "PoppinsSemiBold",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
     textAlign: "center",
   },
 

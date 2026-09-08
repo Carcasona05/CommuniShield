@@ -113,14 +113,14 @@ const MAP_HTML = `
       }
     }
 
-    window.__argusInit = function (cfg) {
+    window.__communishieldInit = function (cfg) {
       render((cfg && cfg.reports) || []);
     };
 
     window.addEventListener("message", function (e) {
       try {
         var d = JSON.parse(e.data);
-        if (d.type === "init") window.__argusInit(d);
+        if (d.type === "init") window.__communishieldInit(d);
       } catch (err) {}
     });
   })();
@@ -143,7 +143,7 @@ const AdminHeatMap = ({ style, reports = [] }) => {
       mapRef.current.contentWindow?.postMessage(cfg, "*");
     } else {
       mapRef.current.injectJavaScript(
-        `window.__argusInit && window.__argusInit(${cfg}); true;`
+        `window.__communishieldInit && window.__communishieldInit(${cfg}); true;`
       );
     }
   };

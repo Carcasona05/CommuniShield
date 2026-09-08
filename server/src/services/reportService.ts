@@ -545,7 +545,7 @@ export const reportService = {
 
     const enriched = (data || []).map((p) => ({
       id: p.id,
-      adminName: "ARGUS Admin",
+      adminName: "CommuniShield Admin",
       type: p.type,
       location: p.location ?? "",
       details: p.details ?? "",

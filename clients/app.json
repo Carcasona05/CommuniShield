@@ -1,8 +1,8 @@
 {
   "expo": {
-    "scheme": "argus",
-    "name": "Argus",
-    "slug": "Argus",
+    "scheme": "communishield",
+    "name": "CommuniShield",
+    "slug": "CommuniShield",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "assets/icon.png",
@@ -15,21 +15,21 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ojieesteam.Argus",
+      "bundleIdentifier": "com.ojieesteam.Communishield",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "assets/adaptive-icon.png",
+        "foregroundImage": "assets/icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.ojieesteam.Argus"
+      "package": "com.ojieesteam.Communishield"
     },
     "web": {
-      "favicon": "assets/favicon.png"
+      "favicon": "assets/icon.png"
     },
     "plugins": [
       "expo-router",

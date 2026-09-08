@@ -12,7 +12,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   map_center: "Argao, Cebu",
   notification_email: "true",
   notification_push: "false",
-  ai_model_version: "ARGUS-AI v1.0",
+  ai_model_version: "CommuniShield-AI v1.0",
   ai_api_endpoint: "",
   ai_scoring_enabled: "true",
   ai_high_threshold: "85",

@@ -281,7 +281,7 @@ const MyUser_RepPostView_Layout = ({ report }) => {
               <View style={styles.commentContent}>
                 <View style={styles.commentBubble}>
                   <Text style={styles.commentUser}>
-                    {comment.user || "ARGUS User"}
+                    {comment.user || "CommuniShield User"}
                   </Text>
 
                   <Text style={styles.commentText}>{comment.text}</Text>

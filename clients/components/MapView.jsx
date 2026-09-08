@@ -86,7 +86,7 @@ const MAP_HTML = `
       sendToHost({ type: "location", lat: lat, lng: lng });
     }
 
-    window.__argusInit = function (cfg) {
+    window.__communishieldInit = function (cfg) {
       var c = cfg || {};
       setInteractive(c.interactive !== false);
       facilityLayer.clearLayers();
@@ -115,7 +115,7 @@ const MAP_HTML = `
       }
     };
 
-    window.__argusRecenter = function (lat, lng) {
+    window.__communishieldRecenter = function (lat, lng) {
       follow = true;
       if (lat !== undefined && lng !== undefined) {
         var clat = clampLat(lat);
@@ -126,7 +126,7 @@ const MAP_HTML = `
       }
     };
 
-    window.__argusSetUser = function (lat, lng) {
+    window.__communishieldSetUser = function (lat, lng) {
       var clat = clampLat(lat);
       var clng = clampLng(lng);
       userMarker.setLatLng([clat, clng]);
@@ -135,10 +135,10 @@ const MAP_HTML = `
     window.addEventListener("message", function (e) {
       try {
         var d = JSON.parse(e.data);
-        if (d.type === "init") window.__argusInit(d);
-        else if (d.type === "recenter") window.__argusRecenter(d.lat, d.lng);
+        if (d.type === "init") window.__communishieldInit(d);
+        else if (d.type === "recenter") window.__communishieldRecenter(d.lat, d.lng);
         else if (d.type === "setFollow") follow = !!d.follow;
-        else if (d.type === "user") window.__argusSetUser(d.lat, d.lng);
+        else if (d.type === "user") window.__communishieldSetUser(d.lat, d.lng);
       } catch (err) {}
     });
 
@@ -216,7 +216,7 @@ const MapView = React.forwardRef(
         mapRef.current.contentWindow?.postMessage(cfg, "*");
       } else {
         mapRef.current.injectJavaScript(
-          `window.__argusInit && window.__argusInit(${cfg}); true;`
+          `window.__communishieldInit && window.__communishieldInit(${cfg}); true;`
         );
       }
     }, [interactive, markers, isWeb]);
@@ -234,7 +234,7 @@ const MapView = React.forwardRef(
         );
       } else {
         mapRef.current.injectJavaScript(
-          `window.__argusSetUser && window.__argusSetUser(${position[0]}, ${position[1]}); true;`
+          `window.__communishieldSetUser && window.__communishieldSetUser(${position[0]}, ${position[1]}); true;`
         );
       }
     }, [position, isWeb]);
@@ -252,7 +252,7 @@ const MapView = React.forwardRef(
         );
       } else {
         mapRef.current.injectJavaScript(
-          `window.__argusRecenter && window.__argusRecenter(${position[0]}, ${position[1]}); true;`
+          `window.__communishieldRecenter && window.__communishieldRecenter(${position[0]}, ${position[1]}); true;`
         );
       }
     }, [position, isWeb]);

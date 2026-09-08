@@ -34,15 +34,6 @@ const validateConfirmPassword = (value, newPasswordValue) => {
   return "";
 };
 
-if (!globalThis.demoAccount) {
-  globalThis.demoAccount = {
-    email: "demo@argus.com",
-    password: "Argus123",
-    resetEmail: "",
-    otp: "123456",
-  };
-}
-
 export default function SendOTP() {
   const [email, setEmail] = useState("");
   const [step, setStep] = useState("otp");

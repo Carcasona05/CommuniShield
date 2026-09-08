@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-const ARGUS_BLUE = "#294880";
+const COMMUNISHIELD_BLUE = "#294880";
 
 const INCIDENT_CATEGORIES = [
   "Public Safety Incidents",
@@ -128,7 +128,7 @@ export default function MyUser_RepPostView_Edit_Layout({
     <View style={styles.screen}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={onCancel}>
-          <Ionicons name="chevron-back" size={22} color={ARGUS_BLUE} />
+          <Ionicons name="chevron-back" size={22} color={COMMUNISHIELD_BLUE} />
         </TouchableOpacity>
 
         <View style={styles.headerTextWrap}>
@@ -262,7 +262,7 @@ export default function MyUser_RepPostView_Edit_Layout({
             <Text style={styles.label}>Location</Text>
             <View style={styles.lockedLocationBox}>
               <View style={styles.locationIconBox}>
-                <Ionicons name="location" size={18} color={ARGUS_BLUE} />
+                <Ionicons name="location" size={18} color={COMMUNISHIELD_BLUE} />
               </View>
 
               <View style={styles.locationTextWrap}>
@@ -380,7 +380,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
@@ -413,7 +413,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontFamily: "PoppinsMedium",
     fontSize: 10,
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   reportImage: {
@@ -508,7 +508,7 @@ const styles = StyleSheet.create({
 
   optionTextActive: {
     fontFamily: "PoppinsMedium",
-    color: ARGUS_BLUE,
+    color: COMMUNISHIELD_BLUE,
   },
 
   lockedLocationBox: {
@@ -591,7 +591,7 @@ const styles = StyleSheet.create({
     flex: 1.4,
     height: 50,
     borderRadius: 16,
-    backgroundColor: ARGUS_BLUE,
+    backgroundColor: COMMUNISHIELD_BLUE,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",

@@ -23,7 +23,7 @@ const FONT = {
 };
 
 const ReportPost_Layout = ({
-  userName = "ARGUS User",
+  userName = "CommuniShield User",
   userAvatar = null,
   location = "Location not specified",
   datePosted = "Just now",
@@ -206,7 +206,7 @@ const ReportPost_Layout = ({
 
           <View style={styles.userTextWrap}>
             <Text style={styles.userName} numberOfLines={1}>
-              {userName || "ARGUS User"}
+              {userName || "CommuniShield User"}
             </Text>
 
             <View style={styles.locationRow}>
