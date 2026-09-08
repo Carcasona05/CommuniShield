@@ -3,16 +3,42 @@ import { Image } from "expo-image";
 import apiClient from "./apiClient";
 import { ROLE_KEY } from "./auth";
 
+const CACHE_KEY = "communishield_data_cache";
 const cache = new Map();
+let persistTimer = null;
+
+const persistCache = () => {
+  if (persistTimer) return;
+  persistTimer = setTimeout(async () => {
+    persistTimer = null;
+    try {
+      const obj = {};
+      cache.forEach((v, k) => { obj[k] = v; });
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(obj));
+    } catch {}
+  }, 500);
+};
 
 export const setCache = (key, value) => {
   cache.set(key, value);
+  persistCache();
 };
 
 export const getCache = (key) => (cache.has(key) ? cache.get(key) : undefined);
 
+export const hydrateCache = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(CACHE_KEY);
+    if (raw) {
+      const obj = JSON.parse(raw);
+      Object.entries(obj).forEach(([k, v]) => cache.set(k, v));
+    }
+  } catch {}
+};
+
 export const clearDataCache = () => {
   cache.clear();
+  AsyncStorage.removeItem(CACHE_KEY).catch(() => {});
 };
 
 export const toReportCode = (id) => {

@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import ThemedView from "../components/ThemedView";
 import ThemedText from "../components/ThemedText";
 import { getAuth } from "../services/auth";
-import { prefetchAllData } from "../services/dataStore";
+import { prefetchAllData, hydrateCache } from "../services/dataStore";
 import apiClient from "../services/apiClient";
 
 const LoadingScreen = () => {
@@ -12,6 +12,7 @@ const LoadingScreen = () => {
     let active = true;
 
     const timer = setTimeout(async () => {
+      await hydrateCache();
       const { token, role } = await getAuth();
       if (!active) return;
 
