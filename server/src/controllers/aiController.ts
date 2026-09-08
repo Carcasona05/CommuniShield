@@ -1,7 +1,7 @@
 import type { Response } from "express";
-import { aiService } from "../services/aiService.ts";
-import { reportService } from "../services/reportService.ts";
-import { profileService } from "../services/authService.ts";
+import { aiService } from "../services/aiService.js";
+import { reportService } from "../services/reportService.js";
+import { profileService } from "../services/authService.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string } };
 
@@ -10,7 +10,7 @@ export const getAIStatus = async (req: AuthRequest, res: Response) => {
     const user = req.user;
     if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
 
-    const { data: profile } = await import("../services/authService.ts").then(m => m.profileService.getProfile(user.id));
+    const { data: profile } = await import("../services/authService.js").then(m => m.profileService.getProfile(user.id));
     if (!profile || !["admin", "super_admin"].includes(profile.role)) {
       return res.status(403).json({ error: "Admin access only" });
     }
@@ -49,7 +49,7 @@ export const analyzeReport = async (req: AuthRequest, res: Response) => {
     if (coordError) return res.status(404).json({ error: "Report not found" });
 
     // Fetch full report data
-    const { data: fullReport } = await import("../config/supabaseAdmin.ts").then(m => m.supabaseAdmin
+    const { data: fullReport } = await import("../config/supabaseAdmin.js").then(m => m.supabaseAdmin
       .from("reports")
       .select(`
         id,
@@ -106,7 +106,7 @@ export const batchAnalyzeReports = async (req: AuthRequest, res: Response) => {
     const user = req.user;
     if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
 
-    const { data: profile } = await import("../services/authService.ts").then(m => m.profileService.getProfile(user.id));
+    const { data: profile } = await import("../services/authService.js").then(m => m.profileService.getProfile(user.id));
     if (!profile || !["admin", "super_admin"].includes(profile.role)) {
       return res.status(403).json({ error: "Admin access only" });
     }
@@ -129,7 +129,7 @@ export const toggleAI = async (req: AuthRequest, res: Response) => {
     const user = req.user;
     if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
 
-    const { data: profile } = await import("../services/authService.ts").then(m => m.profileService.getProfile(user.id));
+    const { data: profile } = await import("../services/authService.js").then(m => m.profileService.getProfile(user.id));
     if (!profile || profile.role !== "super_admin") {
       return res.status(403).json({ error: "Super admin access only" });
     }
@@ -139,7 +139,7 @@ export const toggleAI = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: "enabled (boolean) required" });
     }
 
-    const { error } = await import("../config/supabaseAdmin.ts").then(m => m.supabaseAdmin
+    const { error } = await import("../config/supabaseAdmin.js").then(m => m.supabaseAdmin
       .from("app_settings")
       .upsert({ ai_credibility_enabled: enabled }, { onConflict: "id" })
     );

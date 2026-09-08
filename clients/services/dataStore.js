@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Image } from "expo-image";
 import apiClient from "./apiClient";
 import { ROLE_KEY } from "./auth";
 
@@ -84,4 +85,26 @@ export const prefetchAllData = async () => {
       ADMIN_ENDPOINTS.map(async ([key, url]) => fetchIntoCache(key, url, headers))
     );
   }
+
+  prefetchReportImages();
+};
+
+const prefetchReportImages = () => {
+  try {
+    const reports = getCache("api:/reports");
+    const items = reports?.data || reports || [];
+    if (!Array.isArray(items)) return;
+
+    const imageUrls = items
+      .slice(0, 6)
+      .flatMap((r) => r.images || [])
+      .filter(Boolean)
+      .slice(0, 10);
+
+    imageUrls.forEach((url) => {
+      if (typeof url === "string") {
+        Image.prefetch(url).catch(() => {});
+      }
+    });
+  } catch {}
 };

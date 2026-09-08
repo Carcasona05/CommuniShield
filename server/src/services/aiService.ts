@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "../config/supabaseAdmin.ts";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
 
 const DEFAULT_OLLAMA_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 const DEFAULT_MODEL = "tinyllama:1.1b";

@@ -6,11 +6,11 @@ import {
   TouchableOpacity,
   ScrollView,
   TextInput,
-  Image,
   SafeAreaView,
   useWindowDimensions,
   ActivityIndicator,
 } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFonts } from "expo-font";
@@ -105,13 +105,13 @@ const User_ViewPost = ({ post, onBack }) => {
     if (!firstImage && !secondImage) return null;
 
     if (firstImage && !secondImage) {
-      return <Image source={firstImage} style={styles.singleImage} />;
+      return <Image source={firstImage} style={styles.singleImage} cachePolicy="memory-disk" priority="high" transition={300} />;
     }
 
     return (
       <View style={styles.imageRow}>
-        {firstImage ? <Image source={firstImage} style={styles.doubleImage} /> : null}
-        {secondImage ? <Image source={secondImage} style={styles.doubleImage} /> : null}
+        {firstImage ? <Image source={firstImage} style={styles.doubleImage} cachePolicy="memory-disk" priority="high" transition={300} /> : null}
+        {secondImage ? <Image source={secondImage} style={styles.doubleImage} cachePolicy="memory-disk" priority="normal" transition={300} /> : null}
       </View>
     );
   };

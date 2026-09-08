@@ -1,5 +1,5 @@
 import type { Response } from "express";
-import { uploadService } from "../services/uploadService.ts";
+import { uploadService } from "../services/uploadService.js";
 
 type AuthRequest = import("express").Request & {
   user?: { id: string };

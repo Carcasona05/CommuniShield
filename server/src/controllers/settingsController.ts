@@ -1,6 +1,6 @@
 import type { Response } from "express";
-import { supabaseAdmin } from "../config/supabaseAdmin.ts";
-import { profileService } from "../services/authService.ts";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import { profileService } from "../services/authService.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string } };
 

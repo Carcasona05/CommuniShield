@@ -3,11 +3,11 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   TouchableOpacity,
   useWindowDimensions,
   ActivityIndicator,
 } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import { useRouter } from "expo-router";
@@ -182,6 +182,8 @@ const MyUser_RepPost_Layout = ({
               borderRadius: avatarSize / 2,
             },
           ]}
+          cachePolicy="memory-disk"
+          transition={200}
         />
       );
     }
@@ -222,6 +224,9 @@ const MyUser_RepPost_Layout = ({
         <Image
           source={getImageSource(imageList[0])}
           style={[styles.singleImage, { height: mediaHeight }]}
+          cachePolicy="memory-disk"
+          priority="high"
+          transition={300}
         />
 
         {remainingCount > 0 ? (

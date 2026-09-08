@@ -17,6 +17,7 @@ import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
+import { IMAGES } from "../../constants/assets";
 
 const validatePassword = (value) => {
   if (!value) return "Password is required.";
@@ -129,7 +130,7 @@ export default function Register() {
       >
         <View style={styles.container}>
           <Image
-            source={require("../../assets/img/bannerdark.png")}
+            source={IMAGES.bannerDark}
             style={[
               styles.bottomBanner,
               {
@@ -170,7 +171,7 @@ export default function Register() {
               ]}
             >
               <Image
-                source={require("../../assets/img/logotext.png")}
+                source={IMAGES.logoText}
                 style={[
                   styles.logo,
                   {

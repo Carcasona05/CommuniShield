@@ -1,11 +1,11 @@
 import type { Request, Response } from "express";
-import { supabase } from "../config/supabase.ts";
-import { supabaseAdmin } from "../config/supabaseAdmin.ts";
+import { supabase } from "../config/supabase.js";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import type { User } from "@supabase/supabase-js";
-import { profileService } from "../services/authService.ts";
-import { notificationService } from "../services/notificationService.ts";
-import { credibilityService } from "../services/credibilityService.ts";
-import { reportService } from "../services/reportService.ts";
+import { profileService } from "../services/authService.js";
+import { notificationService } from "../services/notificationService.js";
+import { credibilityService } from "../services/credibilityService.js";
+import { reportService } from "../services/reportService.js";
 
 type AuthRequest = Request & { user?: User; token?: string };
 

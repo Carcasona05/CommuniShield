@@ -15,6 +15,7 @@ import {
 import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { saveAdminInfo } from "../../services/auth";
+import { IMAGES } from "../../constants/assets";
 
 const { width, height } = Dimensions.get("window");
 
@@ -122,7 +123,7 @@ export default function Admin_Register() {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.page}>
           <Image
-            source={require("../../assets/img/bannerdark.png")}
+            source={IMAGES.bannerDark}
             style={styles.backgroundBanner}
             resizeMode="cover"
           />
@@ -132,7 +133,7 @@ export default function Admin_Register() {
           <View style={[styles.container, styles.centerContent]}>
             <View style={styles.webCard}>
               <Image
-                source={require("../../assets/img/logotext.png")}
+                source={IMAGES.logoText}
                 style={styles.logo}
                 resizeMode="contain"
               />
@@ -163,7 +164,7 @@ export default function Admin_Register() {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
         <Image
-          source={require("../../assets/img/bannerdark.png")}
+          source={IMAGES.bannerDark}
           style={styles.backgroundBanner}
           resizeMode="cover"
         />
@@ -177,7 +178,7 @@ export default function Admin_Register() {
           <View style={styles.container}>
             <View style={styles.webCard}>
               <Image
-                source={require("../../assets/img/logotext.png")}
+                source={IMAGES.logoText}
                 style={styles.logo}
                 resizeMode="contain"
               />

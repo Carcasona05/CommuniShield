@@ -18,6 +18,7 @@ import { router } from "expo-router";
 import apiClient from "../../services/apiClient";
 import { saveAuth, saveAdminInfo } from "../../services/auth";
 import { prefetchAllData } from "../../services/dataStore";
+import { IMAGES } from "../../constants/assets";
 
 const { width, height } = Dimensions.get("window");
 
@@ -476,7 +477,7 @@ export default function Admin_Login() {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.page}>
           <Image
-            source={require("../../assets/img/bannerdark.png")}
+            source={IMAGES.bannerDark}
             style={styles.backgroundBanner}
             resizeMode="cover"
           />
@@ -486,7 +487,7 @@ export default function Admin_Login() {
           <View style={[styles.container, styles.centerContent]}>
             <View style={styles.webCard}>
               <Image
-                source={require("../../assets/img/logotext.png")}
+                source={IMAGES.logoText}
                 style={styles.logonoText}
                 resizeMode="contain"
               />
@@ -515,7 +516,7 @@ export default function Admin_Login() {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
         <Image
-          source={require("../../assets/img/bannerdark.png")}
+          source={IMAGES.bannerDark}
           style={styles.backgroundBanner}
           resizeMode="cover"
         />
@@ -529,7 +530,7 @@ export default function Admin_Login() {
           <View style={styles.container}>
             <View style={styles.webCard}>
               <Image
-                source={require("../../assets/img/logonotext.png")}
+                source={IMAGES.logoNoText}
                 style={styles.logoNoText}
                 resizeMode="contain"
               />

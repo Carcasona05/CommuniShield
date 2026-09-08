@@ -14,6 +14,7 @@ import { clearAuth } from "../../services/auth";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
+import { IMAGES } from "../../constants/assets";
 
 const ARGUS_BLUE = "#294880";
 
@@ -284,7 +285,7 @@ export default function Admin_Layout({ children }) {
       <View style={styles.sidebar}>
         <View style={styles.logoSection}>
           <Image
-            source={require("../../assets/img/logonotext.png")}
+            source={IMAGES.logoNoText}
             style={styles.logoTextImage}
             resizeMode="contain"
           />

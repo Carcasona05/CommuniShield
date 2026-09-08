@@ -1,9 +1,9 @@
 import type { Response } from "express";
-import { reportService } from "../services/reportService.ts";
-import { profileService } from "../services/authService.ts";
-import { notificationService } from "../services/notificationService.ts";
-import { credibilityService } from "../services/credibilityService.ts";
-import { aiService } from "../services/aiService.ts";
+import { reportService } from "../services/reportService.js";
+import { profileService } from "../services/authService.js";
+import { notificationService } from "../services/notificationService.js";
+import { credibilityService } from "../services/credibilityService.js";
+import { aiService } from "../services/aiService.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string }; token?: string };
 
@@ -105,7 +105,7 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
 
     // Re-analyze with AI when report is verified (to update credibility assessment)
     if (verified && result.data.id) {
-      const { data: fullReport } = await import("../config/supabaseAdmin.ts").then(m => m.supabaseAdmin
+      const { data: fullReport } = await import("../config/supabaseAdmin.js").then(m => m.supabaseAdmin
         .from("reports")
         .select(`
           id,

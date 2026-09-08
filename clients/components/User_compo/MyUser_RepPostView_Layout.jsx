@@ -2,13 +2,13 @@ import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
-  Image,
   TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
 } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import formatRelativeTime from "../../services/formatRelativeTime";
@@ -142,6 +142,8 @@ const MyUser_RepPostView_Layout = ({ report }) => {
                 <Image
                   source={getImageSource(report.userAvatar)}
                   style={styles.avatarImage}
+                  cachePolicy="memory-disk"
+                  transition={200}
                 />
               ) : (
                 <View style={styles.avatarPlaceholder}>
@@ -210,6 +212,9 @@ const MyUser_RepPostView_Layout = ({ report }) => {
                 <Image
                   source={getImageSource(report.images[0])}
                   style={styles.singleImage}
+                  cachePolicy="memory-disk"
+                  priority="high"
+                  transition={300}
                 />
               ) : (
                 <View style={styles.imageRow}>
@@ -218,6 +223,9 @@ const MyUser_RepPostView_Layout = ({ report }) => {
                       key={index}
                       source={getImageSource(image)}
                       style={styles.doubleImage}
+                      cachePolicy="memory-disk"
+                      priority="high"
+                      transition={300}
                     />
                   ))}
                 </View>

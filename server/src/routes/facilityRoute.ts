@@ -1,7 +1,7 @@
 import express from "express";
-import { getNearbyFacilities } from "../controllers/facilityController.ts";
-import { authenticate } from "../middlewares/authMiddleware.ts";
-import { adapt } from "../utils/adapt.ts";
+import { getNearbyFacilities } from "../controllers/facilityController.js";
+import { authenticate } from "../middlewares/authMiddleware.js";
+import { adapt } from "../utils/adapt.js";
 
 const router = express.Router();
 

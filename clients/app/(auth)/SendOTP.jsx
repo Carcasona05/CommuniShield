@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { Ionicons, FontAwesome } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { IMAGES } from "../../constants/assets";
 
 const { width, height } = Dimensions.get("window");
 
@@ -142,7 +143,7 @@ export default function SendOTP() {
         </TouchableOpacity>
 
         <Image
-          source={require("../../assets/img/logotext.png")}
+          source={IMAGES.logoText}
           style={styles.logo}
         />
 
@@ -273,7 +274,7 @@ export default function SendOTP() {
         )}
 
         <Image
-          source={require("../../assets/img/bannerdark.png")}
+          source={IMAGES.bannerDark}
           style={styles.bottomBanner}
           resizeMode="cover"
         />

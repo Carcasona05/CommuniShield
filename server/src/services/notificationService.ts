@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "../config/supabaseAdmin.ts";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
 
 type NotifType =
   | "report_status"

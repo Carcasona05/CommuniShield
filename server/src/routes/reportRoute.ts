@@ -15,8 +15,8 @@ import {
   getAdminAnalytics,
   createAdminAnnouncement,
   getAdminLogs,
-} from "../controllers/reportController.ts";
-import { authenticate } from "../middlewares/authMiddleware.ts";
+} from "../controllers/reportController.js";
+import { authenticate } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 

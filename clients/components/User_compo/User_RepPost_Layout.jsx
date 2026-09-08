@@ -2,10 +2,10 @@ import React from "react";
 import {
   View,
   Text,
-  Image,
   TouchableOpacity,
   StyleSheet,
 } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
 
@@ -31,7 +31,7 @@ const User_RepPost_Layout = ({
       <View style={styles.headerRow}>
         <View style={styles.avatarWrap}>
           {userAvatar ? (
-            <Image source={userAvatar} style={styles.avatarImage} />
+            <Image source={userAvatar} style={styles.avatarImage} cachePolicy="memory-disk" transition={200} />
           ) : (
             <Ionicons name="person" size={20} color={ARGUS_BLUE} />
           )}

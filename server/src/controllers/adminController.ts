@@ -1,8 +1,8 @@
 import type { Response } from "express";
-import { supabaseAdmin } from "../config/supabaseAdmin.ts";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import type { User } from "@supabase/supabase-js";
-import { profileService } from "../services/authService.ts";
-import { reportService } from "../services/reportService.ts";
+import { profileService } from "../services/authService.js";
+import { reportService } from "../services/reportService.js";
 
 type AuthRequest = import("express").Request & { user?: User; token?: string };
 

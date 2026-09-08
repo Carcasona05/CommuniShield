@@ -1,5 +1,5 @@
-import { supabaseAdmin } from "../config/supabaseAdmin.ts";
-import { reverseGeocode } from "../utils/geocode.ts";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import { reverseGeocode } from "../utils/geocode.js";
 
 type ReportInput = {
   location?: string;

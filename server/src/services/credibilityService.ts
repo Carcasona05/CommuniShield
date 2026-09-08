@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "../config/supabaseAdmin.ts";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
 
 export const CREDIBILITY_POINTS = {
   report_submitted: 5,

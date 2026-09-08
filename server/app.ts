@@ -8,14 +8,15 @@ import uploadRoutes from "./src/routes/uploadRoute.ts";
 import facilityRoutes from "./src/routes/facilityRoute.ts";
 import settingsRoutes from "./src/routes/settingsRoute.ts";
 import aiRoutes from "./src/routes/aiRoute.ts";
+import { errorHandler } from "./src/middlewares/errorHandler.ts";
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 30000;
+const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json({ limit: "25mb" }));
+app.use(express.json({ limit: "5mb" }));
 
 app.use("/api", authRoutes);
 app.use("/api", reportRoutes);
@@ -25,9 +26,11 @@ app.use("/api", facilityRoutes);
 app.use("/api", settingsRoutes);
 app.use("/api", aiRoutes);
 
-app.get ("/", (req, res) => {
+app.get("/", (req, res) => {
     res.send("It is working");
 })
+
+app.use(errorHandler);
 
 console.log("My port:", PORT);
 

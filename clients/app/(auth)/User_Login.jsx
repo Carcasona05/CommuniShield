@@ -18,6 +18,7 @@ import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import apiClient from "../../services/apiClient";
 import { saveAuth } from "../../services/auth";
+import { IMAGES } from "../../constants/assets";
 import { prefetchAllData } from "../../services/dataStore";
 
 const validateLoginPassword = (value) => {
@@ -158,7 +159,7 @@ export default function UserLogin() {
       >
         <View style={styles.container}>
           <Image
-            source={require("../../assets/img/bannerdark.png")}
+            source={IMAGES.bannerDark}
             style={[
               styles.bottomBanner,
               {
@@ -203,7 +204,7 @@ export default function UserLogin() {
                 onPress={handleHiddenAdminTap}
               >
                 <Image
-                  source={require("../../assets/img/logotext.png")}
+                  source={IMAGES.logoText}
                   style={[
                     styles.logo,
                     {

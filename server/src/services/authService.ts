@@ -1,5 +1,5 @@
-import { createSupabaseUser } from "../config/supabaseUser.ts";
-import { supabaseAdmin } from "../config/supabaseAdmin.ts";
+import { createSupabaseUser } from "../config/supabaseUser.js";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
 
 const normalizeRole = (role?: string): string => {
   const r = role?.toLowerCase().trim() || "";

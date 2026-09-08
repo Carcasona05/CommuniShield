@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
-  Image,
   TextInput,
   TouchableOpacity,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -176,6 +176,8 @@ const User_RepPostView_Layout = ({ post }) => {
               <Image
                 source={getImageSource(post.userAvatar)}
                 style={styles.avatarImage}
+                cachePolicy="memory-disk"
+                transition={200}
               />
             ) : (
               <View style={styles.avatarPlaceholder}>
@@ -235,6 +237,9 @@ const User_RepPostView_Layout = ({ post }) => {
                 <Image
                   source={getImageSource(post.images[0])}
                   style={styles.singleImage}
+                  cachePolicy="memory-disk"
+                  priority="high"
+                  transition={300}
                 />
               ) : (
                 <View style={styles.imageRow}>
@@ -243,6 +248,9 @@ const User_RepPostView_Layout = ({ post }) => {
                       key={index}
                       source={getImageSource(image)}
                       style={styles.doubleImage}
+                      cachePolicy="memory-disk"
+                      priority="high"
+                      transition={300}
                     />
                   ))}
                 </View>

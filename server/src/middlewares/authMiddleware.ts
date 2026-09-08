@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import type { User } from "@supabase/supabase-js";
-import { supabase } from "../config/supabase.ts";
-import { profileService } from "../services/authService.ts";
+import { supabase } from "../config/supabase.js";
+import { profileService } from "../services/authService.js";
 
 type AuthRequest = Request & { user?: User; token?: string };
 

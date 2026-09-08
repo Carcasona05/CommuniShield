@@ -1,8 +1,8 @@
 import express from "express";
-import { login, register, getProfile, updateProfile, changePassword, changeEmail, adminLogin, adminRegister } from "../controllers/authController.ts";
-import { getAccounts, updateAccount, deleteAccount, toggleStatus } from "../controllers/adminController.ts";
-import { authenticate } from "../middlewares/authMiddleware.ts";
-import { adapt } from "../utils/adapt.ts";
+import { login, register, getProfile, updateProfile, changePassword, changeEmail, adminLogin, adminRegister } from "../controllers/authController.js";
+import { getAccounts, updateAccount, deleteAccount, toggleStatus } from "../controllers/adminController.js";
+import { authenticate } from "../middlewares/authMiddleware.js";
+import { adapt } from "../utils/adapt.js";
 
 const router = express.Router();
 

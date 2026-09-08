@@ -4,8 +4,8 @@ import {
   analyzeReport,
   batchAnalyzeReports,
   toggleAI,
-} from "../controllers/aiController.ts";
-import { authenticate } from "../middlewares/authMiddleware.ts";
+} from "../controllers/aiController.js";
+import { authenticate } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 

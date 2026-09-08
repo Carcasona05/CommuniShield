@@ -5,6 +5,11 @@ import pluginReact from "eslint-plugin-react";
 import { defineConfig } from "eslint/config";
 
 export default defineConfig([
+  // 0. Global Ignores
+  {
+    ignores: ["**/dist/**", "**/node_modules/**", "**/.expo/**"],
+  },
+
   // 1. Core Recommended Rules
   js.configs.recommended,
   

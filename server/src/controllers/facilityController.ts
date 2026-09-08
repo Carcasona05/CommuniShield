@@ -1,5 +1,5 @@
 import type { Response } from "express";
-import { facilityService } from "../services/facilityService.ts";
+import { facilityService } from "../services/facilityService.js";
 
 type AuthRequest = import("express").Request & {
   user?: { id: string };

@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import ThemedView from "../components/ThemedView";
 import ThemedText from "../components/ThemedText";
 import { getAuth } from "../services/auth";
-import { prefetchAllData, getCache, setCache } from "../services/dataStore";
+import { prefetchAllData } from "../services/dataStore";
 import apiClient from "../services/apiClient";
 
 const LoadingScreen = () => {

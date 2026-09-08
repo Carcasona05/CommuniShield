@@ -1,6 +1,6 @@
 import type { Response } from "express";
-import { notificationService } from "../services/notificationService.ts";
-import { profileService } from "../services/authService.ts";
+import { notificationService } from "../services/notificationService.js";
+import { profileService } from "../services/authService.js";
 
 type AuthRequest = import("express").Request & {
   user?: { id: string };
