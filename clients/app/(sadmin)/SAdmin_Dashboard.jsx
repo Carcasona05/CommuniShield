@@ -94,14 +94,18 @@ export default function SAdmin_Dashboard() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const [summary, setSummary] = useState({
-    total: 0,
-    pending: 0,
-    verified: 0,
-    rejected: 0,
+  const [summary, setSummary] = useState(() => {
+    const cached = getCache("api:/admin/dashboard");
+    return cached?.summary || { total: 0, pending: 0, verified: 0, rejected: 0 };
   });
-  const [accounts, setAccounts] = useState([]);
-  const [logs, setLogs] = useState([]);
+  const [accounts, setAccounts] = useState(() => {
+    const cached = getCache("api:/admin/accounts");
+    return cached?.accounts || [];
+  });
+  const [logs, setLogs] = useState(() => {
+    const cached = getCache("api:/admin/logs");
+    return cached?.logs || [];
+  });
   const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
 
   const fetchDashboard = useCallback(async () => {

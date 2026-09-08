@@ -31,14 +31,14 @@ const formatFeedTime = (iso) => {
 export default function Admin_Dashboard() {
   const router = useRouter();
 
-  const [summary, setSummary] = useState({
-    total: 0,
-    pending: 0,
-    verified: 0,
-    rejected: 0,
-    hotspots: 0,
+  const [summary, setSummary] = useState(() => {
+    const cached = getCache("api:/admin/dashboard");
+    return cached?.summary || { total: 0, pending: 0, verified: 0, rejected: 0, hotspots: 0 };
   });
-  const [reports, setReports] = useState([]);
+  const [reports, setReports] = useState(() => {
+    const cached = getCache("api:/admin/dashboard");
+    return cached?.reports || [];
+  });
   const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
 
   const [fontsLoaded] = useFonts({

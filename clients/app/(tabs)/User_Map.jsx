@@ -64,7 +64,10 @@ const UserMap = () => {
   const [selectedType, setSelectedType] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
   const [selectedFacility, setSelectedFacility] = useState(null);
-  const [facilities, setFacilities] = useState([]);
+  const [facilities, setFacilities] = useState(() => {
+    const cached = getCache("api:/facilities/nearby");
+    return cached?.facilities || [];
+  });
   const [facilitiesLoading, setFacilitiesLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const scrollRef = useScrollToTop();

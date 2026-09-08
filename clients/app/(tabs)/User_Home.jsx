@@ -217,8 +217,16 @@ const User_Home = () => {
   const [selectedStatus, setSelectedStatus] = useState("All Status");
   const [selectedSource, setSelectedSource] = useState("All");
   const [openDropdown, setOpenDropdown] = useState(null);
-  const [reports, setReports] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [reports, setReports] = useState(() => {
+    const cachedReports = getCache("api:/reports");
+    const cachedAdmin = getCache("api:/admin/posts");
+    return (cachedReports !== undefined || cachedAdmin !== undefined)
+      ? mapFeed(cachedReports, cachedAdmin)
+      : [];
+  });
+  const [loading, setLoading] = useState(() => {
+    return getCache("api:/reports") === undefined && getCache("api:/admin/posts") === undefined;
+  });
   const [refreshing, setRefreshing] = useState(false);
   const scrollRef = useScrollToTop();
 
