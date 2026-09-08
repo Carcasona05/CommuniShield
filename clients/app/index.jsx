@@ -50,7 +50,7 @@ const LoadingScreen = () => {
       } else {
         router.replace("/(tabs)/User_Home");
       }
-    }, 2000);
+    }, 500);
 
     return () => {
       active = false;

@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,6 +19,7 @@ import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
 import { getCache, setCache } from "../../services/dataStore";
+import { SkeletonFeed } from "../../components/SkeletonCard";
 
 const PRIMARY = "#294880";
 
@@ -437,12 +437,7 @@ const User_Home = () => {
           })}
 
           {loading && filteredReports.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <ActivityIndicator size="large" color={PRIMARY} />
-              <ThemedText style={[styles.emptyTitle, { marginTop: 12 }]}>
-                Loading reports...
-              </ThemedText>
-            </View>
+            <SkeletonFeed count={3} />
           ) : filteredReports.length === 0 ? (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIcon}>
