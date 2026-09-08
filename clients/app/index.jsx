@@ -11,7 +11,7 @@ const LoadingScreen = () => {
   useEffect(() => {
     let active = true;
 
-    const timer = setTimeout(async () => {
+    const init = async () => {
       await hydrateCache();
       const { token, role } = await getAuth();
       if (!active) return;
@@ -51,11 +51,12 @@ const LoadingScreen = () => {
       } else {
         router.replace("/(tabs)/User_Home");
       }
-    }, 500);
+    };
+
+    init();
 
     return () => {
       active = false;
-      clearTimeout(timer);
     };
   }, []);
 

@@ -6,6 +6,7 @@ import { ROLE_KEY } from "./auth";
 const CACHE_KEY = "communishield_data_cache";
 const cache = new Map();
 let persistTimer = null;
+let hydrated = false;
 
 const persistCache = () => {
   if (persistTimer) return;
@@ -24,9 +25,13 @@ export const setCache = (key, value) => {
   persistCache();
 };
 
-export const getCache = (key) => (cache.has(key) ? cache.get(key) : undefined);
+export const getCache = (key) => {
+  if (!hydrated) return undefined;
+  return cache.has(key) ? cache.get(key) : undefined;
+};
 
 export const hydrateCache = async () => {
+  if (hydrated) return;
   try {
     const raw = await AsyncStorage.getItem(CACHE_KEY);
     if (raw) {
@@ -34,10 +39,12 @@ export const hydrateCache = async () => {
       Object.entries(obj).forEach(([k, v]) => cache.set(k, v));
     }
   } catch {}
+  hydrated = true;
 };
 
 export const clearDataCache = () => {
   cache.clear();
+  hydrated = false;
   AsyncStorage.removeItem(CACHE_KEY).catch(() => {});
 };
 
