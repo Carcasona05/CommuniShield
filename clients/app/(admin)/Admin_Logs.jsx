@@ -13,11 +13,13 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
+import { ListSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
-import { getCache, setCache, toReportCode } from "../../services/dataStore";
+import { getCache, setCache, toReportCode, hashReportIdsInText } from "../../services/dataStore";
 
 export default function Admin_Logs() {
+  const [loading, setLoading] = useState(() => getCache("api:/admin/logs") === undefined);
   const [searchText, setSearchText] = useState("");
   const [selectedFilter, setSelectedFilter] = useState("All");
 
@@ -62,6 +64,7 @@ export default function Admin_Logs() {
           list.map((log) => ({
             ...log,
             reportId: toReportCode(log.reportId || log.id),
+            details: hashReportIdsInText(log.details || ""),
             dateTime: formatLogTime(log.dateTime),
           }))
         );
@@ -79,6 +82,8 @@ export default function Admin_Logs() {
       applyLogs(res.data?.logs || []);
     } catch {
       // keep last loaded data on failure
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -122,6 +127,14 @@ export default function Admin_Logs() {
 
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <Admin_Layout>
+        <ListSkeleton />
+      </Admin_Layout>
+    );
   }
 
   const totalLogs = logs.length;

@@ -172,7 +172,29 @@ export default function SAdmin_Dashboard() {
   }, []);
 
   const loadDashboard = useCallback(async () => {
-    await Promise.all([fetchDashboard(), fetchAccounts(), fetchLogs()]);
+    await Promise.allSettled([
+      fetchDashboard(),
+      fetchAccounts(),
+      fetchLogs(),
+      (async () => {
+        try {
+          const token = await AsyncStorage.getItem("access_token");
+          if (!token) return;
+          const headers = { Authorization: `Bearer ${token}` };
+          const res = await apiClient.get("/admin/analytics", { headers });
+          setCache("api:/admin/analytics", res.data ?? {});
+        } catch {}
+      })(),
+      (async () => {
+        try {
+          const token = await AsyncStorage.getItem("access_token");
+          if (!token) return;
+          const headers = { Authorization: `Bearer ${token}` };
+          const res = await apiClient.get("/admin/notifications", { headers });
+          setCache("api:/admin/notifications", res.data ?? {});
+        } catch {}
+      })(),
+    ]);
     setLoading(false);
   }, [fetchDashboard, fetchAccounts, fetchLogs]);
 

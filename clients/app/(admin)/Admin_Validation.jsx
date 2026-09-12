@@ -5,12 +5,12 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
+import { ListSkeleton } from "../../components/PageSkeletons";
 import Admin_ViewSimilarReportsModal from "../../components/Admin_compo/Admin_ViewSimilarReportsModal";
 import Admin_AddReportModal from "../../components/Admin_compo/Admin_AddReportModal";
 import Admin_AddAnnouncementModal from "../../components/Admin_compo/Admin_AddAnnouncementModal";
@@ -18,16 +18,28 @@ import apiClient from "../../services/apiClient";
 import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
+import ToastProvider, { useToast } from "../../components/Toast";
 
 
 const COMMUNISHIELD_BLUE = "#294880";
 
-export default function Admin_Validation() {
+export default function Admin_ValidationWrapper() {
+  return (
+    <ToastProvider>
+      <Admin_Validation />
+    </ToastProvider>
+  );
+}
+
+function Admin_Validation() {
+  const toast = useToast();
+  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [selectedWeekRange, setSelectedWeekRange] = useState("All Weeks");
   const [selectedCompiledGroup, setSelectedCompiledGroup] = useState(null);
   const [viewVisible, setViewVisible] = useState(false);
   const [addReportVisible, setAddReportVisible] = useState(false);
+  const [validating, setValidating] = useState(false);
 
   const [addAnnouncementVisible, setAddAnnouncementVisible] = useState(false);
 
@@ -117,6 +129,8 @@ const handleAddAnnouncement = () => {
       applyList(res.data?.reports || []);
     } catch {
       // keep last loaded data on failure
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -173,10 +187,41 @@ const handleAddAnnouncement = () => {
   const getGroupedReports = (reportsList) => {
     const grouped = {};
 
-    reportsList.forEach((report) => {
-      const groupKey = `${report.category}-${report.type}-${report.barangay}`.toLowerCase();
+    const parseDate = (submittedAt) => {
+      if (!submittedAt) return null;
+      const datePart = submittedAt.split("•")?.[0]?.trim();
+      const d = new Date(datePart);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
 
-      if (!grouped[groupKey]) {
+    reportsList.forEach((report) => {
+      const reportDate = parseDate(report.submittedAt);
+      const baseKey = `${report.category}-${report.type}-${report.barangay}-${report.status}`.toLowerCase();
+
+      let placed = false;
+
+      const existingKeys = Object.keys(grouped).filter((k) => k.startsWith(baseKey));
+
+      for (const key of existingKeys) {
+        const group = grouped[key];
+        const groupDate = group._earliestDate;
+        if (groupDate && reportDate) {
+          const diffMs = Math.abs(reportDate.getTime() - groupDate.getTime());
+          if (diffMs <= 24 * 60 * 60 * 1000) {
+            group.reports.push(report);
+            group.aiScore = Math.max(group.aiScore, report.aiScore);
+            group.severity = getHighestSeverity(group.severity, report.severity);
+            placed = true;
+            break;
+          }
+        }
+      }
+
+      if (!placed) {
+        const groupKey = existingKeys.length > 0
+          ? `${baseKey}-${existingKeys.length}`
+          : baseKey;
+
         grouped[groupKey] = {
           id: groupKey,
           title: `${report.type} in ${report.barangay}`,
@@ -189,18 +234,9 @@ const handleAddAnnouncement = () => {
           severity: report.severity,
           sentiment: report.sentiment,
           submittedAt: report.submittedAt,
+          _earliestDate: reportDate,
           reports: [report],
         };
-      } else {
-        grouped[groupKey].reports.push(report);
-        grouped[groupKey].aiScore = Math.max(
-          grouped[groupKey].aiScore,
-          report.aiScore
-        );
-        grouped[groupKey].severity = getHighestSeverity(
-          grouped[groupKey].severity,
-          report.severity
-        );
       }
     });
 
@@ -220,6 +256,7 @@ const handleAddAnnouncement = () => {
 
       return {
         ...group,
+        _earliestDate: undefined,
         status: getGroupMainStatus(group.reports),
         reportCount: group.reports.length,
         userCount: userReports.length,
@@ -294,6 +331,14 @@ const handleAddAnnouncement = () => {
 
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <Admin_Layout>
+        <ListSkeleton />
+      </Admin_Layout>
+    );
   }
 
   const totalReports = reports.length;
@@ -398,8 +443,9 @@ const handleAddAnnouncement = () => {
   };
 
   const applyValidation = async (target, newStatus) => {
-    if (!target) return;
+    if (!target || validating) return;
 
+    setValidating(true);
     const targetIds = target.reports
       ? target.reports.map((item) => item.id)
       : [target.id];
@@ -425,10 +471,11 @@ const handleAddAnnouncement = () => {
       setSelectedCompiledGroup(null);
       loadValidation();
     } catch (error) {
-      Alert.alert(
-        "Update Failed",
+      toast.error(
         error.response?.data?.error || "Could not update report status."
       );
+    } finally {
+      setValidating(false);
     }
   };
 
@@ -474,13 +521,9 @@ const handleAddAnnouncement = () => {
       );
 
       setAddAnnouncementVisible(false);
-      Alert.alert(
-        "Announcement Published",
-        "The announcement has been posted."
-      );
+      toast.success("The announcement has been posted.");
     } catch (error) {
-      Alert.alert(
-        "Publish Failed",
+      toast.error(
         error.response?.data?.error || "Could not publish the announcement."
       );
     }
@@ -872,6 +915,7 @@ const handleAddAnnouncement = () => {
         onReject={handleReject}
         onMapAndVerify={handleMapAndVerify}
         onMarkAsFake={handleMarkAsFake}
+        validating={validating}
     />
 
         <Admin_AddReportModal

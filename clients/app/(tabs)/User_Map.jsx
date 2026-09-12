@@ -18,6 +18,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
 import MapView from "../../components/MapView";
+import { MapSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
@@ -68,6 +69,7 @@ const UserMap = () => {
     const cached = getCache("api:/facilities/nearby");
     return cached?.facilities || [];
   });
+  const [loading, setLoading] = useState(() => getCache("api:/facilities/nearby") === undefined);
   const [facilitiesLoading, setFacilitiesLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const scrollRef = useScrollToTop();
@@ -142,6 +144,7 @@ const UserMap = () => {
     } finally {
       hasLoadedFacilitiesRef.current = true;
       setFacilitiesLoading(false);
+      setLoading(false);
       setRefreshing(false);
     }
   }, [userPosition]);
@@ -214,6 +217,14 @@ const UserMap = () => {
   };
 
   const getFacilityIcon = getFacilityIconName;
+
+  if (loading) {
+    return (
+      <ThemedView style={{ backgroundColor: "#F8F8F8" }}>
+        <MapSkeleton />
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>

@@ -5,6 +5,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -13,15 +14,28 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
+import { SettingsSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import { clearAuth } from "../../services/auth";
 import { getCache, setCache } from "../../services/dataStore";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
+import ToastProvider, { useToast } from "../../components/Toast";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
+const UserSettingsWrapper = () => {
+  return (
+    <ToastProvider>
+      <UserSettings />
+    </ToastProvider>
+  );
+};
+
 const UserSettings = () => {
+  const toast = useToast();
   const router = useRouter();
+
+  const [loading, setLoading] = useState(() => getCache("api:/profile") === undefined);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -60,6 +74,8 @@ const UserSettings = () => {
     } catch {
       setDisplayName("SafeZone User");
       setDisplayEmail("youraccount@email.com");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -73,9 +89,22 @@ const UserSettings = () => {
     return null;
   }
 
+  if (loading) {
+    return (
+      <ThemedView style={{ backgroundColor: "#F8F8F8" }}>
+        <SettingsSkeleton />
+      </ThemedView>
+    );
+  }
+
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
   const handleLogout = async () => {
     await clearAuth();
-    router.replace("/(auth)/User_Login");
+    toast.success("You have been logged out successfully.");
+    setTimeout(() => {
+      router.replace("/(auth)/User_Login");
+    }, 800);
   };
 
   const SettingItem = ({
@@ -182,18 +211,6 @@ const UserSettings = () => {
             }
           />
 
-          <SettingItem
-            icon="help-circle-outline"
-            iconBg="#EAF8F0"
-            iconColor="#2E9E5B"
-            title="Help & Support"
-            subtitle="Get assistance and answers to common issues"
-            onPress={() => {}}
-            rightComponent={
-              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-            }
-            showBorder={false}
-          />
         </View>
 
         <View style={styles.dangerCard}>
@@ -212,13 +229,55 @@ const UserSettings = () => {
 
           <TouchableOpacity
             style={styles.logoutButton}
-            onPress={handleLogout}
+            onPress={() => setShowLogoutModal(true)}
             activeOpacity={0.88}
           >
             <ThemedText style={styles.logoutText}>Logout</ThemedText>
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={showLogoutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconWrap}>
+              <Ionicons name="log-out-outline" size={28} color="#D64545" />
+            </View>
+
+            <ThemedText style={styles.modalTitle}>Confirm Logout</ThemedText>
+
+            <ThemedText style={styles.modalSubtitle}>
+              Are you sure you want to sign out of your account?
+            </ThemedText>
+
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setShowLogoutModal(false)}
+                activeOpacity={0.85}
+              >
+                <ThemedText style={styles.modalCancelText}>Cancel</ThemedText>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalConfirmButton}
+                onPress={() => {
+                  setShowLogoutModal(false);
+                  handleLogout();
+                }}
+                activeOpacity={0.85}
+              >
+                <ThemedText style={styles.modalConfirmText}>Logout</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 };
@@ -385,6 +444,90 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontFamily: "PoppinsSemiBold",
   },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+
+  modalCard: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E7ECF3",
+  },
+
+  modalIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#FDEBEC",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+
+  modalTitle: {
+    fontSize: 18,
+    fontFamily: "PoppinsSemiBold",
+    color: "#1F2A37",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+
+  modalSubtitle: {
+    fontSize: 13,
+    fontFamily: "PoppinsRegular",
+    color: "#5F6B7A",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+
+  modalButtonRow: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+  },
+
+  modalCancelButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D8E0EB",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  modalCancelText: {
+    fontSize: 13,
+    fontFamily: "PoppinsMedium",
+    color: "#475467",
+  },
+
+  modalConfirmButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#D64545",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  modalConfirmText: {
+    fontSize: 13,
+    fontFamily: "PoppinsSemiBold",
+    color: "#FFFFFF",
+  },
 });
 
-export default UserSettings;
+export default UserSettingsWrapper;

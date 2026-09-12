@@ -91,6 +91,14 @@ export const toReportCode = (id) => {
   return String(hash % 100000000).padStart(8, "0");
 };
 
+export const hashReportIdsInText = (text) => {
+  if (!text) return "";
+  return text.replace(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+    (uuid) => toReportCode(uuid)
+  );
+};
+
 export const authHeaders = async () => {
   const token = await AsyncStorage.getItem("access_token");
   return token ? { Authorization: `Bearer ${token}` } : {};

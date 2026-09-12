@@ -15,6 +15,7 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import SAdmin_Layout from "../../components/SAdmin_Compo/SAdmin_Layout";
+import { SettingsSkeleton } from "../../components/PageSkeletons";
 import { saveAdminInfo } from "../../services/auth";
 import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
@@ -131,6 +132,8 @@ function SettingRow({ icon, title, description, rightContent, isLast = false }) 
 }
 
 export default function SAdmin_Settings() {
+  const [loading, setLoading] = useState(() => getCache("api:/profile") === undefined);
+
   const [fullName, setFullName] = useState("CommuniShield SuperAdmin");
   const [emailAddress, setEmailAddress] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("0912 345 6789");
@@ -254,6 +257,8 @@ export default function SAdmin_Settings() {
       setApiEndpoint(settings.ai_api_endpoint || "");
     } catch {
       // keep existing defaults on failure
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -265,6 +270,14 @@ export default function SAdmin_Settings() {
 
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <SAdmin_Layout>
+        <SettingsSkeleton />
+      </SAdmin_Layout>
+    );
   }
 
   const incidentCategories = [

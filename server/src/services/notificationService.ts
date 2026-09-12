@@ -422,6 +422,17 @@ export const notificationService = {
     return { data: true };
   },
 
+  async markAllRead(userId: string) {
+    const { error } = await supabaseAdmin
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("user_id", userId)
+      .eq("is_read", false);
+
+    if (error) return { error: error.message };
+    return { data: true };
+  },
+
   async markAdminRead(notificationId: string) {
     const { error } = await supabaseAdmin
       .from("notifications")

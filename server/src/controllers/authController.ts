@@ -124,7 +124,7 @@ export const adminLogin = async (req: Request, res: Response) => {
     }
 
     if (profile.role === "user") {
-      return res.status(403).json({ error: "Admin access only. Your role is set to 'user'." });
+      return res.status(403).json({ error: "Admin access only." });
     }
 
     res.json({

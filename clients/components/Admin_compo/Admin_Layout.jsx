@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
+  Modal,
 } from "react-native";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
@@ -15,6 +16,7 @@ import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
 import { IMAGES } from "../../constants/assets";
+import ToastProvider, { useToast } from "../../components/Toast";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -36,12 +38,22 @@ const formatRelativeTime = (iso) => {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 };
 
-export default function Admin_Layout({ children }) {
+export default function Admin_LayoutWrapper({ children }) {
+  return (
+    <ToastProvider>
+      <Admin_Layout>{children}</Admin_Layout>
+    </ToastProvider>
+  );
+}
+
+function Admin_Layout({ children }) {
+  const toast = useToast();
   const router = useRouter();
   const pathname = usePathname();
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -272,7 +284,10 @@ export default function Admin_Layout({ children }) {
     setShowNotifications(false);
     setShowProfileDropdown(false);
     await clearAuth();
-    router.replace("/(auth)/Admin_Login");
+    toast.success("You have been logged out successfully.");
+    setTimeout(() => {
+      router.replace("/(auth)/Admin_Login");
+    }, 800);
   };
 
   const closeDropdowns = () => {
@@ -508,7 +523,10 @@ export default function Admin_Layout({ children }) {
                 <View style={styles.profileDropdown}>
                   <TouchableOpacity
                     style={styles.profileDropdownItem}
-                    onPress={handleLogout}
+                    onPress={() => {
+                      setShowProfileDropdown(false);
+                      setShowLogoutModal(true);
+                    }}
                     activeOpacity={0.75}
                   >
                     <View
@@ -550,6 +568,48 @@ export default function Admin_Layout({ children }) {
           {children}
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={showLogoutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconWrap}>
+              <Ionicons name="log-out-outline" size={28} color="#DC2626" />
+            </View>
+
+            <Text style={styles.modalTitle}>Confirm Logout</Text>
+
+            <Text style={styles.modalSubtitle}>
+              Are you sure you want to sign out of the admin panel?
+            </Text>
+
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setShowLogoutModal(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalConfirmButton}
+                onPress={() => {
+                  setShowLogoutModal(false);
+                  handleLogout();
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.modalConfirmText}>Logout</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1024,5 +1084,89 @@ const styles = {
     paddingHorizontal: 26,
     paddingBottom: 26,
     paddingTop: 24,
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+
+  modalCard: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 28,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E7ECF3",
+  },
+
+  modalIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#FDEBEC",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: "PoppinsSemiBold",
+    color: "#16233A",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+
+  modalSubtitle: {
+    fontSize: 14,
+    fontFamily: "PoppinsRegular",
+    color: "#5D6F92",
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+
+  modalButtonRow: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+
+  modalCancelButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  modalCancelText: {
+    fontSize: 14,
+    fontFamily: "PoppinsMedium",
+    color: "#475467",
+  },
+
+  modalConfirmButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: "#DC2626",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  modalConfirmText: {
+    fontSize: 14,
+    fontFamily: "PoppinsSemiBold",
+    color: "#FFFFFF",
   },
 };

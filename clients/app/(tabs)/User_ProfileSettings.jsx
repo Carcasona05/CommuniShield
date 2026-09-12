@@ -9,7 +9,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   TouchableWithoutFeedback,
-  Alert,
   Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,10 +19,12 @@ import { useFocusEffect } from "expo-router";
 
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
+import { ProfileFormSkeleton } from "../../components/PageSkeletons";
 import Divboxwhite from "../../components/Divboxwhite";
 import ThemedHeader from "../../components/ThemedHeader";
 import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
+import ToastProvider, { useToast } from "../../components/Toast";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -225,7 +226,18 @@ const CredibilityScore = ({ statusIndex = 3, score = 60 }) => {
   );
 };
 
+const UserProfileSettingsWrapper = () => {
+  return (
+    <ToastProvider>
+      <UserProfileSettings />
+    </ToastProvider>
+  );
+};
+
 const UserProfileSettings = () => {
+  const toast = useToast();
+  const [loading, setLoading] = useState(() => getCache("api:/profile") === undefined);
+
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
     PoppinsMedium: require("../../assets/fonts/Poppins-Medium.ttf"),
@@ -324,6 +336,8 @@ const UserProfileSettings = () => {
       applyProfile(profile);
     } catch {
       // profile fetch failed; keep empty defaults
+    } finally {
+      setLoading(false);
     }
   }, [applyProfile]);
 
@@ -335,6 +349,14 @@ const UserProfileSettings = () => {
 
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <ThemedView style={{ backgroundColor: "#F8F8F8" }}>
+        <ProfileFormSkeleton />
+      </ThemedView>
+    );
   }
 
   const hasChanges = () => {
@@ -408,8 +430,7 @@ const UserProfileSettings = () => {
         "Failed to save profile:",
         error.response?.data?.error || error.message
       );
-      Alert.alert(
-        "Save failed",
+      toast.error(
         error.response?.data?.error ||
           "Could not save your profile. Please try again."
       );
@@ -466,10 +487,9 @@ const UserProfileSettings = () => {
       setShowConfirmPassword(false);
       setPasswordEditMode(false);
 
-      Alert.alert("Success", "Your access code has been updated successfully.");
+      toast.success("Your access code has been updated successfully.");
     } catch (error) {
-      Alert.alert(
-        "Update failed",
+      toast.error(
         error.response?.data?.error ||
           "Could not update your access code. Please try again."
       );
@@ -491,6 +511,11 @@ const UserProfileSettings = () => {
     setCurrentPasswordError("");
     setNewPasswordError("");
     setConfirmPasswordError("");
+  };
+
+  const hasPasswordChanges = () => {
+    const { currentPassword, newPassword, confirmPassword } = passwordDetails;
+    return !!(currentPassword || newPassword || confirmPassword);
   };
 
   const updateTempDetail = useCallback((key, value) => {
@@ -710,8 +735,8 @@ const UserProfileSettings = () => {
                       <ThemedText style={styles.cancelText}>Cancel</ThemedText>
                     </TouchableOpacity>
 
-                    <TouchableOpacity onPress={handlePasswordSave}>
-                      <ThemedText style={styles.saveText}>Save</ThemedText>
+                    <TouchableOpacity onPress={handlePasswordSave} disabled={!hasPasswordChanges()} style={[styles.saveButton, !hasPasswordChanges() && styles.saveButtonDisabled]}>
+                      <ThemedText style={[styles.saveText, !hasPasswordChanges() && styles.saveTextDisabled]}>Save</ThemedText>
                     </TouchableOpacity>
                   </View>
                 ) : (
@@ -1241,4 +1266,4 @@ const DetailRow = React.memo(function DetailRow({ icon, label, value, editValue,
   );
 });
 
-export default UserProfileSettings;
+export default UserProfileSettingsWrapper;

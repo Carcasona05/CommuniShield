@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Modal,
   View,
@@ -16,6 +16,48 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 
 const COMMUNISHIELD_BLUE = "#294880";
+
+const ARGAO_BARANGAYS = [
+  "Abaga",
+  "Angadan",
+  "Barangay 1 (Pob.)",
+  "Barangay 2 (Pob.)",
+  "Barangay 3 (Pob.)",
+  "Barangay 4 (Pob.)",
+  "Barangay 5 (Pob.)",
+  "Barangay 6 (Pob.)",
+  "Barangay 7 (Pob.)",
+  "Barangay 8 (Pob.)",
+  "Barangay 9 (Pob.)",
+  "Barangay 10 (Pob.)",
+  "Barangay 11 (Pob.)",
+  "Barangay 12 (Pob.)",
+  "Barangay 13 (Pob.)",
+  "Barangay 14 (Pob.)",
+  "Bulasa",
+  "Buhi",
+  "Dakli",
+  "Dalaguet",
+  "Datu",
+  "Ginabangan",
+  "Gonghos",
+  "Guimbangco-an",
+  "Guiso",
+  "Hilasmasan",
+  "Ilasan",
+  "Langtad",
+  "Lusong",
+  "Malacoromong",
+  "Malay",
+  "Malitbog",
+  "Nabangad",
+  "Patong",
+  "Poblacion",
+  "Sacsac",
+  "Sua",
+  "Tubod",
+  "Zumarraga",
+];
 
 const announcementTypes = [
   "Curfew",
@@ -46,17 +88,29 @@ export default function Admin_AddAnnouncementModal({
 
   const [announcementType, setAnnouncementType] = useState("");
   const [location, setLocation] = useState("");
+  const [locationSearch, setLocationSearch] = useState("");
+  const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const [details, setDetails] = useState("");
 
   const [image, setImage] = useState(null);
 
   const [showTypeList, setShowTypeList] = useState(false);
 
+  const filteredBarangays = useMemo(() => {
+    const query = locationSearch.trim().toLowerCase();
+    if (!query) return ARGAO_BARANGAYS;
+    return ARGAO_BARANGAYS.filter((b) =>
+      b.toLowerCase().includes(query)
+    );
+  }, [locationSearch]);
+
   if (!fontsLoaded) return null;
 
   const resetForm = () => {
     setAnnouncementType("");
     setLocation("");
+    setLocationSearch("");
+    setShowLocationDropdown(false);
     setDetails("");
     setImage(null);
     setShowTypeList(false);
@@ -241,15 +295,89 @@ export default function Admin_AddAnnouncementModal({
             {/* LOCATION */}
 
             <Text style={styles.label}>
-              Location
+              Location (Argao)
             </Text>
 
-            <TextInput
-              placeholder="Enter location"
-              value={location}
-              onChangeText={setLocation}
-              style={styles.input}
-            />
+            <View style={styles.locationInputWrap}>
+              <Ionicons
+                name="location-outline"
+                size={18}
+                color={COMMUNISHIELD_BLUE}
+              />
+
+              <TextInput
+                placeholder="Search barangay in Argao..."
+                value={locationSearch}
+                onChangeText={(text) => {
+                  setLocationSearch(text);
+                  setShowLocationDropdown(true);
+                  setLocation("");
+                }}
+                onFocus={() => setShowLocationDropdown(true)}
+                style={styles.locationInput}
+                placeholderTextColor="#999"
+              />
+            </View>
+
+            {showLocationDropdown && locationSearch.length > 0 && (
+              <View style={styles.locationDropdown}>
+                <ScrollView
+                  style={{ maxHeight: 160 }}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {filteredBarangays.length === 0 ? (
+                    <View style={styles.locationDropdownItem}>
+                      <Text style={styles.locationDropdownText}>
+                        No barangay found
+                      </Text>
+                    </View>
+                  ) : (
+                    filteredBarangays.map((barangay) => (
+                      <TouchableOpacity
+                        key={barangay}
+                        style={styles.locationDropdownItem}
+                        onPress={() => {
+                          setLocation(`${barangay}, Argao, Cebu`);
+                          setLocationSearch(`${barangay}, Argao, Cebu`);
+                          setShowLocationDropdown(false);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.locationDropdownText}>
+                          {barangay}
+                        </Text>
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </ScrollView>
+              </View>
+            )}
+
+            {showLocationDropdown && locationSearch.length === 0 && (
+              <View style={styles.locationDropdown}>
+                <ScrollView
+                  style={{ maxHeight: 160 }}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {ARGAO_BARANGAYS.map((barangay) => (
+                    <TouchableOpacity
+                      key={barangay}
+                      style={styles.locationDropdownItem}
+                      onPress={() => {
+                        setLocation(`${barangay}, Argao, Cebu`);
+                        setLocationSearch(`${barangay}, Argao, Cebu`);
+                        setShowLocationDropdown(false);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.locationDropdownText}>
+                        {barangay}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
             {/* DETAILS */}
 
@@ -431,6 +559,54 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "PoppinsRegular",
     backgroundColor: "#FFFFFF",
+  },
+
+  locationInputWrap: {
+    minHeight: 50,
+    marginHorizontal: 20,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  locationInput: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 14,
+    fontFamily: "PoppinsRegular",
+    color: "#111827",
+  },
+
+  locationDropdown: {
+    marginHorizontal: 20,
+    marginTop: 4,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    borderRadius: 12,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+
+  locationDropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF2F8",
+  },
+
+  locationDropdownText: {
+    fontSize: 14,
+    color: "#374151",
+    fontFamily: "PoppinsRegular",
   },
 
   textArea: {

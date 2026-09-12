@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -10,8 +10,12 @@ import {
 import { Tabs, usePathname, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import BottomNavBar from "../../components/BottomNavBar";
 import { scrollToTop } from "../../services/scrollToTopBus";
+import apiClient from "../../services/apiClient";
+import useAutoRefresh from "../../hooks/useAutoRefresh";
+import { getCache } from "../../services/dataStore";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -25,6 +29,54 @@ export default function TabLayout() {
     PoppinsMedium: require("../../assets/fonts/Poppins-Medium.ttf"),
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
+
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+
+      const cached = getCache("api:/notifications");
+      if (cached) {
+        const allItems = [
+          ...(cached.reportStatuses || []),
+          ...(cached.nearbyIncidents || []),
+        ];
+        setUnreadCount(allItems.filter((n) => !n.isRead).length);
+      }
+
+      const res = await apiClient.get("/notifications", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const allItems = [
+        ...(res.data?.reportStatuses || []),
+        ...(res.data?.nearbyIncidents || []),
+      ];
+      setUnreadCount(allItems.filter((n) => !n.isRead).length);
+    } catch {
+      // keep last count
+    }
+  }, []);
+
+  useAutoRefresh(loadNotifications, 30000);
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      const role = window.localStorage.getItem("user_role");
+      if (role === "super_admin") {
+        window.location.href = "/(sadmin)/SAdmin_Dashboard";
+      } else if (role === "admin") {
+        window.location.href = "/(admin)/Admin_Dashboard";
+      } else {
+        window.location.href = "/(auth)/Admin_Login";
+      }
+    }
+  }, []);
+
+  if (Platform.OS === "web") {
+    return null;
+  }
 
   if (!fontsLoaded) return null;
 
@@ -104,6 +156,11 @@ export default function TabLayout() {
             size={22}
             color={COMMUNISHIELD_BLUE}
           />
+          {unreadCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{unreadCount}</Text>
+            </View>
+          )}
         </TouchableOpacity>
       </View>
     );
@@ -293,5 +350,35 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 10,
     elevation: 4,
+  },
+
+  unreadDot: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#DC2626",
+  },
+
+  badge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    backgroundColor: "#DC2626",
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
+  },
+
+  badgeText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontFamily: "PoppinsSemiBold",
+    lineHeight: 20,
   },
 });

@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Image,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -21,6 +22,7 @@ export default function Admin_ViewSimilarReportsModal({
   onMapAndVerify,
   onMarkAsFake,
   onArchiveReport,
+  validating = false,
 }) {
   const [openMenuReportId, setOpenMenuReportId] = useState(null);
 
@@ -871,36 +873,51 @@ export default function Admin_ViewSimilarReportsModal({
 
           <View style={styles.footerActions}>
             <TouchableOpacity
-              style={styles.underVerificationButton}
+              style={[styles.underVerificationButton, validating && styles.buttonDisabled]}
               onPress={() => onVerify(compiledGroup)}
               activeOpacity={0.85}
+              disabled={validating}
             >
-              <Ionicons name="sync-outline" size={17} color={COMMUNISHIELD_BLUE} />
+              {validating ? (
+                <ActivityIndicator size="small" color={COMMUNISHIELD_BLUE} />
+              ) : (
+                <Ionicons name="sync-outline" size={17} color={COMMUNISHIELD_BLUE} />
+              )}
               <Text style={styles.underVerificationText}>
-                Under Verification
+                {validating ? "Processing..." : "Under Verification"}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.resolvedButton}
+              style={[styles.resolvedButton, validating && styles.buttonDisabled]}
               onPress={() => onMapAndVerify(compiledGroup)}
               activeOpacity={0.85}
+              disabled={validating}
             >
-              <Ionicons
-                name="checkmark-circle-outline"
-                size={17}
-                color="#FFFFFF"
-              />
-              <Text style={styles.resolvedButtonText}>Resolved</Text>
+              {validating ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons
+                  name="checkmark-circle-outline"
+                  size={17}
+                  color="#FFFFFF"
+                />
+              )}
+              <Text style={styles.resolvedButtonText}>{validating ? "Processing..." : "Resolved"}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.rejectedButton}
+              style={[styles.rejectedButton, validating && styles.buttonDisabled]}
               onPress={() => onReject(compiledGroup)}
               activeOpacity={0.85}
+              disabled={validating}
             >
-              <Ionicons name="close-circle-outline" size={17} color="#E45757" />
-              <Text style={styles.rejectedText}>Rejected</Text>
+              {validating ? (
+                <ActivityIndicator size="small" color="#E45757" />
+              ) : (
+                <Ionicons name="close-circle-outline" size={17} color="#E45757" />
+              )}
+              <Text style={styles.rejectedText}>{validating ? "Processing..." : "Rejected"}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1560,5 +1577,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "PoppinsSemiBold",
     color: "#E45757",
+  },
+
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });

@@ -5,6 +5,8 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
@@ -13,6 +15,7 @@ import { useRouter } from "expo-router";
 
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
+import { ListSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
@@ -80,9 +83,9 @@ const mapNotifications = (notifData, loginData) => ({
   })),
 });
 
-const ReportStatusCard = ({ item }) => {
+const ReportStatusCard = ({ item, onPress }) => {
   return (
-    <TouchableOpacity activeOpacity={0.86} style={styles.card}>
+    <TouchableOpacity activeOpacity={0.86} style={[styles.card, !item.isRead && styles.cardUnread]} onPress={onPress}>
       <View style={styles.cardTopRow}>
         <View style={styles.iconTitleWrap}>
           <View
@@ -101,7 +104,10 @@ const ReportStatusCard = ({ item }) => {
           </View>
 
           <View style={styles.cardTitleWrap}>
-            <ThemedText style={styles.cardTitle}>{item.title}</ThemedText>
+            <View style={styles.cardTitleRow}>
+              <ThemedText style={styles.cardTitle}>{item.title}</ThemedText>
+              {!item.isRead && <View style={styles.unreadDot} />}
+            </View>
             <ThemedText style={styles.cardTime}>{item.time}</ThemedText>
           </View>
         </View>
@@ -137,11 +143,11 @@ const ReportStatusCard = ({ item }) => {
   );
 };
 
-const NearbyIncidentCard = ({ item, onViewPost }) => {
+const NearbyIncidentCard = ({ item, onPress, onViewPost }) => {
   const high = item.level === "High";
 
   return (
-    <TouchableOpacity activeOpacity={0.86} style={styles.card}>
+    <TouchableOpacity activeOpacity={0.86} style={[styles.card, !item.isRead && styles.cardUnread]} onPress={onPress}>
       <View style={styles.cardTopRow}>
         <View style={styles.iconTitleWrap}>
           <View
@@ -158,7 +164,10 @@ const NearbyIncidentCard = ({ item, onViewPost }) => {
           </View>
 
           <View style={styles.cardTitleWrap}>
-            <ThemedText style={styles.cardTitle}>{item.type}</ThemedText>
+            <View style={styles.cardTitleRow}>
+              <ThemedText style={styles.cardTitle}>{item.type}</ThemedText>
+              {!item.isRead && <View style={styles.unreadDot} />}
+            </View>
             <ThemedText style={styles.cardTime}>{item.time}</ThemedText>
           </View>
         </View>
@@ -188,7 +197,7 @@ const NearbyIncidentCard = ({ item, onViewPost }) => {
           <ThemedText style={styles.metaText}>{item.distance}</ThemedText>
         </View>
 
-        <TouchableOpacity activeOpacity={0.8} onPress={() => onViewPost(item.reportId)}>
+        <TouchableOpacity activeOpacity={0.8} onPress={() => { onPress?.(); onViewPost(item.reportId); }}>
           <ThemedText style={styles.linkText}>View Post</ThemedText>
         </TouchableOpacity>
       </View>
@@ -263,6 +272,8 @@ const SectionHeader = ({ title, action, onAction }) => {
 };
 
 const User_Notification = () => {
+  const [loading, setLoading] = useState(() => getCache("api:/notifications") === undefined);
+
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
     PoppinsMedium: require("../../assets/fonts/Poppins-Medium.ttf"),
@@ -282,6 +293,7 @@ const User_Notification = () => {
     return cached?.activity || [];
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [marking, setMarking] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
     reports: false,
     nearby: false,
@@ -355,6 +367,7 @@ const User_Notification = () => {
     } catch {
       // leave lists empty on failure
     } finally {
+      setLoading(false);
       setRefreshing(false);
     }
   }, []);
@@ -368,8 +381,73 @@ const User_Notification = () => {
     loadNotifications();
   }, [loadNotifications]);
 
+  const unreadCount =
+    userReports.filter((n) => !n.isRead).length +
+    nearbyIncidents.filter((n) => !n.isRead).length;
+
+  const handleMarkAllRead = useCallback(async () => {
+    if (marking) return;
+    setMarking(true);
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+
+      const unreadIds = [
+        ...userReports.filter((n) => !n.isRead).map((n) => n.id),
+        ...nearbyIncidents.filter((n) => !n.isRead).map((n) => n.id),
+      ];
+
+      await Promise.all(
+        unreadIds.map((id) =>
+          apiClient.patch(
+            `/notifications/${id}/read`,
+            {},
+            { headers: { Authorization: `Bearer ${token}` } }
+          )
+        )
+      );
+
+      setUserReports((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      setNearbyIncidents((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    } catch {
+      Alert.alert("Error", "Could not mark notifications as read.");
+    } finally {
+      setMarking(false);
+    }
+  }, [marking, userReports, nearbyIncidents]);
+
+  const markAsRead = useCallback(async (id) => {
+    setUserReports((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
+    );
+    setNearbyIncidents((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
+    );
+
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (token) {
+        await apiClient.patch(
+          `/notifications/${id}/read`,
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+    } catch {
+      // keep local read state
+    }
+  }, []);
+
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <ThemedView style={{ backgroundColor: "#F8F8F8" }}>
+        <ListSkeleton />
+      </ThemedView>
+    );
   }
 
   return (
@@ -388,6 +466,24 @@ const User_Notification = () => {
           />
         }
       >
+        {unreadCount > 0 && (
+          <TouchableOpacity
+            style={[styles.markAllReadButton, marking && styles.markAllReadButtonDisabled]}
+            activeOpacity={0.8}
+            onPress={handleMarkAllRead}
+            disabled={marking}
+          >
+            {marking ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Ionicons name="checkmark-done-outline" size={18} color="#FFFFFF" />
+            )}
+            <ThemedText style={styles.markAllReadText}>
+              {marking ? "Marking..." : "Mark all as read"}
+            </ThemedText>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.sectionBlock}>
           <SectionHeader
             title="Your Reports"
@@ -405,7 +501,7 @@ const User_Notification = () => {
             <ThemedText style={styles.emptyText}>No report updates yet.</ThemedText>
           ) : (
             sliceItems(userReports, expandedSections.reports).map((item) => (
-              <ReportStatusCard key={item.id} item={item} />
+              <ReportStatusCard key={item.id} item={item} onPress={() => markAsRead(item.id)} />
             ))
           )}
         </View>
@@ -430,6 +526,7 @@ const User_Notification = () => {
               <NearbyIncidentCard
                 key={item.id}
                 item={item}
+                onPress={() => markAsRead(item.id)}
                 onViewPost={openNearbyPost}
               />
             ))
@@ -508,6 +605,23 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: "#E7ECF3",
+  },
+
+  cardUnread: {
+    backgroundColor: "#F8FAFD",
+  },
+
+  cardTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#DC2626",
+    marginLeft: 8,
   },
 
   cardTopRow: {
@@ -599,6 +713,28 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
     textAlign: "center",
     paddingVertical: 16,
+  },
+
+  markAllReadButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COMMUNISHIELD_BLUE,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    marginBottom: 16,
+    gap: 8,
+  },
+
+  markAllReadButtonDisabled: {
+    opacity: 0.6,
+  },
+
+  markAllReadText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontFamily: "PoppinsMedium",
   },
 });
 

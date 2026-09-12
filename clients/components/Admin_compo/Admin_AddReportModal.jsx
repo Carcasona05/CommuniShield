@@ -8,11 +8,9 @@ import {
   TextInput,
   ScrollView,
   Image,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
@@ -22,8 +20,51 @@ import Dropdown from "../../components/Dropdown";
 import apiClient from "../../services/apiClient";
 import { uploadImages } from "../../services/imageUpload";
 import { getCache, setCache } from "../../services/dataStore";
+import { useToast } from "../../components/Toast";
 
 const COMMUNISHIELD_BLUE = "#294880";
+
+const ARGAO_BARANGAYS = [
+  "Abaga",
+  "Angadan",
+  "Barangay 1 (Pob.)",
+  "Barangay 2 (Pob.)",
+  "Barangay 3 (Pob.)",
+  "Barangay 4 (Pob.)",
+  "Barangay 5 (Pob.)",
+  "Barangay 6 (Pob.)",
+  "Barangay 7 (Pob.)",
+  "Barangay 8 (Pob.)",
+  "Barangay 9 (Pob.)",
+  "Barangay 10 (Pob.)",
+  "Barangay 11 (Pob.)",
+  "Barangay 12 (Pob.)",
+  "Barangay 13 (Pob.)",
+  "Barangay 14 (Pob.)",
+  "Bulasa",
+  "Buhi",
+  "Dakli",
+  "Dalaguet",
+  "Datu",
+  "Ginabangan",
+  "Gonghos",
+  "Guimbangco-an",
+  "Guiso",
+  "Hilasmasan",
+  "Ilasan",
+  "Langtad",
+  "Lusong",
+  "Malacoromong",
+  "Malay",
+  "Malitbog",
+  "Nabangad",
+  "Patong",
+  "Poblacion",
+  "Sacsac",
+  "Sua",
+  "Tubod",
+  "Zumarraga",
+];
 
 const FALLBACK_CATEGORIES = [
   {
@@ -96,6 +137,7 @@ export default function Admin_AddReportModal({
   onClose,
   onSubmit,
 }) {
+  const toast = useToast();
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
     PoppinsMedium: require("../../assets/fonts/Poppins-Medium.ttf"),
@@ -104,8 +146,10 @@ export default function Admin_AddReportModal({
 
   const [adminName, setAdminName] = useState("");
   const [location, setLocation] = useState("");
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
+  const [latitude, setLatitude] = useState("9.8816");
+  const [longitude, setLongitude] = useState("123.5953");
+  const [locationSearch, setLocationSearch] = useState("");
+  const [showLocationDropdown, setShowLocationDropdown] = useState(false);
 
   const [incidentCategory, setIncidentCategory] = useState("");
   const [incidentType, setIncidentType] = useState("");
@@ -113,8 +157,40 @@ export default function Admin_AddReportModal({
   const [details, setDetails] = useState("");
 
   const [photos, setPhotos] = useState([]);
-  const [loadingLocation, setLoadingLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const filteredBarangays = useMemo(() => {
+    const query = locationSearch.trim().toLowerCase();
+    if (!query) return ARGAO_BARANGAYS;
+    return ARGAO_BARANGAYS.filter((b) =>
+      b.toLowerCase().includes(query)
+    );
+  }, [locationSearch]);
+
+  const geocodeLocation = async (locationName) => {
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationName)}&limit=1`,
+        {
+          headers: {
+            "Accept-Language": "en",
+            "User-Agent": "CommuniShield-App/1.0",
+          },
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data.length > 0) {
+          setLatitude(data[0].lat);
+          setLongitude(data[0].lon);
+          return;
+        }
+      }
+    } catch {}
+
+    setLatitude("9.8816");
+    setLongitude("123.5953");
+  };
 
   const incidentOptions = categoryOptions.length
     ? categoryOptions
@@ -132,7 +208,6 @@ export default function Admin_AddReportModal({
 
     loadAdminProfile();
     loadCategories();
-    getCurrentLocation();
   }, [visible]);
 
   useEffect(() => {
@@ -201,112 +276,9 @@ export default function Admin_AddReportModal({
     }
   };
 
-  const fetchPlaceName = async (lat, lng) => {
-    try {
-      const [geocode] = await Location.reverseGeocodeAsync({
-        latitude: lat,
-        longitude: lng,
-      });
-
-      if (geocode) {
-        const barangay = (geocode.district || geocode.subregion || geocode.name || "").trim();
-        const city = (geocode.city || geocode.subregion || "").trim();
-        const province = (geocode.region || "").trim();
-
-        const parts = [];
-        [barangay, city, province].forEach((item) => {
-          if (item && !parts.some((p) => p.toLowerCase() === item.toLowerCase())) {
-            parts.push(item);
-          }
-        });
-
-        if (parts.length > 0) {
-          return parts.join(", ");
-        }
-      }
-    } catch {
-      // fallback
-    }
-
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
-        {
-          headers: {
-            "Accept-Language": "en",
-            "User-Agent": "CommuniShield-App/1.0",
-          },
-        }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const addr = data.address;
-        if (addr) {
-          const barangay = (addr.suburb || addr.village || addr.neighbourhood || addr.quarter || addr.hamlet || addr.road || "").trim();
-          const city = (addr.town || addr.city || addr.municipality || addr.district || "").trim();
-          const province = (addr.state || addr.region || addr.county || "").trim();
-
-          const parts = [];
-          [barangay, city, province].forEach((item) => {
-            if (item && !parts.some((p) => p.toLowerCase() === item.toLowerCase())) {
-              parts.push(item);
-            }
-          });
-
-          if (parts.length > 0) {
-            return parts.join(", ");
-          }
-        }
-      }
-    } catch {
-      // fallback
-    }
-
-    return null;
-  };
-
-  const getCurrentLocation = async () => {
-    try {
-      setLoadingLocation(true);
-
-      const { status } =
-        await Location.requestForegroundPermissionsAsync();
-
-      if (status !== "granted") {
-        setLocation("Location permission denied");
-        setLatitude("");
-        setLongitude("");
-        return;
-      }
-
-      const currentLocation =
-        await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-
-      const lat = currentLocation.coords.latitude;
-      const lng = currentLocation.coords.longitude;
-
-      const fetchedLatitude = lat.toFixed(6);
-      const fetchedLongitude = lng.toFixed(6);
-
-      setLatitude(fetchedLatitude);
-      setLongitude(fetchedLongitude);
-
-      const placeName = await fetchPlaceName(lat, lng);
-      setLocation(placeName || `Location near ${fetchedLatitude}, ${fetchedLongitude}`);
-    } catch {
-      setLocation("Unable to fetch current location");
-      setLatitude("");
-      setLongitude("");
-    } finally {
-      setLoadingLocation(false);
-    }
-  };
-
   const handlePickPhoto = async () => {
     if (photos.length >= 3) {
-      Alert.alert("Photo Limit", "You can only upload up to 3 photos.");
+      toast.error("You can only upload up to 3 photos.");
       return;
     }
 
@@ -314,10 +286,7 @@ export default function Admin_AddReportModal({
       await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permission.granted) {
-      Alert.alert(
-        "Permission Required",
-        "Please allow access to your photo library."
-      );
+      toast.error("Please allow access to your photo library.");
       return;
     }
 
@@ -344,13 +313,14 @@ export default function Admin_AddReportModal({
 
   const resetForm = () => {
     setLocation("");
-    setLatitude("");
-    setLongitude("");
+    setLatitude("9.8816");
+    setLongitude("123.5953");
+    setLocationSearch("");
+    setShowLocationDropdown(false);
     setIncidentCategory("");
     setIncidentType("");
     setDetails("");
     setPhotos([]);
-    setLoadingLocation(false);
     setSubmitting(false);
   };
 
@@ -363,42 +333,27 @@ export default function Admin_AddReportModal({
 
   const handleSubmit = async () => {
     if (!adminName.trim()) {
-      Alert.alert(
-        "Required",
-        "Admin profile name could not be loaded."
-      );
+      toast.error("Admin profile name could not be loaded.");
       return;
     }
 
-    if (!latitude || !longitude) {
-      Alert.alert(
-        "Required",
-        "Please wait for the current location to load."
-      );
+    if (!location) {
+      toast.error("Please select a location.");
       return;
     }
 
     if (!incidentCategory) {
-      Alert.alert(
-        "Required",
-        "Please select an incident category."
-      );
+      toast.error("Please select an incident category.");
       return;
     }
 
     if (!incidentType) {
-      Alert.alert(
-        "Required",
-        "Please select an incident type."
-      );
+      toast.error("Please select an incident type.");
       return;
     }
 
     if (!details.trim()) {
-      Alert.alert(
-        "Required",
-        "Please enter the report details."
-      );
+      toast.error("Please enter the report details.");
       return;
     }
 
@@ -408,10 +363,7 @@ export default function Admin_AddReportModal({
       const token = await AsyncStorage.getItem("access_token");
 
       if (!token) {
-        Alert.alert(
-          "Sign In Required",
-          "Please sign in before posting a report."
-        );
+        toast.error("Please sign in before posting a report.");
         return;
       }
 
@@ -455,16 +407,12 @@ export default function Admin_AddReportModal({
         });
       }
 
-      Alert.alert(
-        "Report Submitted",
-        "The admin report has been submitted successfully."
-      );
+      toast.success("The admin report has been submitted successfully.");
 
       resetForm();
       onClose();
     } catch (error) {
-      Alert.alert(
-        "Submit Failed",
+      toast.error(
         error.response?.data?.error ||
           "Could not submit the report. Please try again."
       );
@@ -560,30 +508,9 @@ export default function Admin_AddReportModal({
               </Text>
 
               {/* LOCATION */}
-              <View style={styles.locationHeaderRow}>
-                <Text style={styles.label}>
-                  Current Location
-                </Text>
-
-                <TouchableOpacity
-                  style={styles.refreshButton}
-                  activeOpacity={0.85}
-                  onPress={getCurrentLocation}
-                  disabled={loadingLocation || submitting}
-                >
-                  <Ionicons
-                    name="refresh-outline"
-                    size={14}
-                    color={COMMUNISHIELD_BLUE}
-                  />
-
-                  <Text style={styles.refreshText}>
-                    {loadingLocation
-                      ? "Fetching"
-                      : "Refresh"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              <Text style={styles.label}>
+                Location (Argao)
+              </Text>
 
               <View style={styles.locationInputWrap}>
                 <Ionicons
@@ -594,20 +521,84 @@ export default function Admin_AddReportModal({
 
                 <TextInput
                   style={styles.locationInput}
-                  value={location}
-                  editable={false}
-                  placeholder={
-                    loadingLocation
-                      ? "Fetching current location..."
-                      : "Location will be fetched automatically"
-                  }
+                  value={locationSearch}
+                  onChangeText={(text) => {
+                    setLocationSearch(text);
+                    setShowLocationDropdown(true);
+                    setLocation("");
+                  }}
+                  placeholder="Search barangay in Argao..."
                   placeholderTextColor="#8A94A6"
+                  onFocus={() => setShowLocationDropdown(true)}
                 />
               </View>
 
+              {showLocationDropdown && locationSearch.length > 0 && (
+                <View style={styles.locationDropdown}>
+                  <ScrollView
+                    style={{ maxHeight: 160 }}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {filteredBarangays.length === 0 ? (
+                      <View style={styles.locationDropdownItem}>
+                        <Text style={styles.locationDropdownText}>
+                          No barangay found
+                        </Text>
+                      </View>
+                    ) : (
+                      filteredBarangays.map((barangay) => (
+                        <TouchableOpacity
+                          key={barangay}
+                          style={styles.locationDropdownItem}
+                          onPress={() => {
+                            const loc = `${barangay}, Argao, Cebu`;
+                            setLocation(loc);
+                            setLocationSearch(loc);
+                            setShowLocationDropdown(false);
+                            geocodeLocation(loc);
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.locationDropdownText}>
+                            {barangay}
+                          </Text>
+                        </TouchableOpacity>
+                      ))
+                    )}
+                  </ScrollView>
+                </View>
+              )}
+
+              {showLocationDropdown && locationSearch.length === 0 && (
+                <View style={styles.locationDropdown}>
+                  <ScrollView
+                    style={{ maxHeight: 160 }}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {ARGAO_BARANGAYS.map((barangay) => (
+                      <TouchableOpacity
+                        key={barangay}
+                        style={styles.locationDropdownItem}
+                        onPress={() => {
+                          const loc = `${barangay}, Argao, Cebu`;
+                          setLocation(loc);
+                          setLocationSearch(loc);
+                          setShowLocationDropdown(false);
+                          geocodeLocation(loc);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.locationDropdownText}>
+                          {barangay}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
               <Text style={styles.helperText}>
-                Location is automatically fetched and cannot be
-                edited manually.
+                Select a barangay within Argao, Cebu.
               </Text>
 
               {/* CATEGORY */}
@@ -924,6 +915,34 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: "PoppinsRegular",
     color: "#1F2A37",
+  },
+
+  locationDropdown: {
+    marginHorizontal: 20,
+    marginTop: 4,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    borderRadius: 12,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+
+  locationDropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF2F8",
+  },
+
+  locationDropdownText: {
+    fontSize: 14,
+    color: "#374151",
+    fontFamily: "PoppinsRegular",
   },
 
   textArea: {

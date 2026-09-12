@@ -3,6 +3,7 @@ import {
   getNotifications,
   getLoginActivities,
   markNotificationRead,
+  markAllNotificationsRead,
   getAdminNotifications,
   markAdminNotificationRead,
 } from "../controllers/notificationController.js";
@@ -12,6 +13,7 @@ const router = express.Router();
 
 router.get("/notifications", authenticate, getNotifications);
 router.get("/notifications/login-activity", authenticate, getLoginActivities);
+router.patch("/notifications/read-all", authenticate, markAllNotificationsRead);
 router.patch("/notifications/:id/read", authenticate, markNotificationRead);
 router.get("/admin/notifications", authenticate, getAdminNotifications);
 router.patch("/admin/notifications/:id/read", authenticate, markAdminNotificationRead);

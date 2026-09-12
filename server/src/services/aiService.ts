@@ -258,11 +258,13 @@ export const aiService = {
 
     let similarCount = 0;
     if (incidentTypeId) {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const { count } = await supabaseAdmin
         .from("reports")
         .select("id", { count: "exact", head: true })
         .eq("incident_type_id", incidentTypeId)
-        .neq("id", reportId);
+        .neq("id", reportId)
+        .gte("created_at", twentyFourHoursAgo);
       similarCount = count ?? 0;
     }
 

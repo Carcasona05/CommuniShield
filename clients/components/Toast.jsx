@@ -1,5 +1,6 @@
 import React, {
   createContext,
+  useCallback,
   useContext,
   useRef,
   useState,
@@ -10,90 +11,120 @@ import {
   StyleSheet,
   Animated,
   useWindowDimensions,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 const COMMUNISHIELD_BLUE = "#294880";
-const ERROR_RED = "#C0392B";
+const SUCCESS_GREEN = "#22A06B";
+const ERROR_RED = "#E45757";
 
 const ToastContext = createContext(null);
 
 export const useToast = () => useContext(ToastContext);
 
+const TOAST_CONFIG = {
+  success: {
+    bg: COMMUNISHIELD_BLUE,
+    icon: "checkmark-circle",
+    iconColor: "#FFFFFF",
+  },
+  error: {
+    bg: ERROR_RED,
+    icon: "alert-circle",
+    iconColor: "#FFFFFF",
+  },
+};
+
 export default function ToastProvider({ children }) {
   const { width } = useWindowDimensions();
   const [toast, setToast] = useState(null);
   const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(-24)).current;
+  const translateY = useRef(new Animated.Value(-20)).current;
+  const translateX = useRef(new Animated.Value(20)).current;
   const hideTimer = useRef(null);
 
-  const dismiss = () => {
+  const isDesktop = width >= 768;
+
+  const dismiss = useCallback(() => {
+    const toValue = isDesktop ? 20 : -20;
     Animated.parallel([
       Animated.timing(opacity, {
         toValue: 0,
-        duration: 220,
+        duration: 200,
         useNativeDriver: true,
       }),
       Animated.timing(translateY, {
-        toValue: -24,
-        duration: 220,
+        toValue: toValue,
+        duration: 200,
         useNativeDriver: true,
       }),
     ]).start(() => setToast(null));
-  };
+  }, [opacity, translateY, isDesktop]);
 
-  const show = (message, type = "success", duration = 2600) => {
-    if (hideTimer.current) clearTimeout(hideTimer.current);
+  const show = useCallback(
+    (message, type = "success", duration = 3000) => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
 
-    setToast({ message, type });
+      setToast({ message, type });
 
-    opacity.setValue(0);
-    translateY.setValue(-24);
+      opacity.setValue(0);
+      translateY.setValue(-20);
+      translateX.setValue(isDesktop ? -20 : 0);
 
-    Animated.parallel([
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: 240,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 240,
-        useNativeDriver: true,
-      }),
-    ]).start();
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateY, {
+          toValue: 0,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateX, {
+          toValue: 0,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+      ]).start();
 
-    hideTimer.current = setTimeout(dismiss, duration);
-  };
+      hideTimer.current = setTimeout(dismiss, duration);
+    },
+    [dismiss, opacity, translateY, translateX, isDesktop]
+  );
 
-  const success = (message) => show(message, "success");
-  const error = (message) => show(message, "error");
+  const success = useCallback((message) => show(message, "success"), [show]);
+  const error = useCallback((message) => show(message, "error"), [show]);
+
+  const config = toast ? TOAST_CONFIG[toast.type] || TOAST_CONFIG.success : null;
 
   return (
     <ToastContext.Provider value={{ show, success, error }}>
       {children}
 
-      {toast ? (
-        <View style={styles.overlay} pointerEvents="none">
+      {toast && config ? (
+        <View
+          style={[
+            styles.overlay,
+            isDesktop && styles.overlayDesktop,
+          ]}
+          pointerEvents="none"
+        >
           <Animated.View
             style={[
               styles.toast,
-              toast.type === "error" && styles.errorToast,
-              { width: width >= 500 ? 400 : "88%" },
-              { opacity, transform: [{ translateY }] },
+              isDesktop && styles.toastDesktop,
+              { backgroundColor: config.bg },
+              {
+                opacity,
+                transform: [{ translateY }, { translateX }],
+              },
             ]}
           >
-            <View
-              style={[
-                styles.iconCircle,
-                toast.type === "error" && styles.errorIconCircle,
-              ]}
-            >
-              <Ionicons
-                name={toast.type === "error" ? "alert" : "checkmark"}
-                size={18}
-                color="#FFFFFF"
-              />
+            <View style={styles.iconCircle}>
+              <Ionicons name={config.icon} size={18} color={config.iconColor} />
             </View>
 
             <Text style={styles.toastText} numberOfLines={3}>
@@ -113,27 +144,40 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: "center",
-    paddingTop: 56,
+    paddingTop: 80,
     paddingHorizontal: 20,
-    zIndex: 999,
+    zIndex: 9999,
+  },
+
+  overlayDesktop: {
+    alignItems: "flex-start",
+    paddingTop: 20,
+    paddingHorizontal: 24,
   },
 
   toast: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COMMUNISHIELD_BLUE,
-    borderRadius: 14,
+    borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 13,
+    paddingVertical: 12,
+    width: "88%",
+    maxWidth: 400,
     shadowColor: "#000000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
     elevation: 8,
   },
 
-  errorToast: {
-    backgroundColor: ERROR_RED,
+  toastDesktop: {
+    width: 380,
+    maxWidth: 380,
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
   },
 
   iconCircle: {
@@ -143,18 +187,14 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.22)",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 10,
-  },
-
-  errorIconCircle: {
-    backgroundColor: "rgba(255,255,255,0.22)",
+    marginRight: 12,
   },
 
   toastText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: "PoppinsMedium",
     color: "#FFFFFF",
-    lineHeight: 20,
+    lineHeight: 19,
   },
 });

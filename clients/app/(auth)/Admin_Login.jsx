@@ -20,6 +20,7 @@ import apiClient from "../../services/apiClient";
 import { saveAuth, saveAdminInfo } from "../../services/auth";
 import { prefetchAllData } from "../../services/dataStore";
 import { IMAGES } from "../../constants/assets";
+import ToastProvider, { useToast } from "../../components/Toast";
 
 const { width, height } = Dimensions.get("window");
 
@@ -77,6 +78,15 @@ const validateConfirmPassword = (value, newPasswordValue) => {
 };
 
 export default function Admin_Login() {
+  return (
+    <ToastProvider>
+      <Admin_LoginInner />
+    </ToastProvider>
+  );
+}
+
+function Admin_LoginInner() {
+  const toast = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -126,7 +136,7 @@ export default function Admin_Login() {
 
   const handleLogin = async () => {
     if (Platform.OS !== "web") {
-      Alert.alert("Restricted", "Admin login is available on web only.");
+      toast.error("Admin login is available on web only.");
       return;
     }
 
@@ -139,7 +149,7 @@ export default function Admin_Login() {
     if (pwError) return;
 
     if (!cleanEmail) {
-      Alert.alert("Error", "Please enter both email and password.");
+      toast.error("Please enter both email and password.");
       return;
     }
 
@@ -165,16 +175,18 @@ export default function Admin_Login() {
         role: user?.role || "Admin",
       });
 
-      await prefetchAllData();
+      prefetchAllData();
 
-      if (user?.role === "super_admin") {
-        router.replace("/(sadmin)/SAdmin_Dashboard");
-      } else {
-        router.replace("/(admin)/Admin_Dashboard");
-      }
+      toast.success("Login successful! Welcome back.");
+      setTimeout(() => {
+        if (user?.role === "super_admin") {
+          router.replace("/(sadmin)/SAdmin_Dashboard");
+        } else {
+          router.replace("/(admin)/Admin_Dashboard");
+        }
+      }, 800);
     } catch (error) {
-      Alert.alert(
-        "Login Failed",
+      toast.error(
         error.response?.data?.error || "Invalid admin email or password."
       );
     } finally {
@@ -210,14 +222,14 @@ export default function Admin_Login() {
     const cleanEmail = forgotEmail.trim().toLowerCase();
 
     if (!cleanEmail) {
-      Alert.alert("Error", "Please enter your admin email address.");
+      toast.error("Please enter your admin email address.");
       return;
     }
 
     const foundAdmin = getAdminByEmail(cleanEmail);
 
     if (!foundAdmin) {
-      Alert.alert("Account Not Found", "No admin account found with this email.");
+      toast.error("No admin account found with this email.");
       return;
     }
 
@@ -226,20 +238,17 @@ export default function Admin_Login() {
     setGeneratedOtp(otp);
     setForgotStep("otp");
 
-    Alert.alert(
-      "OTP Sent",
-      `Your OTP code is ${otp}.\n\nFor now, this is shown here for testing. Later, this can be sent through email.`
-    );
+    toast.show(`Your OTP code is ${otp}.`, "success", 5000);
   };
 
   const handleVerifyOtp = () => {
     if (!enteredOtp.trim()) {
-      Alert.alert("Error", "Please enter the OTP code.");
+      toast.error("Please enter the OTP code.");
       return;
     }
 
     if (enteredOtp.trim() !== generatedOtp) {
-      Alert.alert("Invalid OTP", "The OTP code you entered is incorrect.");
+      toast.error("The OTP code you entered is incorrect.");
       return;
     }
 
@@ -261,7 +270,7 @@ export default function Admin_Login() {
     const foundAdmin = getAdminByEmail(cleanEmail);
 
     if (!foundAdmin) {
-      Alert.alert("Error", "Admin account not found.");
+      toast.error("Admin account not found.");
       return;
     }
 
@@ -278,12 +287,10 @@ export default function Admin_Login() {
     setPassword("");
     setEmail(cleanEmail);
 
-    Alert.alert("Success", "Password has been reset successfully.", [
-      {
-        text: "OK",
-        onPress: closeForgotPassword,
-      },
-    ]);
+    toast.success("Password has been reset successfully.");
+    setTimeout(() => {
+      closeForgotPassword();
+    }, 1000);
   };
 
   const renderForgotContent = () => {

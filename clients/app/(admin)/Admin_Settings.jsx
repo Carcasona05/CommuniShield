@@ -7,15 +7,16 @@ import {
   StyleSheet,
   TextInput,
   Platform,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
+import { SettingsSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
+import ToastProvider, { useToast } from "../../components/Toast";
 
 const COLORS = {
   primary: "#294880",
@@ -119,7 +120,18 @@ function InputField({
   );
 }
 
-export default function Admin_Settings() {
+export default function Admin_SettingsWrapper() {
+  return (
+    <ToastProvider>
+      <Admin_Settings />
+    </ToastProvider>
+  );
+}
+
+function Admin_Settings() {
+  const toast = useToast();
+  const [loading, setLoading] = useState(() => getCache("api:/profile") === undefined);
+
   const [profile, setProfile] = useState({
     fullName: "",
     username: "",
@@ -199,6 +211,8 @@ export default function Admin_Settings() {
       setEmailData((prev) => ({ ...prev, currentEmail: data.email || "" }));
     } catch {
       // keep empty defaults on failure
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -212,11 +226,20 @@ export default function Admin_Settings() {
     return null;
   }
 
+  if (loading) {
+    return (
+      <Admin_Layout>
+        <SettingsSkeleton />
+      </Admin_Layout>
+    );
+  }
+
   const showMessage = (title, message) => {
-    if (Platform.OS === "web") {
-      window.alert(`${title}\n\n${message}`);
+    const fullMessage = `${title}. ${message}`;
+    if (title.toLowerCase().includes("fail") || title.toLowerCase().includes("missing") || title.toLowerCase().includes("mismatch")) {
+      toast.error(fullMessage);
     } else {
-      Alert.alert(title, message);
+      toast.success(fullMessage);
     }
   };
 

@@ -4,6 +4,7 @@ import { profileService } from "../services/authService.js";
 import { notificationService } from "../services/notificationService.js";
 import { credibilityService } from "../services/credibilityService.js";
 import { aiService } from "../services/aiService.js";
+import { toReportCode } from "../utils/toReportCode.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string }; token?: string };
 
@@ -74,8 +75,8 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
         ? `Report verified: ${result.data.incidentType}`
         : `Report status updated: ${result.data.incidentType}`,
       details: verified
-        ? `Report ${result.data.id} was reviewed and verified by ${profile?.fullname || "admin"}.`
-        : `Report ${result.data.id} status changed from "${result.data.previousStatus}" to "${newStatus}" by ${profile?.fullname || "admin"}.`,
+        ? `Report ${toReportCode(result.data.id)} was reviewed and verified by ${profile?.fullname || "admin"}.`
+        : `Report ${toReportCode(result.data.id)} status changed from "${result.data.previousStatus}" to "${newStatus}" by ${profile?.fullname || "admin"}.`,
       reportId: result.data.id,
       oldValue: result.data.previousStatus,
       newValue: verified ? "Verified" : newStatus,
@@ -268,7 +269,7 @@ export const deleteReport = async (req: AuthRequest, res: Response) => {
     actorName: profile?.fullname || "Admin",
     actionType: "Report Deleted",
     title: "Report deleted",
-    details: `Report ${result.data} was deleted by ${profile?.fullname || "admin"}.`,
+    details: `Report ${toReportCode(result.data)} was deleted by ${profile?.fullname || "admin"}.`,
     reportId: result.data ?? null,
   }).catch(() => {});
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,6 @@ import {
   Image,
   SafeAreaView,
   Platform,
-  Alert,
   Modal,
   KeyboardAvoidingView,
   ScrollView,
@@ -21,6 +20,7 @@ import apiClient from "../../services/apiClient";
 import { saveAuth } from "../../services/auth";
 import { IMAGES } from "../../constants/assets";
 import { prefetchAllData } from "../../services/dataStore";
+import ToastProvider, { useToast } from "../../components/Toast";
 
 const validateLoginPassword = (value) => {
   if (!value) return "Password incorrect.";
@@ -29,6 +29,15 @@ const validateLoginPassword = (value) => {
 
 
 export default function UserLogin() {
+  return (
+    <ToastProvider>
+      <UserLoginInner />
+    </ToastProvider>
+  );
+}
+
+function UserLoginInner() {
+  const toast = useToast();
   const { width, height } = useWindowDimensions();
 
   const isSmallPhone = width < 360;
@@ -49,6 +58,23 @@ export default function UserLogin() {
     useCallback(() => {
     }, []),
   );
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      const role = window.localStorage.getItem("user_role");
+      if (role === "super_admin") {
+        window.location.href = "/(sadmin)/SAdmin_Dashboard";
+      } else if (role === "admin") {
+        window.location.href = "/(admin)/Admin_Dashboard";
+      } else {
+        window.location.href = "/(auth)/Admin_Login";
+      }
+    }
+  }, []);
+
+  if (Platform.OS === "web") {
+    return null;
+  }
 
   const handleHiddenAdminTap = () => {
     setAdminTapCount((prev) => {
@@ -83,14 +109,14 @@ export default function UserLogin() {
     if (pwError) return;
 
     if (!cleanEmail) {
-      Alert.alert("Error", "Please fill in all fields.");
+      toast.error("Please fill in all fields.");
       return;
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!emailRegex.test(cleanEmail)) {
-      Alert.alert("Error", "Please enter a valid email address.");
+      toast.error("Please enter a valid email address.");
       return;
     }
 
@@ -113,12 +139,14 @@ export default function UserLogin() {
         console.warn("Failed to store access token:", storageError);
       }
 
-      await prefetchAllData();
+      prefetchAllData();
 
-      router.replace("/(tabs)/User_Home");
+      toast.success("Login successful! Welcome back.");
+      setTimeout(() => {
+        router.replace("/(tabs)/User_Home");
+      }, 800);
     } catch (error) {
-      Alert.alert(
-        "Login Failed",
+      toast.error(
         error.response?.data?.error || "Invalid credentials"
       );
     } finally {
@@ -141,12 +169,12 @@ export default function UserLogin() {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!cleanEmail) {
-      Alert.alert("Error", "Please enter your email.");
+      toast.error("Please enter your email.");
       return;
     }
 
     if (!emailRegex.test(cleanEmail)) {
-      Alert.alert("Error", "Please enter a valid email address.");
+      toast.error("Please enter a valid email address.");
       return;
     }
 

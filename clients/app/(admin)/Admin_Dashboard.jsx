@@ -40,6 +40,8 @@ export default function Admin_Dashboard() {
     return cached?.reports || [];
   });
   const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
+  const [showFilter, setShowFilter] = useState(false);
+  const [selectedSeverity, setSelectedSeverity] = useState("All");
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -51,6 +53,7 @@ export default function Admin_Dashboard() {
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
+      const headers = { Authorization: `Bearer ${token}` };
 
       const cached = getCache("api:/admin/dashboard");
       if (cached) {
@@ -62,19 +65,30 @@ export default function Admin_Dashboard() {
         }
       }
 
-      const res = await apiClient.get("/admin/dashboard", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      setCache("api:/admin/dashboard", res.data ?? {});
-
-      const data = res.data ?? {};
-      if (data.summary) {
-        setSummary((prev) => ({ ...prev, ...data.summary }));
-      }
-      if (Array.isArray(data.reports)) {
-        setReports(data.reports);
-      }
+      await Promise.allSettled([
+        apiClient.get("/admin/dashboard", { headers }).then((res) => {
+          setCache("api:/admin/dashboard", res.data ?? {});
+          const data = res.data ?? {};
+          if (data.summary) {
+            setSummary((prev) => ({ ...prev, ...data.summary }));
+          }
+          if (Array.isArray(data.reports)) {
+            setReports(data.reports);
+          }
+        }),
+        apiClient.get("/admin/analytics", { headers }).then((res) => {
+          setCache("api:/admin/analytics", res.data ?? {});
+        }),
+        apiClient.get("/admin/logs", { headers }).then((res) => {
+          setCache("api:/admin/logs", res.data ?? {});
+        }),
+        apiClient.get("/admin/notifications", { headers }).then((res) => {
+          setCache("api:/admin/notifications", res.data ?? {});
+        }),
+        apiClient.get("/admin/accounts", { headers }).then((res) => {
+          setCache("api:/admin/accounts", res.data ?? {});
+        }),
+      ]);
     } catch {
       // keep last loaded data on failure
     } finally {
@@ -169,6 +183,15 @@ export default function Admin_Dashboard() {
       Number.isFinite(Number(r.longitude))
   );
 
+  const filteredMapReports =
+    selectedSeverity === "All"
+      ? mapReports
+      : mapReports.filter(
+          (r) =>
+            (r.severity || "Medium").toLowerCase() ===
+            selectedSeverity.toLowerCase()
+        );
+
   return (
     <Admin_Layout>
       <ScrollView
@@ -252,30 +275,80 @@ export default function Admin_Dashboard() {
                   </View>
 
                   <View style={styles.cardHeaderControls}>
-                    
+                    <View style={{ position: "relative" }}>
+                      <TouchableOpacity
+                        style={styles.controlButton}
+                        onPress={() => setShowFilter(!showFilter)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons
+                          name="filter-outline"
+                          size={16}
+                          color="#5D6F92"
+                        />
+                        <Text style={styles.controlButtonText}>
+                          {selectedSeverity === "All"
+                            ? "Filter"
+                            : selectedSeverity}
+                        </Text>
+                        <Ionicons
+                          name={showFilter ? "chevron-up" : "chevron-down"}
+                          size={14}
+                          color="#5D6F92"
+                        />
+                      </TouchableOpacity>
 
-                    
-
-                    <TouchableOpacity style={styles.filterButton}>
-                      <Ionicons
-                        name="filter-outline"
-                        size={16}
-                        color="#5D6F92"
-                      />
-                      <Text style={styles.filterButtonText}>Filter</Text>
-                    </TouchableOpacity>
+                      {showFilter ? (
+                        <View style={styles.filterDropdown}>
+                          {["All", "Critical", "High", "Medium", "Low"].map(
+                            (level) => (
+                              <TouchableOpacity
+                                key={level}
+                                style={[
+                                  styles.filterOption,
+                                  selectedSeverity === level &&
+                                    styles.filterOptionActive,
+                                ]}
+                                onPress={() => {
+                                  setSelectedSeverity(level);
+                                  setShowFilter(false);
+                                }}
+                                activeOpacity={0.7}
+                              >
+                                <Text
+                                  style={[
+                                    styles.filterOptionText,
+                                    selectedSeverity === level &&
+                                      styles.filterOptionTextActive,
+                                  ]}
+                                >
+                                  {level}
+                                </Text>
+                              </TouchableOpacity>
+                            )
+                          )}
+                        </View>
+                      ) : null}
+                    </View>
                   </View>
                 </View>
 
-
-                
-
                 <View style={styles.mapCardBody}>
                   <View style={styles.mapArea}>
-                    <AdminHeatMap reports={mapReports} />
+                    <AdminHeatMap reports={filteredMapReports} />
 
                     <View style={styles.legendCard}>
-                      <Text style={styles.legendTitle}>Incidents:</Text>
+                      <Text style={styles.legendTitle}>Severity:</Text>
+
+                      <View style={styles.legendItem}>
+                        <View
+                          style={[
+                            styles.legendDot,
+                            { backgroundColor: "#DC2626" },
+                          ]}
+                        />
+                        <Text style={styles.legendText}>Critical</Text>
+                      </View>
 
                       <View style={styles.legendItem}>
                         <View
@@ -284,27 +357,7 @@ export default function Admin_Dashboard() {
                             { backgroundColor: "#F56B6B" },
                           ]}
                         />
-                        <Text style={styles.legendText}>Crime / Theft</Text>
-                      </View>
-
-                      <View style={styles.legendItem}>
-                        <View
-                          style={[
-                            styles.legendDot,
-                            { backgroundColor: "#4F8EF7" },
-                          ]}
-                        />
-                        <Text style={styles.legendText}>Fire</Text>
-                      </View>
-
-                      <View style={styles.legendItem}>
-                        <View
-                          style={[
-                            styles.legendDot,
-                            { backgroundColor: "#3DBB74" },
-                          ]}
-                        />
-                        <Text style={styles.legendText}>Accident</Text>
+                        <Text style={styles.legendText}>High</Text>
                       </View>
 
                       <View style={styles.legendItem}>
@@ -314,7 +367,17 @@ export default function Admin_Dashboard() {
                             { backgroundColor: "#F29A2E" },
                           ]}
                         />
-                        <Text style={styles.legendText}>Flood / Alert</Text>
+                        <Text style={styles.legendText}>Medium</Text>
+                      </View>
+
+                      <View style={styles.legendItem}>
+                        <View
+                          style={[
+                            styles.legendDot,
+                            { backgroundColor: "#3DBB74" },
+                          ]}
+                        />
+                        <Text style={styles.legendText}>Low</Text>
                       </View>
                     </View>
                   </View>
@@ -505,7 +568,7 @@ const styles = {
     borderWidth: 1,
     borderColor: "#D9E2F0",
     borderRadius: 14,
-    overflow: "hidden",
+    overflow: "visible",
   },
 
   cardHeaderTop: {
@@ -519,6 +582,8 @@ const styles = {
     justifyContent: "space-between",
     backgroundColor: "#F8FBFF",
     gap: 12,
+    overflow: "visible",
+    zIndex: 10,
   },
 
   cardTitle: {
@@ -559,23 +624,47 @@ const styles = {
     fontFamily: "PoppinsMedium",
   },
 
-  filterButton: {
-    height: 32,
-    paddingHorizontal: 12,
+  filterDropdown: {
+    position: "absolute",
+    top: 38,
+    right: 0,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#CCD6E8",
-    borderRadius: 8,
-    backgroundColor: "#FFFDF8",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    borderColor: "#D9E2F0",
+    borderRadius: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    zIndex: 999,
+    minWidth: 130,
+    overflow: "hidden",
   },
 
-  filterButtonText: {
+  filterOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF2F8",
+  },
+
+  filterOptionActive: {
+    backgroundColor: "#E8EFFB",
+  },
+
+  filterOptionText: {
     fontSize: 13,
-    color: "#4B5D7A",
+    color: "#5D6F92",
     fontFamily: "PoppinsMedium",
   },
+
+  filterOptionTextActive: {
+    color: "#294880",
+    fontFamily: "PoppinsSemiBold",
+  },
+
+
 
   mapCardBody: {
     padding: 12,

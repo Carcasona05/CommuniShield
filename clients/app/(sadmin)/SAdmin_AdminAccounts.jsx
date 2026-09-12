@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   TextInput,
-  Alert,
+  Modal,
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,8 +17,10 @@ import { getCache, setCache } from "../../services/dataStore";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 
 import SAdmin_Layout from "../../components/SAdmin_Compo/SAdmin_Layout";
+import { ListSkeleton } from "../../components/PageSkeletons";
 import Admin_AddAdmin from "../../components/modals/Admin_AddAdmin";
 import Admin_EditAdminReq from "../../components/modals/SuperAdmin_EditReq";
+import ToastProvider, { useToast } from "../../components/Toast";
 
 function StatusBadge({ label }) {
   const isActive = label === "Active";
@@ -115,11 +117,23 @@ function AdminAccountRow({ admin, isLast, onEdit, onDelete, onToggleStatus }) {
   );
 }
 
-export default function SAdmin_AdminAccounts() {
+export default function SAdmin_AdminAccountsWrapper() {
+  return (
+    <ToastProvider>
+      <SAdmin_AdminAccounts />
+    </ToastProvider>
+  );
+}
+
+function SAdmin_AdminAccounts() {
+  const toast = useToast();
+  const [loading, setLoading] = useState(() => getCache("api:/admin/accounts") === undefined);
   const [searchText, setSearchText] = useState("");
   const [isAddAdminVisible, setIsAddAdminVisible] = useState(false);
   const [isEditRequestVisible, setIsEditRequestVisible] = useState(false);
   const [selectedAdmin, setSelectedAdmin] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -156,6 +170,8 @@ export default function SAdmin_AdminAccounts() {
       setAdminAccounts(res.data?.accounts || []);
     } catch {
       // silent fail
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -167,6 +183,14 @@ export default function SAdmin_AdminAccounts() {
 
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <SAdmin_Layout>
+        <ListSkeleton />
+      </SAdmin_Layout>
+    );
   }
 
   const filteredAdmins = visibleAdmins.filter((admin) => {
@@ -205,12 +229,12 @@ export default function SAdmin_AdminAccounts() {
   };
 
   const showMessage = (title, message) => {
-    if (Platform.OS === "web") {
-      window.alert(`${title}\n\n${message}`);
-      return;
+    const fullMessage = `${title}. ${message}`;
+    if (title === "Error" || title === "Restricted") {
+      toast.error(fullMessage);
+    } else {
+      toast.success(fullMessage);
     }
-
-    Alert.alert(title, message);
   };
 
   const handleAddAdmin = async (newAdmin) => {
@@ -270,40 +294,24 @@ export default function SAdmin_AdminAccounts() {
       return;
     }
 
-    const deleteAction = async () => {
-      try {
-        const config = await getTokenHeaders();
-        await apiClient.delete(`/admin/accounts/${adminId}`, config);
-        showMessage("Admin Deleted", "The admin account has been removed.");
-        fetchAccounts();
-      } catch (error) {
-        showMessage("Error", error.response?.data?.error || "Failed to delete admin");
-      }
-    };
+    setPendingDeleteId(adminId);
+    setShowDeleteModal(true);
+  };
 
-    if (Platform.OS === "web") {
-      const confirmed = window.confirm(
-        "Are you sure you want to delete this admin?"
-      );
+  const confirmDeleteAdmin = async () => {
+    if (!pendingDeleteId) return;
 
-      if (confirmed) {
-        deleteAction();
-      }
-
-      return;
+    try {
+      const config = await getTokenHeaders();
+      await apiClient.delete(`/admin/accounts/${pendingDeleteId}`, config);
+      showMessage("Admin Deleted", "The admin account has been removed.");
+      fetchAccounts();
+    } catch (error) {
+      showMessage("Error", error.response?.data?.error || "Failed to delete admin");
+    } finally {
+      setShowDeleteModal(false);
+      setPendingDeleteId(null);
     }
-
-    Alert.alert("Delete Admin", "Are you sure you want to delete this admin?", [
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: deleteAction,
-      },
-    ]);
   };
 
   const handleToggleStatus = async (adminId, adminEmail) => {
@@ -455,6 +463,48 @@ export default function SAdmin_AdminAccounts() {
           }}
           onSave={handleSaveEdit}
         />
+
+        <Modal
+          visible={showDeleteModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowDeleteModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalIconWrap}>
+                <Ionicons name="trash-outline" size={28} color="#DC2626" />
+              </View>
+
+              <Text style={styles.modalTitle}>Delete Admin Account</Text>
+
+              <Text style={styles.modalSubtitle}>
+                Are you sure you want to delete this admin account? This action cannot be undone.
+              </Text>
+
+              <View style={styles.modalButtonRow}>
+                <TouchableOpacity
+                  style={styles.modalCancelButton}
+                  onPress={() => {
+                    setShowDeleteModal(false);
+                    setPendingDeleteId(null);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.modalConfirmButton}
+                  onPress={confirmDeleteAdmin}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.modalConfirmText}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     </SAdmin_Layout>
   );
@@ -827,5 +877,89 @@ const styles = StyleSheet.create({
     fontFamily: "PoppinsRegular",
     color: "#5D6F92",
     textAlign: "center",
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+
+  modalCard: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 28,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E7ECF3",
+  },
+
+  modalIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#FDEBEC",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: "PoppinsSemiBold",
+    color: "#16233A",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+
+  modalSubtitle: {
+    fontSize: 14,
+    fontFamily: "PoppinsRegular",
+    color: "#5D6F92",
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+
+  modalButtonRow: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+
+  modalCancelButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  modalCancelText: {
+    fontSize: 14,
+    fontFamily: "PoppinsMedium",
+    color: "#475467",
+  },
+
+  modalConfirmButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: "#DC2626",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  modalConfirmText: {
+    fontSize: 14,
+    fontFamily: "PoppinsSemiBold",
+    color: "#FFFFFF",
   },
 });

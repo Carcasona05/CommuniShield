@@ -12,6 +12,7 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import SAdmin_Layout from "../../components/SAdmin_Compo/SAdmin_Layout";
+import { ListSkeleton } from "../../components/PageSkeletons";
 import Admin_ViewSimilarReportsModal from "../../components/Admin_compo/Admin_ViewSimilarReportsModal";
 import Admin_AddReportModal from "../../components/Admin_compo/Admin_AddReportModal";
 import Admin_AddAnnouncementModal from "../../components/Admin_compo/Admin_AddAnnouncementModal"; //fix
@@ -24,11 +25,13 @@ import { getCache, setCache } from "../../services/dataStore";
 const COMMUNISHIELD_BLUE = "#294880";
 
 export default function SAdmin_Validation() {
+  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [selectedWeekRange, setSelectedWeekRange] = useState("All Weeks");
   const [selectedCompiledGroup, setSelectedCompiledGroup] = useState(null);
   const [viewVisible, setViewVisible] = useState(false);
   const [addReportVisible, setAddReportVisible] = useState(false);
+  const [validating, setValidating] = useState(false);
 
   const [addAnnouncementVisible, setAddAnnouncementVisible] = useState(false); //notused
 
@@ -120,6 +123,8 @@ export default function SAdmin_Validation() {
       applyList(res.data?.reports || []);
     } catch {
       // keep last loaded data on failure
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -176,10 +181,41 @@ export default function SAdmin_Validation() {
   const getGroupedReports = (reportsList) => {
     const grouped = {};
 
-    reportsList.forEach((report) => {
-      const groupKey = `${report.category}-${report.type}-${report.barangay}`.toLowerCase();
+    const parseDate = (submittedAt) => {
+      if (!submittedAt) return null;
+      const datePart = submittedAt.split("•")?.[0]?.trim();
+      const d = new Date(datePart);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
 
-      if (!grouped[groupKey]) {
+    reportsList.forEach((report) => {
+      const reportDate = parseDate(report.submittedAt);
+      const baseKey = `${report.category}-${report.type}-${report.barangay}-${report.status}`.toLowerCase();
+
+      let placed = false;
+
+      const existingKeys = Object.keys(grouped).filter((k) => k.startsWith(baseKey));
+
+      for (const key of existingKeys) {
+        const group = grouped[key];
+        const groupDate = group._earliestDate;
+        if (groupDate && reportDate) {
+          const diffMs = Math.abs(reportDate.getTime() - groupDate.getTime());
+          if (diffMs <= 24 * 60 * 60 * 1000) {
+            group.reports.push(report);
+            group.aiScore = Math.max(group.aiScore, report.aiScore);
+            group.severity = getHighestSeverity(group.severity, report.severity);
+            placed = true;
+            break;
+          }
+        }
+      }
+
+      if (!placed) {
+        const groupKey = existingKeys.length > 0
+          ? `${baseKey}-${existingKeys.length}`
+          : baseKey;
+
         grouped[groupKey] = {
           id: groupKey,
           title: `${report.type} in ${report.barangay}`,
@@ -192,18 +228,9 @@ export default function SAdmin_Validation() {
           severity: report.severity,
           sentiment: report.sentiment,
           submittedAt: report.submittedAt,
+          _earliestDate: reportDate,
           reports: [report],
         };
-      } else {
-        grouped[groupKey].reports.push(report);
-        grouped[groupKey].aiScore = Math.max(
-          grouped[groupKey].aiScore,
-          report.aiScore
-        );
-        grouped[groupKey].severity = getHighestSeverity(
-          grouped[groupKey].severity,
-          report.severity
-        );
       }
     });
 
@@ -223,6 +250,7 @@ export default function SAdmin_Validation() {
 
       return {
         ...group,
+        _earliestDate: undefined,
         status: getGroupMainStatus(group.reports),
         reportCount: group.reports.length,
         userCount: userReports.length,
@@ -297,6 +325,14 @@ export default function SAdmin_Validation() {
 
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <SAdmin_Layout>
+        <ListSkeleton />
+      </SAdmin_Layout>
+    );
   }
 
   const totalReports = reports.length;
@@ -401,8 +437,9 @@ export default function SAdmin_Validation() {
   };
 
   const applyValidation = async (target, newStatus) => {
-    if (!target) return;
+    if (!target || validating) return;
 
+    setValidating(true);
     const targetIds = target.reports
       ? target.reports.map((item) => item.id)
       : [target.id];
@@ -432,7 +469,9 @@ export default function SAdmin_Validation() {
         "Update Failed",
         error.response?.data?.error || "Could not update report status."
       );
-    }
+    } finally {
+      setValidating(false);
+    };
   };
 
   const handleVerify = (target) => {
@@ -869,6 +908,7 @@ export default function SAdmin_Validation() {
           onReject={handleReject}
           onMapAndVerify={handleMapAndVerify}
           onMarkAsFake={handleMarkAsFake}
+          validating={validating}
         />
 
         <Admin_AddReportModal

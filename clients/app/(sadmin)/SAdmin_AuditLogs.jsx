@@ -13,9 +13,10 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import SAdmin_Layout from "../../components/SAdmin_Compo/SAdmin_Layout";
+import { ListSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
-import { getCache, setCache, toReportCode } from "../../services/dataStore";
+import { getCache, setCache, toReportCode, hashReportIdsInText } from "../../services/dataStore";
 
 function LogBadge({ type }) {
   const getStyle = () => {
@@ -155,6 +156,7 @@ function AuditLogRow({ log, isLast }) {
 }
 
 export default function SAdmin_AuditLogs() {
+  const [loading, setLoading] = useState(() => getCache("api:/admin/logs") === undefined);
   const [searchText, setSearchText] = useState("");
   const [selectedFilter, setSelectedFilter] = useState("All");
 
@@ -202,7 +204,7 @@ export default function SAdmin_AuditLogs() {
             title: log.title || "",
             actor: log.actor || "System",
             reportId: toReportCode(log.reportId || log.id),
-            details: log.details || "",
+            details: hashReportIdsInText(log.details || ""),
             oldValue: log.oldStatus || "",
             newValue: log.newStatus || "",
             dateTime: formatLogTime(log.dateTime),
@@ -222,6 +224,8 @@ export default function SAdmin_AuditLogs() {
       applyLogs(res.data?.logs || []);
     } catch {
       // keep last loaded data on failure
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -260,6 +264,14 @@ export default function SAdmin_AuditLogs() {
 
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <SAdmin_Layout>
+        <ListSkeleton />
+      </SAdmin_Layout>
+    );
   }
 
   const deletedCount = auditLogs.filter(

@@ -1,11 +1,12 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, ScrollView } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Svg, { Line, Polyline, Circle, Path } from "react-native-svg";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
+import { AnalyticsSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
@@ -89,6 +90,10 @@ const ScatterChart = ({ data = [] }) => {
 };
 
 export default function Admin_Analytics() {
+  const [loading, setLoading] = useState(() => getCache("api:/admin/analytics") === undefined);
+  const [showFilter, setShowFilter] = useState(false);
+  const [selectedSeverity, setSelectedSeverity] = useState("All");
+
   const [summary, setSummary] = useState(() => {
     const cached = getCache("api:/admin/analytics");
     return cached?.summary || {
@@ -187,6 +192,8 @@ export default function Admin_Analytics() {
       }
     } catch {
       // keep last loaded data on failure
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -194,6 +201,14 @@ export default function Admin_Analytics() {
 
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <Admin_Layout>
+        <AnalyticsSkeleton />
+      </Admin_Layout>
+    );
   }
 
   const summaryCards = [
@@ -242,6 +257,15 @@ export default function Admin_Analytics() {
       Number.isFinite(Number(r.latitude)) &&
       Number.isFinite(Number(r.longitude))
   );
+
+  const filteredMapReports =
+    selectedSeverity === "All"
+      ? mapReports
+      : mapReports.filter(
+          (r) =>
+            (r.severity || "Medium").toLowerCase() ===
+            selectedSeverity.toLowerCase()
+        );
 
   const crimeTypes = forecastSummary.crimeTypes || [];
   const recommendedActions = forecastSummary.recommendedActions || [];
@@ -310,14 +334,80 @@ export default function Admin_Analytics() {
                 <View style={styles.mainCard}>
                   <View style={styles.cardHeaderTop}>
                     <Text style={styles.cardTitle}>Validation Queue</Text>
+
+                    <View style={{ position: "relative" }}>
+                      <TouchableOpacity
+                        style={styles.controlButton}
+                        onPress={() => setShowFilter(!showFilter)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons
+                          name="filter-outline"
+                          size={16}
+                          color="#5D6F92"
+                        />
+                        <Text style={styles.controlButtonText}>
+                          {selectedSeverity === "All"
+                            ? "Filter"
+                            : selectedSeverity}
+                        </Text>
+                        <Ionicons
+                          name={showFilter ? "chevron-up" : "chevron-down"}
+                          size={14}
+                          color="#5D6F92"
+                        />
+                      </TouchableOpacity>
+
+                      {showFilter ? (
+                        <View style={styles.filterDropdown}>
+                          {["All", "Critical", "High", "Medium", "Low"].map(
+                            (level) => (
+                              <TouchableOpacity
+                                key={level}
+                                style={[
+                                  styles.filterOption,
+                                  selectedSeverity === level &&
+                                    styles.filterOptionActive,
+                                ]}
+                                onPress={() => {
+                                  setSelectedSeverity(level);
+                                  setShowFilter(false);
+                                }}
+                                activeOpacity={0.7}
+                              >
+                                <Text
+                                  style={[
+                                    styles.filterOptionText,
+                                    selectedSeverity === level &&
+                                      styles.filterOptionTextActive,
+                                  ]}
+                                >
+                                  {level}
+                                </Text>
+                              </TouchableOpacity>
+                            )
+                          )}
+                        </View>
+                      ) : null}
+                    </View>
                   </View>
 
                   <View style={styles.mapCardBody}>
                     <View style={styles.mapArea}>
-                      <AdminHeatMap reports={mapReports} />
+                      <AdminHeatMap reports={filteredMapReports} />
 
                       <View style={styles.legendCard}>
-                        <Text style={styles.legendTitle}>Incidents:</Text>
+                        <Text style={styles.legendTitle}>Severity:</Text>
+
+                        <View style={styles.legendItem}>
+                          <View
+                            style={[
+                              styles.legendDot,
+                              { backgroundColor: "#DC2626" },
+                            ]}
+                          />
+                          <Text style={styles.legendText}>Critical</Text>
+                        </View>
 
                         <View style={styles.legendItem}>
                           <View
@@ -326,7 +416,7 @@ export default function Admin_Analytics() {
                               { backgroundColor: "#F56B6B" },
                             ]}
                           />
-                          <Text style={styles.legendText}>Theft</Text>
+                          <Text style={styles.legendText}>High</Text>
                         </View>
 
                         <View style={styles.legendItem}>
@@ -336,17 +426,7 @@ export default function Admin_Analytics() {
                               { backgroundColor: "#F29A2E" },
                             ]}
                           />
-                          <Text style={styles.legendText}>Assault</Text>
-                        </View>
-
-                        <View style={styles.legendItem}>
-                          <View
-                            style={[
-                              styles.legendDot,
-                              { backgroundColor: "#4F8EF7" },
-                            ]}
-                          />
-                          <Text style={styles.legendText}>Fire</Text>
+                          <Text style={styles.legendText}>Medium</Text>
                         </View>
 
                         <View style={styles.legendItem}>
@@ -356,7 +436,7 @@ export default function Admin_Analytics() {
                               { backgroundColor: "#3DBB74" },
                             ]}
                           />
-                          <Text style={styles.legendText}>Accident</Text>
+                          <Text style={styles.legendText}>Low</Text>
                         </View>
                       </View>
                     </View>
@@ -622,7 +702,7 @@ const styles = {
     borderWidth: 1,
     borderColor: "#D9E2F0",
     borderRadius: 14,
-    overflow: "hidden",
+    overflow: "visible",
     marginBottom: 16,
   },
 
@@ -632,14 +712,76 @@ const styles = {
     borderBottomColor: "#D9E2F0",
     paddingHorizontal: 20,
     paddingVertical: 10,
-    justifyContent: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     backgroundColor: "#F7F9FD",
+    overflow: "visible",
+    zIndex: 10,
   },
 
   cardTitle: {
     fontSize: 16,
     fontFamily: "PoppinsSemiBold",
     color: "#294880",
+  },
+
+  controlButton: {
+    height: 32,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#CCD6E8",
+    borderRadius: 8,
+    backgroundColor: "#F9FBFF",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+
+  controlButtonText: {
+    fontSize: 13,
+    color: "#5D6F92",
+    fontFamily: "PoppinsMedium",
+  },
+
+  filterDropdown: {
+    position: "absolute",
+    top: 38,
+    right: 0,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    borderRadius: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    zIndex: 999,
+    minWidth: 130,
+    overflow: "hidden",
+  },
+
+  filterOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF2F8",
+  },
+
+  filterOptionActive: {
+    backgroundColor: "#E8EFFB",
+  },
+
+  filterOptionText: {
+    fontSize: 13,
+    color: "#5D6F92",
+    fontFamily: "PoppinsMedium",
+  },
+
+  filterOptionTextActive: {
+    color: "#294880",
+    fontFamily: "PoppinsSemiBold",
   },
 
   mapCardBody: {

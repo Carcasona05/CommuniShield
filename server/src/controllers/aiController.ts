@@ -2,6 +2,7 @@ import type { Response } from "express";
 import { aiService } from "../services/aiService.js";
 import { reportService } from "../services/reportService.js";
 import { profileService } from "../services/authService.js";
+import { toReportCode } from "../utils/toReportCode.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string } };
 
@@ -89,7 +90,7 @@ export const analyzeReport = async (req: AuthRequest, res: Response) => {
       actorName: profile?.fullname || "Admin",
       actionType: "AI Analysis Completed",
       title: `AI analysis: ${typeData.name}`,
-      details: `AI credibility analysis completed for report ${reportId}. Score: ${result?.ai_score ?? "N/A"}, Severity: ${result?.severity ?? "N/A"}.`,
+      details: `AI credibility analysis completed for report ${toReportCode(reportId)}. Score: ${result?.ai_score ?? "N/A"}, Severity: ${result?.severity ?? "N/A"}.`,
       reportId,
       newValue: result?.ai_score != null ? `Score: ${result.ai_score}` : null,
     }).catch(() => {});

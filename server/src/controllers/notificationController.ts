@@ -90,3 +90,17 @@ export const markNotificationRead = async (
 
   res.json({ message: "Notification marked as read" });
 };
+
+export const markAllNotificationsRead = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  const { error } = await notificationService.markAllRead(user.id);
+
+  if (error) return res.status(500).json({ error });
+
+  res.json({ message: "All notifications marked as read" });
+};

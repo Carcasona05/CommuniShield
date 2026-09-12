@@ -19,6 +19,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
+import { ListSkeleton } from "../../components/PageSkeletons";
 import Dropdown from "../../components/Dropdown";
 import ToastProvider, { useToast } from "../../components/Toast";
 import MyUser_RepPost_Layout from "../../components/User_compo/MyUser_RepPost_Layout";
@@ -522,6 +523,8 @@ const MyReportsInner = () => {
   const toast = useToast();
   const router = useRouter();
 
+  const [loading, setLoading] = useState(() => getCache("api:/reports") === undefined);
+
   const [fontsLoaded] = useFonts({
     "Poppins-Regular": require("../../assets/fonts/Poppins-Regular.ttf"),
     "Poppins-Medium": require("../../assets/fonts/Poppins-Medium.ttf"),
@@ -557,6 +560,7 @@ const MyReportsInner = () => {
     } catch {
       // keep empty list on failure
     } finally {
+      setLoading(false);
       setRefreshing(false);
     }
   }, []);
@@ -730,6 +734,14 @@ const MyReportsInner = () => {
 
   if (!fontsLoaded) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <ThemedView style={{ backgroundColor: "#F8F8F8" }}>
+        <ListSkeleton />
+      </ThemedView>
+    );
   }
 
   return (

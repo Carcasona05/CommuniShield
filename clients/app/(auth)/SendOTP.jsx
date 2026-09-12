@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
-  Alert,
   Platform,
   KeyboardAvoidingView,
   Image,
@@ -15,6 +14,7 @@ import {
 import { Ionicons, FontAwesome } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { IMAGES } from "../../constants/assets";
+import ToastProvider, { useToast } from "../../components/Toast";
 
 const { width, height } = Dimensions.get("window");
 
@@ -35,6 +35,15 @@ const validateConfirmPassword = (value, newPasswordValue) => {
 };
 
 export default function SendOTP() {
+  return (
+    <ToastProvider>
+      <SendOTPInner />
+    </ToastProvider>
+  );
+}
+
+function SendOTPInner() {
+  const toast = useToast();
   const [email, setEmail] = useState("");
   const [step, setStep] = useState("otp");
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
@@ -50,7 +59,7 @@ export default function SendOTP() {
 
   useEffect(() => {
     setEmail(globalThis.demoAccount.resetEmail || globalThis.demoAccount.email);
-    Alert.alert("Demo OTP", "Use this OTP for testing: 123456");
+    toast.show("Use this OTP for testing: 123456", "success", 4000);
   }, []);
 
   const handleOtpChange = (value, index) => {
@@ -74,12 +83,12 @@ export default function SendOTP() {
     const enteredOtp = otpDigits.join("");
 
     if (enteredOtp.length !== 6) {
-      Alert.alert("Error", "Please enter the complete 6-digit OTP.");
+      toast.error("Please enter the complete 6-digit OTP.");
       return;
     }
 
     if (enteredOtp !== "123456") {
-      Alert.alert("Invalid OTP", "The OTP is incorrect.");
+      toast.error("The OTP is incorrect.");
       return;
     }
 
@@ -115,12 +124,10 @@ export default function SendOTP() {
     globalThis.demoAccount.password = newPassword;
     globalThis.demoAccount.resetEmail = email.trim().toLowerCase();
 
-    Alert.alert("Success", "Password changed successfully.", [
-      {
-        text: "OK",
-        onPress: () => router.replace("/(auth)/User_Login"),
-      },
-    ]);
+    toast.success("Password changed successfully.");
+    setTimeout(() => {
+      router.replace("/(auth)/User_Login");
+    }, 1000);
   };
 
   return (

@@ -42,9 +42,7 @@ const LoadingScreen = () => {
 
       if (!active) return;
 
-      await prefetchAllData();
-
-      if (!active) return;
+      prefetchAllData();
 
       if (role === "super_admin") {
         router.replace("/(sadmin)/SAdmin_Dashboard");
