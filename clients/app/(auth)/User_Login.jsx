@@ -13,6 +13,7 @@ import {
   ScrollView,
   useWindowDimensions,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
@@ -52,6 +53,7 @@ function UserLoginInner() {
 
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
+  const [sendingOtp, setSendingOtp] = useState(false);
   const [, setAdminTapCount] = useState(0);
 
   useFocusEffect(
@@ -164,7 +166,7 @@ function UserLoginInner() {
     setResetEmail("");
   };
 
-  const handleVerifyEmail = () => {
+  const handleVerifyEmail = async () => {
     const cleanEmail = resetEmail.trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -178,9 +180,20 @@ function UserLoginInner() {
       return;
     }
 
-    globalThis.demoAccount.resetEmail = cleanEmail;
-    closeForgotModal();
-    router.push("/(auth)/SendOTP");
+    setSendingOtp(true);
+    try {
+      await apiClient.post("/forgot-password", { email: cleanEmail, role: "user" });
+
+      globalThis.demoAccount.resetEmail = cleanEmail;
+      closeForgotModal();
+      router.push("/(auth)/SendOTP");
+    } catch (error) {
+      toast.error(
+        error.response?.data?.error || "Could not send OTP. Try again."
+      );
+    } finally {
+      setSendingOtp(false);
+    }
   };
 
   return (
@@ -405,11 +418,14 @@ function UserLoginInner() {
                 </View>
 
                 <TouchableOpacity
-                  style={styles.modalButton}
+                  style={[styles.modalButton, sendingOtp && { opacity: 0.6 }]}
                   onPress={handleVerifyEmail}
                   activeOpacity={0.85}
+                  disabled={sendingOtp}
                 >
-                  <Text style={styles.modalButtonText}>Verify Email</Text>
+                  <Text style={styles.modalButtonText}>
+                    {sendingOtp ? "Sending..." : "Verify Email"}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </KeyboardAvoidingView>

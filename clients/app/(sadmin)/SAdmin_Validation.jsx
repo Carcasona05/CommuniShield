@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
@@ -20,11 +19,13 @@ import apiClient from "../../services/apiClient";
 import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
+import { useToast } from "../../components/Toast";
 
 
 const COMMUNISHIELD_BLUE = "#294880";
 
 export default function SAdmin_Validation() {
+  const toast = useToast();
   const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [selectedWeekRange, setSelectedWeekRange] = useState("All Weeks");
@@ -461,12 +462,12 @@ export default function SAdmin_Validation() {
         )
       );
 
+      toast.success(`Report status updated to "${newStatus}".`);
       setViewVisible(false);
       setSelectedCompiledGroup(null);
       loadValidation();
     } catch (error) {
-      Alert.alert(
-        "Update Failed",
+      toast.error(
         error.response?.data?.error || "Could not update report status."
       );
     } finally {
@@ -516,13 +517,9 @@ export default function SAdmin_Validation() {
       );
 
       setAddReportVisible(false);
-      Alert.alert(
-        "Announcement Published",
-        "The announcement has been posted."
-      );
+      toast.success("The announcement has been posted.");
     } catch (error) {
-      Alert.alert(
-        "Publish Failed",
+      toast.error(
         error.response?.data?.error || "Could not publish the announcement."
       );
     }

@@ -15,6 +15,7 @@ import { Ionicons, FontAwesome } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
+import apiClient from "../../services/apiClient";
 
 const { width, height } = Dimensions.get("window");
 
@@ -54,12 +55,14 @@ function SendOTPInner() {
   const [submitted, setSubmitted] = useState(false);
   const [newPasswordError, setNewPasswordError] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const otpRefs = useRef([]);
 
   useEffect(() => {
-    setEmail(globalThis.demoAccount.resetEmail || globalThis.demoAccount.email);
-    toast.show("Use this OTP for testing: 123456", "success", 4000);
+    setEmail(globalThis.demoAccount.resetEmail || globalThis.demoAccount.email || "");
   }, []);
 
   const handleOtpChange = (value, index) => {
@@ -79,7 +82,7 @@ function SendOTPInner() {
     }
   };
 
-  const handleVerifyOtp = () => {
+  const handleVerifyOtp = async () => {
     const enteredOtp = otpDigits.join("");
 
     if (enteredOtp.length !== 6) {
@@ -87,12 +90,22 @@ function SendOTPInner() {
       return;
     }
 
-    if (enteredOtp !== "123456") {
-      toast.error("The OTP is incorrect.");
-      return;
-    }
+    setVerifying(true);
+    try {
+      const res = await apiClient.post("/verify-otp", {
+        email: email.trim().toLowerCase(),
+        otp: enteredOtp,
+      });
 
-    setStep("reset");
+      setResetToken(res.data?.reset_token || "");
+      setStep("reset");
+    } catch (error) {
+      toast.error(
+        error.response?.data?.error || "OTP verification failed."
+      );
+    } finally {
+      setVerifying(false);
+    }
   };
 
   const handleNewPasswordChange = (text) => {
@@ -110,7 +123,7 @@ function SendOTPInner() {
     }
   };
 
-  const handleSavePassword = () => {
+  const handleSavePassword = async () => {
     setSubmitted(true);
 
     const pwError = validateNewPassword(newPassword);
@@ -120,14 +133,25 @@ function SendOTPInner() {
 
     if (pwError || confirmError) return;
 
-    globalThis.demoAccount.email = email.trim().toLowerCase();
-    globalThis.demoAccount.password = newPassword;
-    globalThis.demoAccount.resetEmail = email.trim().toLowerCase();
+    setResetting(true);
+    try {
+      await apiClient.post("/reset-password", {
+        email: email.trim().toLowerCase(),
+        reset_token: resetToken,
+        newPassword,
+      });
 
-    toast.success("Password changed successfully.");
-    setTimeout(() => {
-      router.replace("/(auth)/User_Login");
-    }, 1000);
+      toast.success("Password changed successfully.");
+      setTimeout(() => {
+        router.replace("/(auth)/User_Login");
+      }, 1000);
+    } catch (error) {
+      toast.error(
+        error.response?.data?.error || "Could not reset password."
+      );
+    } finally {
+      setResetting(false);
+    }
   };
 
   return (
@@ -176,11 +200,14 @@ function SendOTPInner() {
             </View>
 
             <TouchableOpacity
-              style={styles.primaryButton}
+              style={[styles.primaryButton, verifying && { opacity: 0.6 }]}
               onPress={handleVerifyOtp}
               activeOpacity={0.85}
+              disabled={verifying}
             >
-              <Text style={styles.primaryButtonText}>Verify OTP</Text>
+              <Text style={styles.primaryButtonText}>
+                {verifying ? "Verifying..." : "Verify OTP"}
+              </Text>
             </TouchableOpacity>
           </>
         ) : (
@@ -262,11 +289,14 @@ function SendOTPInner() {
             ) : null}
 
             <TouchableOpacity
-              style={styles.primaryButton}
+              style={[styles.primaryButton, resetting && { opacity: 0.6 }]}
               onPress={handleSavePassword}
               activeOpacity={0.85}
+              disabled={resetting}
             >
-              <Text style={styles.primaryButtonText}>Save New Password</Text>
+              <Text style={styles.primaryButtonText}>
+                {resetting ? "Saving..." : "Save New Password"}
+              </Text>
             </TouchableOpacity>
           </>
         )}

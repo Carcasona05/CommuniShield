@@ -20,6 +20,8 @@ import { saveAdminInfo } from "../../services/auth";
 import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
+import { useToast } from "../../components/Toast";
+import ConfirmModal from "../../components/modals/ConfirmModal";
 
 const validateNewPassword = (value) => {
   if (!value) return "Password is required.";
@@ -132,6 +134,15 @@ function SettingRow({ icon, title, description, rightContent, isLast = false }) 
 }
 
 export default function SAdmin_Settings() {
+  return (
+    <SAdmin_Layout>
+      <SAdmin_SettingsContent />
+    </SAdmin_Layout>
+  );
+}
+
+function SAdmin_SettingsContent() {
+  const toast = useToast();
   const [loading, setLoading] = useState(() => getCache("api:/profile") === undefined);
 
   const [fullName, setFullName] = useState("CommuniShield SuperAdmin");
@@ -187,6 +198,9 @@ export default function SAdmin_Settings() {
   const [modelVersion, setModelVersion] = useState("CommuniShield-AI v1.0");
   const [apiEndpoint, setApiEndpoint] = useState("");
   const [initialEmail, setInitialEmail] = useState("");
+
+  const [confirmVisible, setConfirmVisible] = useState(false);
+  const [confirmData, setConfirmData] = useState(null);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -268,6 +282,49 @@ export default function SAdmin_Settings() {
     loadAccountData();
   }, [loadAccountData]);
 
+  const saveSetting = useCallback(async (key, value) => {
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+
+      await apiClient.put(
+        "/admin/settings",
+        { settings: { [key]: String(value) } },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setCache("api:/admin/settings", {
+        ...(getCache("api:/admin/settings") || {}),
+        settings: {
+          ...((getCache("api:/admin/settings") || {}).settings || {}),
+          [key]: String(value),
+        },
+      });
+
+      toast.success("Setting saved.");
+    } catch (error) {
+      toast.error(error.response?.data?.error || "Could not save setting.");
+    }
+  }, [toast]);
+
+  const confirmToggleOff = useCallback((label, currentValue, setter, key) => {
+    if (currentValue) {
+      setConfirmData({ label, setter, key });
+      setConfirmVisible(true);
+    } else {
+      setter(true);
+      saveSetting(key, true);
+    }
+  }, [saveSetting]);
+
+  const handleConfirmToggle = () => {
+    if (confirmData) {
+      confirmData.setter(false);
+      saveSetting(confirmData.key, false);
+      setConfirmData(null);
+    }
+  };
+
   if (!fontsLoaded) {
     return null;
   }
@@ -280,15 +337,6 @@ export default function SAdmin_Settings() {
     );
   }
 
-  const incidentCategories = [
-    "Public Safety Incidents",
-    "Property-Related Incidents",
-    "Traffic and Road Incidents",
-    "Community and Environmental Concerns",
-    "Suspicious Activities",
-    "Public Assistance / Community Reports",
-    "Cyber and Online Incidents",
-  ];
 
   const showMessage = (title, message) => {
     if (Platform.OS === "web") {
@@ -404,56 +452,9 @@ export default function SAdmin_Settings() {
     }
   };
 
-  const handleSaveSettings = async () => {
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-
-      await apiClient.put(
-        "/admin/settings",
-        {
-          settings: {
-            map_auto_map_verified: String(autoMapVerified),
-            map_cluster_overlay: String(clusterOverlay),
-            map_heatmap_overlay: String(heatmapOverlay),
-            map_default_zoom: defaultMapZoom,
-            map_center: mapCenter,
-            notification_email: String(emailNotifications),
-            notification_push: String(pushNotifications),
-            ai_model_version: modelVersion,
-            ai_api_endpoint: apiEndpoint,
-            ai_scoring_enabled: String(aiCredibilityEnabled),
-            ai_high_threshold: highThreshold,
-            ai_medium_threshold: mediumThreshold,
-          },
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      showMessage(
-        "Settings Saved",
-        "System settings have been saved successfully."
-      );
-    } catch (error) {
-      showMessage(
-        "Save Failed",
-        error.response?.data?.error || "Could not save system settings."
-      );
-    }
-  };
-
-  const handleResetSettings = () => {
-    loadAccountData();
-    showMessage(
-      "Settings Reset",
-      "System settings have been restored to default values."
-    );
-  };
-
   return (
-    <SAdmin_Layout>
-      <View style={styles.mainWrapper}>
-        <ScrollView
+    <View style={styles.mainWrapper}>
+      <ScrollView
           style={styles.container}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -733,7 +734,14 @@ export default function SAdmin_Settings() {
                   rightContent={
                     <Switch
                       value={aiCredibilityEnabled}
-                      onValueChange={setAiCredibilityEnabled}
+                      onValueChange={() =>
+                        confirmToggleOff(
+                          "AI Credibility Scoring",
+                          aiCredibilityEnabled,
+                          setAiCredibilityEnabled,
+                          "ai_scoring_enabled"
+                        )
+                      }
                       trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
                       thumbColor={aiCredibilityEnabled ? "#294880" : "#FFFFFF"}
                     />
@@ -752,6 +760,10 @@ export default function SAdmin_Settings() {
                       keyboardType="numeric"
                       placeholder="85"
                       placeholderTextColor="#5D6F92"
+                      onSubmitEditing={() =>
+                        saveSetting("ai_high_threshold", highThreshold)
+                      }
+                      returnKeyType="done"
                     />
                   </View>
 
@@ -766,32 +778,12 @@ export default function SAdmin_Settings() {
                       keyboardType="numeric"
                       placeholder="60"
                       placeholderTextColor="#5D6F92"
+                      onSubmitEditing={() =>
+                        saveSetting("ai_medium_threshold", mediumThreshold)
+                      }
+                      returnKeyType="done"
                     />
                   </View>
-                </View>
-              </View>
-
-              <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                  <View style={styles.sectionHeaderText}>
-                    <Text style={styles.sectionTitle}>
-                      Incident Category Management
-                    </Text>
-                    <Text style={styles.sectionDescription}>
-                      Review the category groups used for submitted incident
-                      reports.
-                    </Text>
-                  </View>
-
-                  <StatusBadge label={`${incidentCategories.length} Categories`} />
-                </View>
-
-                <View style={styles.categoryList}>
-                  {incidentCategories.map((category) => (
-                    <View key={category} style={styles.categoryTag}>
-                      <Text style={styles.categoryTagText}>{category}</Text>
-                    </View>
-                  ))}
                 </View>
               </View>
 
@@ -815,7 +807,14 @@ export default function SAdmin_Settings() {
                   rightContent={
                     <Switch
                       value={autoMapVerified}
-                      onValueChange={setAutoMapVerified}
+                      onValueChange={() =>
+                        confirmToggleOff(
+                          "Auto-map verified reports",
+                          autoMapVerified,
+                          setAutoMapVerified,
+                          "map_auto_map_verified"
+                        )
+                      }
                       trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
                       thumbColor={autoMapVerified ? "#294880" : "#FFFFFF"}
                     />
@@ -829,7 +828,14 @@ export default function SAdmin_Settings() {
                   rightContent={
                     <Switch
                       value={clusterOverlay}
-                      onValueChange={setClusterOverlay}
+                      onValueChange={() =>
+                        confirmToggleOff(
+                          "Clustering Overlay",
+                          clusterOverlay,
+                          setClusterOverlay,
+                          "map_cluster_overlay"
+                        )
+                      }
                       trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
                       thumbColor={clusterOverlay ? "#294880" : "#FFFFFF"}
                     />
@@ -844,7 +850,14 @@ export default function SAdmin_Settings() {
                   rightContent={
                     <Switch
                       value={heatmapOverlay}
-                      onValueChange={setHeatmapOverlay}
+                      onValueChange={() =>
+                        confirmToggleOff(
+                          "Heatmap Overlay",
+                          heatmapOverlay,
+                          setHeatmapOverlay,
+                          "map_heatmap_overlay"
+                        )
+                      }
                       trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
                       thumbColor={heatmapOverlay ? "#294880" : "#FFFFFF"}
                     />
@@ -861,6 +874,10 @@ export default function SAdmin_Settings() {
                       keyboardType="numeric"
                       placeholder="13"
                       placeholderTextColor="#5D6F92"
+                      onSubmitEditing={() =>
+                        saveSetting("map_default_zoom", defaultMapZoom)
+                      }
+                      returnKeyType="done"
                     />
                   </View>
 
@@ -872,6 +889,10 @@ export default function SAdmin_Settings() {
                       style={styles.textInput}
                       placeholder="Argao, Cebu"
                       placeholderTextColor="#5D6F92"
+                      onSubmitEditing={() =>
+                        saveSetting("map_center", mapCenter)
+                      }
+                      returnKeyType="done"
                     />
                   </View>
                 </View>
@@ -898,7 +919,14 @@ export default function SAdmin_Settings() {
                   rightContent={
                     <Switch
                       value={emailNotifications}
-                      onValueChange={setEmailNotifications}
+                      onValueChange={() =>
+                        confirmToggleOff(
+                          "Email Notifications",
+                          emailNotifications,
+                          setEmailNotifications,
+                          "notification_email"
+                        )
+                      }
                       trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
                       thumbColor={emailNotifications ? "#294880" : "#FFFFFF"}
                     />
@@ -913,7 +941,14 @@ export default function SAdmin_Settings() {
                   rightContent={
                     <Switch
                       value={pushNotifications}
-                      onValueChange={setPushNotifications}
+                      onValueChange={() =>
+                        confirmToggleOff(
+                          "Push Notifications",
+                          pushNotifications,
+                          setPushNotifications,
+                          "notification_push"
+                        )
+                      }
                       trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
                       thumbColor={pushNotifications ? "#294880" : "#FFFFFF"}
                     />
@@ -954,6 +989,10 @@ export default function SAdmin_Settings() {
                       style={styles.textInput}
                       placeholder="CommuniShield-AI v4.3.01"
                       placeholderTextColor="#5D6F92"
+                      onSubmitEditing={() =>
+                        saveSetting("ai_model_version", modelVersion)
+                      }
+                      returnKeyType="done"
                     />
                   </View>
 
@@ -965,33 +1004,15 @@ export default function SAdmin_Settings() {
                       style={styles.textInput}
                       placeholder="https://api.communishield.local/v1"
                       placeholderTextColor="#5D6F92"
+                      onSubmitEditing={() =>
+                        saveSetting("ai_api_endpoint", apiEndpoint)
+                      }
+                      returnKeyType="done"
                     />
                   </View>
                 </View>
               </View>
 
-              <View style={styles.footerActions}>
-                <TouchableOpacity
-                  style={styles.resetButton}
-                  onPress={handleResetSettings}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.resetButtonText}>
-                    Reset System Settings
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.saveButton}
-                  onPress={handleSaveSettings}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="save-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.saveButtonText}>
-                    Save System Settings
-                  </Text>
-                </TouchableOpacity>
-              </View>
             </View>
 
             <View style={styles.rightSection}>
@@ -1011,13 +1032,6 @@ export default function SAdmin_Settings() {
                 <View style={styles.breakdownRow}>
                   <Text style={styles.breakdownText}>AI Threshold Rules</Text>
                   <Text style={styles.breakdownCount}>2</Text>
-                </View>
-
-                <View style={styles.breakdownRow}>
-                  <Text style={styles.breakdownText}>Incident Categories</Text>
-                  <Text style={styles.breakdownCount}>
-                    {incidentCategories.length}
-                  </Text>
                 </View>
 
                 <View style={styles.breakdownRow}>
@@ -1056,7 +1070,7 @@ export default function SAdmin_Settings() {
                 </View>
               </View>
 
-              <View style={styles.sideCard}>
+              <View style={styles.sideCard}> 
                 <Text style={styles.sideCardTitle}>Security Reminder</Text>
 
                 <View style={styles.notesContent}>
@@ -1070,8 +1084,20 @@ export default function SAdmin_Settings() {
             </View>
           </View>
         </ScrollView>
-      </View>
-    </SAdmin_Layout>
+
+      <ConfirmModal
+        visible={confirmVisible}
+        onClose={() => {
+          setConfirmVisible(false);
+          setConfirmData(null);
+        }}
+        onConfirm={handleConfirmToggle}
+        title={`Turn off ${confirmData?.label || ""}?`}
+        message={`Are you sure you want to disable ${confirmData?.label || ""}?`}
+        confirmLabel="Turn Off"
+        icon="power-outline"
+      />
+    </View>
   );
 }
 

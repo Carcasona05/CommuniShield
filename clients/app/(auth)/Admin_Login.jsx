@@ -9,7 +9,6 @@ import {
   Dimensions,
   SafeAreaView,
   Platform,
-  Alert,
   ScrollView,
   Modal,
   ActivityIndicator,
@@ -23,38 +22,6 @@ import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
 
 const { width, height } = Dimensions.get("window");
-
-function seedAdminStore() {
-  if (!globalThis.communishieldAdmins) {
-    globalThis.communishieldAdmins = [];
-  }
-
-  if (
-    globalThis.adminAccount?.email &&
-    !globalThis.communishieldAdmins.some(
-      (a) => a.email === globalThis.adminAccount.email
-    )
-  ) {
-    globalThis.communishieldAdmins.push({
-      email: globalThis.adminAccount.email,
-      fullName: globalThis.adminAccount.fullName || "CommuniShield Admin",
-      password: globalThis.adminAccount.password || "",
-      role: globalThis.adminAccount.role || "admin",
-      type:
-        globalThis.adminAccount.role === "super_admin" ? "sadmin" : "nadmin",
-    });
-  }
-}
-
-const getAdminByEmail = (email) => {
-  seedAdminStore();
-  const clean = (email || "").trim().toLowerCase();
-  return (
-    globalThis.communishieldAdmins.find(
-      (a) => (a.email || "").toLowerCase() === clean
-    ) || null
-  );
-};
 
 const validateLoginPassword = (value) => {
   if (!value) return "Password incorrect.";
@@ -96,7 +63,7 @@ function Admin_LoginInner() {
   const [forgotStep, setForgotStep] = useState("email");
 
   const [forgotEmail, setForgotEmail] = useState("");
-  const [generatedOtp, setGeneratedOtp] = useState("");
+  const [resetToken, setResetToken] = useState("");
   const [enteredOtp, setEnteredOtp] = useState("");
 
   const [newPassword, setNewPassword] = useState("");
@@ -111,6 +78,9 @@ function Admin_LoginInner() {
   const [forgotSubmitted, setForgotSubmitted] = useState(false);
   const [newPasswordError, setNewPasswordError] = useState("");
   const [confirmNewPasswordError, setConfirmNewPasswordError] = useState("");
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   const handlePasswordChange = (text) => {
     setPassword(text);
@@ -197,7 +167,7 @@ function Admin_LoginInner() {
   const resetForgotForm = () => {
     setForgotStep("email");
     setForgotEmail("");
-    setGeneratedOtp("");
+    setResetToken("");
     setEnteredOtp("");
     setNewPassword("");
     setConfirmNewPassword("");
@@ -206,6 +176,9 @@ function Admin_LoginInner() {
     setForgotSubmitted(false);
     setNewPasswordError("");
     setConfirmNewPasswordError("");
+    setSendingOtp(false);
+    setVerifyingOtp(false);
+    setResettingPassword(false);
   };
 
   const openForgotPassword = () => {
@@ -218,7 +191,7 @@ function Admin_LoginInner() {
     resetForgotForm();
   };
 
-  const handleSendOtp = () => {
+  const handleSendOtp = async () => {
     const cleanEmail = forgotEmail.trim().toLowerCase();
 
     if (!cleanEmail) {
@@ -226,36 +199,46 @@ function Admin_LoginInner() {
       return;
     }
 
-    const foundAdmin = getAdminByEmail(cleanEmail);
+    setSendingOtp(true);
+    try {
+      await apiClient.post("/forgot-password", { email: cleanEmail, role: "admin" });
 
-    if (!foundAdmin) {
-      toast.error("No admin account found with this email.");
-      return;
+      setForgotStep("otp");
+      toast.success("OTP has been sent to your email.");
+    } catch (error) {
+      toast.error(
+        error.response?.data?.error || "Could not send OTP. Try again."
+      );
+    } finally {
+      setSendingOtp(false);
     }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    setGeneratedOtp(otp);
-    setForgotStep("otp");
-
-    toast.show(`Your OTP code is ${otp}.`, "success", 5000);
   };
 
-  const handleVerifyOtp = () => {
+  const handleVerifyOtp = async () => {
     if (!enteredOtp.trim()) {
       toast.error("Please enter the OTP code.");
       return;
     }
 
-    if (enteredOtp.trim() !== generatedOtp) {
-      toast.error("The OTP code you entered is incorrect.");
-      return;
-    }
+    setVerifyingOtp(true);
+    try {
+      const res = await apiClient.post("/verify-otp", {
+        email: forgotEmail.trim().toLowerCase(),
+        otp: enteredOtp.trim(),
+      });
 
-    setForgotStep("newPassword");
+      setResetToken(res.data?.reset_token || "");
+      setForgotStep("newPassword");
+    } catch (error) {
+      toast.error(
+        error.response?.data?.error || "OTP verification failed."
+      );
+    } finally {
+      setVerifyingOtp(false);
+    }
   };
 
-  const handleResetPassword = () => {
+  const handleResetPassword = async () => {
     const cleanEmail = forgotEmail.trim().toLowerCase();
 
     setForgotSubmitted(true);
@@ -267,30 +250,28 @@ function Admin_LoginInner() {
 
     if (pwError || confirmError) return;
 
-    const foundAdmin = getAdminByEmail(cleanEmail);
+    setResettingPassword(true);
+    try {
+      await apiClient.post("/reset-password", {
+        email: cleanEmail,
+        reset_token: resetToken,
+        newPassword,
+      });
 
-    if (!foundAdmin) {
-      toast.error("Admin account not found.");
-      return;
+      setPassword("");
+      setEmail(cleanEmail);
+
+      toast.success("Password has been reset successfully.");
+      setTimeout(() => {
+        closeForgotPassword();
+      }, 1000);
+    } catch (error) {
+      toast.error(
+        error.response?.data?.error || "Could not reset password."
+      );
+    } finally {
+      setResettingPassword(false);
     }
-
-    foundAdmin.password = newPassword;
-    foundAdmin.type = foundAdmin.type || (foundAdmin.role === "super_admin" ? "sadmin" : "nadmin");
-
-    if (
-      globalThis.adminAccount &&
-      (globalThis.adminAccount.email || "").toLowerCase() === cleanEmail
-    ) {
-      globalThis.adminAccount.password = newPassword;
-    }
-
-    setPassword("");
-    setEmail(cleanEmail);
-
-    toast.success("Password has been reset successfully.");
-    setTimeout(() => {
-      closeForgotPassword();
-    }, 1000);
   };
 
   const renderForgotContent = () => {
@@ -323,11 +304,14 @@ function Admin_LoginInner() {
           </View>
 
           <TouchableOpacity
-            style={styles.modalPrimaryButton}
+            style={[styles.modalPrimaryButton, sendingOtp && { opacity: 0.6 }]}
             onPress={handleSendOtp}
             activeOpacity={0.85}
+            disabled={sendingOtp}
           >
-            <Text style={styles.modalPrimaryButtonText}>Send OTP</Text>
+            <Text style={styles.modalPrimaryButtonText}>
+              {sendingOtp ? "Sending..." : "Send OTP"}
+            </Text>
           </TouchableOpacity>
         </>
       );
@@ -362,19 +346,25 @@ function Admin_LoginInner() {
           </View>
 
           <TouchableOpacity
-            style={styles.modalPrimaryButton}
+            style={[styles.modalPrimaryButton, verifyingOtp && { opacity: 0.6 }]}
             onPress={handleVerifyOtp}
             activeOpacity={0.85}
+            disabled={verifyingOtp}
           >
-            <Text style={styles.modalPrimaryButtonText}>Verify OTP</Text>
+            <Text style={styles.modalPrimaryButtonText}>
+              {verifyingOtp ? "Verifying..." : "Verify OTP"}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.modalSecondaryButton}
+            style={[styles.modalSecondaryButton, sendingOtp && { opacity: 0.6 }]}
             onPress={handleSendOtp}
             activeOpacity={0.75}
+            disabled={sendingOtp}
           >
-            <Text style={styles.modalSecondaryButtonText}>Resend OTP</Text>
+            <Text style={styles.modalSecondaryButtonText}>
+              {sendingOtp ? "Sending..." : "Resend OTP"}
+            </Text>
           </TouchableOpacity>
         </>
       );
@@ -464,11 +454,14 @@ function Admin_LoginInner() {
         ) : null}
 
         <TouchableOpacity
-          style={styles.modalPrimaryButton}
+          style={[styles.modalPrimaryButton, resettingPassword && { opacity: 0.6 }]}
           onPress={handleResetPassword}
           activeOpacity={0.85}
+          disabled={resettingPassword}
         >
-          <Text style={styles.modalPrimaryButtonText}>Reset Password</Text>
+          <Text style={styles.modalPrimaryButtonText}>
+            {resettingPassword ? "Saving..." : "Reset Password"}
+          </Text>
         </TouchableOpacity>
       </>
     );

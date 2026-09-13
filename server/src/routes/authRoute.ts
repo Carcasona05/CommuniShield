@@ -1,6 +1,7 @@
 import express from "express";
 import { login, register, getProfile, updateProfile, changePassword, changeEmail, adminLogin, adminRegister } from "../controllers/authController.js";
 import { getAccounts, updateAccount, deleteAccount, toggleStatus } from "../controllers/adminController.js";
+import { forgotPassword, verifyOtp, resetPassword } from "../controllers/passwordResetController.js";
 import { authenticate } from "../middlewares/authMiddleware.js";
 import { adapt } from "../utils/adapt.js";
 
@@ -12,6 +13,10 @@ router.get("/profile", authenticate, adapt(getProfile));
 router.put("/profile", authenticate, adapt(updateProfile));
 router.put("/profile/email", authenticate, adapt(changeEmail));
 router.put("/profile/password", authenticate, adapt(changePassword));
+
+router.post("/forgot-password", adapt(forgotPassword));
+router.post("/verify-otp", adapt(verifyOtp));
+router.post("/reset-password", adapt(resetPassword));
 
 router.post("/admin/login", adminLogin);
 router.post("/admin/register", authenticate, adapt(adminRegister));
