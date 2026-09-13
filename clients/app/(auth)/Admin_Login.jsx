@@ -20,7 +20,6 @@ import { saveAuth, saveAdminInfo } from "../../services/auth";
 import { prefetchAllData } from "../../services/dataStore";
 import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
-import { sendOtpEmail } from "../../services/emailService";
 
 const { width, height } = Dimensions.get("window");
 
@@ -202,12 +201,7 @@ function Admin_LoginInner() {
 
     setSendingOtp(true);
     try {
-      const res = await apiClient.post("/forgot-password", { email: cleanEmail, role: "admin" });
-      const otp = res.data?.otp;
-
-      if (otp) {
-        await sendOtpEmail(cleanEmail, otp);
-      }
+      await apiClient.post("/forgot-password", { email: cleanEmail, role: "admin" });
 
       setForgotStep("otp");
       toast.success("OTP has been sent to your email.");

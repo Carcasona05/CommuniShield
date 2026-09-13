@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import { sendOtpEmail } from "../services/emailService.js";
 import crypto from "crypto";
 
 const OTP_EXPIRY_MINUTES = 10;
@@ -60,9 +61,10 @@ export const forgotPassword = async (req: Request, res: Response) => {
       used: false,
     });
 
+    await sendOtpEmail(cleanEmail, otp);
+
     res.json({
-      message: "OTP generated successfully.",
-      otp,
+      message: "If an account exists with this email, an OTP has been sent.",
     });
   } catch (err) {
     console.error("forgotPassword error:", err);

@@ -22,7 +22,6 @@ import { saveAuth } from "../../services/auth";
 import { IMAGES } from "../../constants/assets";
 import { prefetchAllData } from "../../services/dataStore";
 import ToastProvider, { useToast } from "../../components/Toast";
-import { sendOtpEmail } from "../../services/emailService";
 
 const validateLoginPassword = (value) => {
   if (!value) return "Password incorrect.";
@@ -183,12 +182,7 @@ function UserLoginInner() {
 
     setSendingOtp(true);
     try {
-      const res = await apiClient.post("/forgot-password", { email: cleanEmail, role: "user" });
-      const otp = res.data?.otp;
-
-      if (otp) {
-        await sendOtpEmail(cleanEmail, otp);
-      }
+      await apiClient.post("/forgot-password", { email: cleanEmail, role: "user" });
 
       globalThis.demoAccount.resetEmail = cleanEmail;
       closeForgotModal();
