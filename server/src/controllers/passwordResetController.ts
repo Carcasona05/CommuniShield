@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { sendOtpEmail } from "../services/emailService.js";
-import { redis } from "../config/redis.js";
+import { getRedis } from "../config/redis.js";
 import crypto from "crypto";
 
 const OTP_EXPIRY_SECONDS = 15 * 60;
@@ -49,7 +49,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
 
     const otp = generateOtp();
 
-    await redis.set(`otp:${cleanEmail}`, JSON.stringify({ otp, verified: false }), {
+    await getRedis().set(`otp:${cleanEmail}`, JSON.stringify({ otp, verified: false }), {
       ex: OTP_EXPIRY_SECONDS,
     });
 
@@ -80,7 +80,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanOtp = String(otp).trim();
 
-    const raw = await redis.get<string>(`otp:${cleanEmail}`);
+    const raw = await getRedis().get<string>(`otp:${cleanEmail}`);
 
     if (!raw) {
       return res.status(400).json({ error: "No pending reset found. Request a new OTP." });
@@ -96,7 +96,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Incorrect OTP code." });
     }
 
-    await redis.set(`otp:${cleanEmail}`, JSON.stringify({ otp: entry.otp, verified: true }), {
+    await getRedis().set(`otp:${cleanEmail}`, JSON.stringify({ otp: entry.otp, verified: true }), {
       ex: OTP_EXPIRY_SECONDS,
     });
 
@@ -121,7 +121,7 @@ export const resetPassword = async (req: Request, res: Response) => {
 
     const cleanEmail = String(email).trim().toLowerCase();
 
-    const raw = await redis.get<string>(`otp:${cleanEmail}`);
+    const raw = await getRedis().get<string>(`otp:${cleanEmail}`);
 
     if (!raw) {
       return res.status(400).json({ error: "OTP not verified. Please verify your OTP first." });
@@ -151,7 +151,7 @@ export const resetPassword = async (req: Request, res: Response) => {
       return res.status(500).json({ error: updateError.message });
     }
 
-    await redis.del(`otp:${cleanEmail}`);
+    await getRedis().del(`otp:${cleanEmail}`);
 
     res.json({ message: "Password has been reset successfully." });
   } catch (err: any) {
