@@ -54,3 +54,14 @@ Logic
 - If super_admin → redirects to SAdmin_Dashboard
 - If admin → redirects to Admin_Dashboard
 - If no token/regular user → redirects to Admin_Login
+
+Session 4: Password Reset — Removed DB Table, Added Redis OTP Storage
+- Removed password_resets table — replaced with Upstash Redis for OTP storage
+- OTPs now stored in Redis with 15-minute TTL (auto-expires, no cleanup needed)
+- Simplified reset flow: forgot-password → verify-otp → reset-password (no reset token step)
+- Added @upstash/redis dependency and config (server/src/config/redis.ts)
+- Rewrote passwordResetController.ts — all Supabase table queries removed, uses Redis instead
+- Updated password_resets_migration.sql to DROP TABLE
+- Removed reset_token from client-side API calls (SendOTP.jsx, Admin_Login.jsx)
+- Added SMTP error handling — returns specific error instead of generic 500
+- Env vars needed: UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM

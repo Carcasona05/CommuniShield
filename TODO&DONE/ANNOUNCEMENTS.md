@@ -59,7 +59,7 @@
 
 # OVERALL
 - Session time out if there's no account logged in and will redirected to logins.
-- OTP for forget password not implemented yet.
+- OTP for forget password is DONE (uses Upstash Redis, 15min expiry, no DB table)
 
 
 ### FRONTEND ###
