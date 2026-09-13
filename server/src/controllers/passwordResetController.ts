@@ -66,7 +66,8 @@ export const forgotPassword = async (req: Request, res: Response) => {
     res.json({
       message: "If an account exists with this email, an OTP has been sent.",
     });
-  } catch {
+  } catch (err) {
+    console.error("forgotPassword error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 };

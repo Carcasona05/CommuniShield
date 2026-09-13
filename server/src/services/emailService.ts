@@ -1,14 +1,16 @@
 import nodemailer from "nodemailer";
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+const getTransporter = () => {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT) || 587,
+    secure: false,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+};
 
 export const sendOtpEmail = async (to: string, otp: string) => {
   const from = process.env.EMAIL_FROM || "CommuniShield <noreply@communishield.com>";
@@ -63,7 +65,7 @@ export const sendOtpEmail = async (to: string, otp: string) => {
     </html>
   `;
 
-  await transporter.sendMail({
+  await getTransporter().sendMail({
     from,
     to,
     subject: "CommuniShield - Password Reset Code",
