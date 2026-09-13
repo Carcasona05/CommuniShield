@@ -63,7 +63,6 @@ function Admin_LoginInner() {
   const [forgotStep, setForgotStep] = useState("email");
 
   const [forgotEmail, setForgotEmail] = useState("");
-  const [resetToken, setResetToken] = useState("");
   const [enteredOtp, setEnteredOtp] = useState("");
 
   const [newPassword, setNewPassword] = useState("");
@@ -167,7 +166,6 @@ function Admin_LoginInner() {
   const resetForgotForm = () => {
     setForgotStep("email");
     setForgotEmail("");
-    setResetToken("");
     setEnteredOtp("");
     setNewPassword("");
     setConfirmNewPassword("");
@@ -222,12 +220,11 @@ function Admin_LoginInner() {
 
     setVerifyingOtp(true);
     try {
-      const res = await apiClient.post("/verify-otp", {
+      await apiClient.post("/verify-otp", {
         email: forgotEmail.trim().toLowerCase(),
         otp: enteredOtp.trim(),
       });
 
-      setResetToken(res.data?.reset_token || "");
       setForgotStep("newPassword");
     } catch (error) {
       toast.error(
@@ -254,7 +251,6 @@ function Admin_LoginInner() {
     try {
       await apiClient.post("/reset-password", {
         email: cleanEmail,
-        reset_token: resetToken,
         newPassword,
       });
 

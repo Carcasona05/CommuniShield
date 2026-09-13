@@ -1,17 +1,13 @@
 import type { Request, Response } from "express";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { sendOtpEmail } from "../services/emailService.js";
+import { redis } from "../config/redis.js";
 import crypto from "crypto";
 
-const OTP_EXPIRY_MINUTES = 10;
-const TOKEN_EXPIRY_MINUTES = 15;
+const OTP_EXPIRY_SECONDS = 15 * 60;
 
 const generateOtp = (): string => {
   return crypto.randomInt(100000, 999999).toString();
-};
-
-const generateToken = (): string => {
-  return crypto.randomBytes(32).toString("hex");
 };
 
 export const forgotPassword = async (req: Request, res: Response) => {
@@ -52,23 +48,24 @@ export const forgotPassword = async (req: Request, res: Response) => {
     }
 
     const otp = generateOtp();
-    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
 
-    await supabaseAdmin.from("password_resets").insert({
-      email: cleanEmail,
-      otp_code: otp,
-      expires_at: expiresAt.toISOString(),
-      used: false,
+    await redis.set(`otp:${cleanEmail}`, JSON.stringify({ otp, verified: false }), {
+      ex: OTP_EXPIRY_SECONDS,
     });
 
-    await sendOtpEmail(cleanEmail, otp);
+    try {
+      await sendOtpEmail(cleanEmail, otp);
+    } catch (emailErr) {
+      console.error("Failed to send OTP email:", emailErr);
+      return res.status(500).json({ error: "Failed to send OTP email. Check SMTP configuration." });
+    }
 
     res.json({
       message: "If an account exists with this email, an OTP has been sent.",
     });
-  } catch (err) {
-    console.error("forgotPassword error:", err);
-    res.status(500).json({ error: "Internal server error" });
+  } catch (err: any) {
+    console.error("forgotPassword error:", err?.message || err);
+    res.status(500).json({ error: err?.message || "Internal server error" });
   }
 };
 
@@ -83,61 +80,39 @@ export const verifyOtp = async (req: Request, res: Response) => {
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanOtp = String(otp).trim();
 
-    const { data: record, error: fetchError } = await supabaseAdmin
-      .from("password_resets")
-      .select("id, otp_code, expires_at, used")
-      .eq("email", cleanEmail)
-      .eq("used", false)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+    const raw = await redis.get<string>(`otp:${cleanEmail}`);
 
-    if (fetchError || !record) {
+    if (!raw) {
       return res.status(400).json({ error: "No pending reset found. Request a new OTP." });
     }
 
-    if (record.used) {
+    const entry = typeof raw === "string" ? JSON.parse(raw) : raw;
+
+    if (entry.verified) {
       return res.status(400).json({ error: "This OTP has already been used." });
     }
 
-    if (new Date(record.expires_at) < new Date()) {
-      return res.status(400).json({ error: "OTP has expired. Request a new one." });
-    }
-
-    if (record.otp_code !== cleanOtp) {
+    if (entry.otp !== cleanOtp) {
       return res.status(400).json({ error: "Incorrect OTP code." });
     }
 
-    const resetToken = generateToken();
-    const tokenExpires = new Date(Date.now() + TOKEN_EXPIRY_MINUTES * 60 * 1000);
-
-    await supabaseAdmin
-      .from("password_resets")
-      .update({ used: true })
-      .eq("id", record.id);
-
-    await supabaseAdmin.from("password_resets").insert({
-      email: cleanEmail,
-      otp_code: resetToken,
-      expires_at: tokenExpires.toISOString(),
-      used: false,
+    await redis.set(`otp:${cleanEmail}`, JSON.stringify({ otp: entry.otp, verified: true }), {
+      ex: OTP_EXPIRY_SECONDS,
     });
 
-    res.json({
-      message: "OTP verified successfully.",
-      reset_token: resetToken,
-    });
-  } catch {
-    res.status(500).json({ error: "Internal server error" });
+    res.json({ message: "OTP verified successfully." });
+  } catch (err: any) {
+    console.error("verifyOtp error:", err?.message || err);
+    res.status(500).json({ error: err?.message || "Internal server error" });
   }
 };
 
 export const resetPassword = async (req: Request, res: Response) => {
   try {
-    const { email, reset_token, newPassword } = req.body ?? {};
+    const { email, newPassword } = req.body ?? {};
 
-    if (!email || !reset_token || !newPassword) {
-      return res.status(400).json({ error: "Email, reset token, and new password are required" });
+    if (!email || !newPassword) {
+      return res.status(400).json({ error: "Email and new password are required" });
     }
 
     if (String(newPassword).length < 6) {
@@ -145,24 +120,17 @@ export const resetPassword = async (req: Request, res: Response) => {
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
-    const cleanToken = String(reset_token).trim();
 
-    const { data: record, error: fetchError } = await supabaseAdmin
-      .from("password_resets")
-      .select("id, otp_code, expires_at, used")
-      .eq("email", cleanEmail)
-      .eq("otp_code", cleanToken)
-      .eq("used", false)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+    const raw = await redis.get<string>(`otp:${cleanEmail}`);
 
-    if (fetchError || !record) {
-      return res.status(400).json({ error: "Invalid or expired reset token." });
+    if (!raw) {
+      return res.status(400).json({ error: "OTP not verified. Please verify your OTP first." });
     }
 
-    if (new Date(record.expires_at) < new Date()) {
-      return res.status(400).json({ error: "Reset token has expired." });
+    const entry = typeof raw === "string" ? JSON.parse(raw) : raw;
+
+    if (!entry.verified) {
+      return res.status(400).json({ error: "OTP not verified. Please verify your OTP first." });
     }
 
     const { data: userData } = await supabaseAdmin.auth.admin.listUsers();
@@ -183,13 +151,11 @@ export const resetPassword = async (req: Request, res: Response) => {
       return res.status(500).json({ error: updateError.message });
     }
 
-    await supabaseAdmin
-      .from("password_resets")
-      .update({ used: true })
-      .eq("id", record.id);
+    await redis.del(`otp:${cleanEmail}`);
 
     res.json({ message: "Password has been reset successfully." });
-  } catch {
-    res.status(500).json({ error: "Internal server error" });
+  } catch (err: any) {
+    console.error("resetPassword error:", err?.message || err);
+    res.status(500).json({ error: err?.message || "Internal server error" });
   }
 };

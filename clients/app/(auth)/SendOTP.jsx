@@ -55,7 +55,6 @@ function SendOTPInner() {
   const [submitted, setSubmitted] = useState(false);
   const [newPasswordError, setNewPasswordError] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
-  const [resetToken, setResetToken] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [resetting, setResetting] = useState(false);
 
@@ -92,12 +91,11 @@ function SendOTPInner() {
 
     setVerifying(true);
     try {
-      const res = await apiClient.post("/verify-otp", {
+      await apiClient.post("/verify-otp", {
         email: email.trim().toLowerCase(),
         otp: enteredOtp,
       });
 
-      setResetToken(res.data?.reset_token || "");
       setStep("reset");
     } catch (error) {
       toast.error(
@@ -137,7 +135,6 @@ function SendOTPInner() {
     try {
       await apiClient.post("/reset-password", {
         email: email.trim().toLowerCase(),
-        reset_token: resetToken,
         newPassword,
       });
 
