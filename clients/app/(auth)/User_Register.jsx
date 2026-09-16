@@ -14,7 +14,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
 import { IMAGES } from "../../constants/assets";
@@ -47,6 +47,7 @@ export default function Register() {
 function RegisterInner() {
   const toast = useToast();
   const { width, height } = useWindowDimensions();
+  const { termsAccepted } = useLocalSearchParams();
 
   const isSmallPhone = width < 360;
   const isShortScreen = height < 720;
@@ -60,6 +61,8 @@ function RegisterInner() {
   const [submitted, setSubmitted] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
+  const [termsAcceptedState, setTermsAcceptedState] = useState(termsAccepted === "true");
+  const [termsError, setTermsError] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -101,6 +104,13 @@ function RegisterInner() {
     const confirmError = validateConfirmPassword(password, confirmPassword);
     setPasswordError(pwError);
     setConfirmPasswordError(confirmError);
+
+    if (!termsAccepted) {
+      setTermsError(true);
+      toast.error("Please accept the Terms and Conditions to continue.");
+      return;
+    }
+    setTermsError(false);
 
     if (pwError || confirmError) return;
 
@@ -327,6 +337,32 @@ function RegisterInner() {
               ) : null}
 
               <TouchableOpacity
+                style={styles.termsWrapper}
+                onPress={() => router.push("/(auth)/TermsAndConditions")}
+                activeOpacity={0.85}
+              >
+                <View style={[
+                  styles.checkbox,
+                  termsAccepted && styles.checkboxChecked,
+                  termsError && styles.checkboxError,
+                ]}>
+                  {termsAccepted && (
+                    <MaterialIcons name="check" size={18} color="#FFFFFF" />
+                  )}
+                </View>
+                <Text style={styles.termsText}>
+                  I have read and accept the{' '}
+                  <Text style={styles.termsLink}>Terms and Conditions</Text>{' '}
+                  (including NDA & DPA Compliance)
+                </Text>
+              </TouchableOpacity>
+              {termsError ? (
+                <Text style={styles.errorText}>
+                  You must accept the Terms and Conditions to register.
+                </Text>
+              ) : null}
+
+              <TouchableOpacity
                 style={[
                   styles.loginButton,
                   {
@@ -498,6 +534,50 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "#294880",
+    textDecorationLine: "underline",
+  },
+
+  termsWrapper: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 16,
+    marginTop: 4,
+  },
+
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderWidth: 1.5,
+    borderColor: "#8EA3CE",
+    borderRadius: 5,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 2,
+    marginRight: 10,
+    backgroundColor: "#EEF2F8",
+  },
+
+  checkboxChecked: {
+    backgroundColor: "#294880",
+    borderColor: "#294880",
+  },
+
+  checkboxError: {
+    borderColor: "#C0392B",
+  },
+
+  termsText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 20,
+    color: "#3D4A6B",
+    marginTop: 2,
+  },
+
+  termsLink: {
+    color: "#294880",
+    fontWeight: "600",
     textDecorationLine: "underline",
   },
 
