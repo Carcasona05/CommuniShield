@@ -13,6 +13,7 @@ import { useFonts } from "expo-font";
 import FullscreenImageViewer from "./FullscreenImageViewer";
 import formatRelativeTime from "../services/formatRelativeTime";
 import formatDisplayLocation from "../services/formatDisplayLocation";
+import censorText from "../services/censorText";
 
 const PRIMARY = "#294880";
 
@@ -244,7 +245,7 @@ const ReportPost_Layout = ({
           {incidentType}
         </Text>
 
-        <Text style={styles.detailsText}>{details}</Text>
+        <Text style={styles.detailsText}>{censorText(details)}</Text>
 
         {renderImages()}
       </View>

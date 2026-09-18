@@ -5,12 +5,19 @@ import { profileService } from "../services/authService.js";
 type AuthRequest = import("express").Request & { user?: { id: string } };
 
 const ALLOWED_AI_MODELS = [
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-3.1-pro",
+  "gemini-3.0-flash",
+  "gemini-2.5-flash-lite",
   "gemini-2.5-flash",
   "gemini-2.5-pro",
-  "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
-  "gemini-1.5-pro",
+  "gemini-2.0-flash",
 ];
 
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -21,12 +28,12 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   map_center: "Argao, Cebu",
   notification_email: "true",
   notification_push: "false",
-  ai_model_version: "gemini-1.5-flash",
+  ai_model_version: "gemini-3.6-flash",
   ai_api_endpoint: "",
   ai_scoring_enabled: "true",
   ai_high_threshold: "85",
   ai_medium_threshold: "60",
-  ai_model_name: "gemini-1.5-flash",
+  ai_model_name: "gemini-3.6-flash",
   ai_temperature: "0.1",
   ai_timeout: "30000",
 };

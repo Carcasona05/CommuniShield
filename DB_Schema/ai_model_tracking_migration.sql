@@ -19,8 +19,8 @@ END $$;
 DELETE FROM public.system_settings WHERE key = 'ai_ollama_url';
 
 INSERT INTO public.system_settings (key, value) VALUES
-  ('ai_model_name', 'gemini-1.5-flash'),
-  ('ai_model_version', 'gemini-1.5-flash'),
+  ('ai_model_name', 'gemini-3.6-flash'),
+  ('ai_model_version', 'gemini-3.6-flash'),
   ('ai_temperature', '0.1'),
   ('ai_timeout', '30000')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;

@@ -467,9 +467,12 @@ export default function SAdmin_Validation() {
       setSelectedCompiledGroup(null);
       loadValidation();
     } catch (error) {
-      toast.error(
-        error.response?.data?.error || "Could not update report status."
-      );
+      const msg = error?.response?.data?.error || error?.message || "Could not update report status.";
+      if (toast?.error) {
+        toast.error(msg);
+      } else {
+        console.error("[applyValidation]", msg);
+      }
     } finally {
       setValidating(false);
     };
@@ -520,7 +523,7 @@ export default function SAdmin_Validation() {
       toast.success("The announcement has been posted.");
     } catch (error) {
       toast.error(
-        error.response?.data?.error || "Could not publish the announcement."
+        error?.response?.data?.error || "Could not publish the announcement."
       );
     }
   };

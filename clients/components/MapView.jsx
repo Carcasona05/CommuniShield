@@ -45,17 +45,28 @@ const MAP_HTML = `
       center: [9.8816, 123.5953],
       zoom: 13,
       minZoom: 9,
-      scrollWheelZoom: false,
+      scrollWheelZoom: true,
+      zoomControl: true,
+      zoomSnap: 0.5,
+      zoomDelta: 0.5,
+      wheelDebounceTime: 40,
+      wheelPxPerZoomLevel: 40,
+      smooth: true,
+      inertia: true,
+      inertiaDeceleration: 2000,
+      inertiaMaxSpeed: 3000,
       maxBounds: [
         [CEBU_LAT_MIN, CEBU_LNG_MIN],
         [CEBU_LAT_MAX, CEBU_LNG_MAX],
       ],
-      maxBoundsViscosity: 1.0,
+      maxBoundsViscosity: 0.6,
     });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(map);
+
+    L.control.zoom({ position: "topright" }).addTo(map);
 
     var userMarker = L.marker([9.8816, 123.5953]).addTo(map);
     userMarker.bindPopup("Your current location");
@@ -146,6 +157,10 @@ const MAP_HTML = `
       follow = false;
     });
 
+    map.on("click", function () {
+      sendToHost({ type: "mapPress" });
+    });
+
     if (navigator.geolocation) {
       function report(p) {
         var lat = clampLat(p.coords.latitude);
@@ -185,6 +200,7 @@ const MapView = React.forwardRef(
       markers = [],
       interactive = true,
       onMarkerPress,
+      onMapPress,
       onLocation,
     },
     ref
@@ -280,12 +296,13 @@ const MapView = React.forwardRef(
         try {
           const data = JSON.parse(e.data);
           if (data.type === "markerPress") onMarkerPress?.(data.id);
+          if (data.type === "mapPress") onMapPress?.();
           if (data.type === "location") onLocation?.([data.lat, data.lng]);
         } catch {}
       };
       window.addEventListener("message", handler);
       return () => window.removeEventListener("message", handler);
-    }, [isWeb, onMarkerPress, onLocation]);
+    }, [isWeb, onMarkerPress, onMapPress, onLocation]);
 
     React.useImperativeHandle(ref, () => ({ recenter }));
 
@@ -310,6 +327,7 @@ const MapView = React.forwardRef(
             try {
               const data = JSON.parse(e.nativeEvent?.data);
               if (data.type === "markerPress") onMarkerPress?.(data.id);
+              if (data.type === "mapPress") onMapPress?.();
               if (data.type === "location") onLocation?.([data.lat, data.lng]);
             } catch {}
           }}

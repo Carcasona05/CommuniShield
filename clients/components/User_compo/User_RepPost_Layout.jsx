@@ -8,6 +8,7 @@ import {
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
+import censorText from "../../services/censorText";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -78,7 +79,7 @@ const User_RepPost_Layout = ({
       </View>
 
       <Text style={styles.detailsText} numberOfLines={3}>
-        {details}
+        {censorText(details)}
       </Text>
 
       {images?.length > 0 ? (

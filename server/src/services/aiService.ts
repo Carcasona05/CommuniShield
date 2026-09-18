@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 
 const DEFAULT_GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const DEFAULT_MODEL = "gemini-1.5-flash";
+const DEFAULT_MODEL = "gemini-3.6-flash";
 const DEFAULT_TEMPERATURE = 0.1;
 const DEFAULT_TIMEOUT_MS = 30000;
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -23,16 +23,75 @@ interface AIConfig {
 }
 
 const GEMINI_MODELS = [
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-3.1-pro",
+  "gemini-3.0-flash",
+  "gemini-2.5-flash-lite",
   "gemini-2.5-flash",
   "gemini-2.5-pro",
-  "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
-  "gemini-1.5-pro",
+  "gemini-2.0-flash",
 ];
 
 function isValidGeminiModel(name: string): boolean {
   return GEMINI_MODELS.some((m) => name === m || name.startsWith(m + "-"));
+}
+
+let cachedAvailableModel: string | null = null;
+
+async function discoverModel(apiKey: string, baseEndpoint: string): Promise<string> {
+  if (cachedAvailableModel) return cachedAvailableModel;
+
+  const listUrl = `${baseEndpoint}?key=${apiKey}`;
+  console.log(`[AI Discovery] Querying available models: ${listUrl.replace(/key=.*/, "key=***")}`);
+
+  try {
+    const res = await fetch(listUrl, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(`[AI Discovery] List models failed ${res.status}:`, body);
+      return DEFAULT_MODEL;
+    }
+
+    const data = await res.json();
+    const models: Array<{ name: string; supportedGenerationMethods?: string[] }> = data.models || [];
+
+    console.log(`[AI Discovery] Found ${models.length} models:`);
+    models.forEach((m) => {
+      const methods = m.supportedGenerationMethods?.join(", ") || "unknown";
+      console.log(`  - ${m.name} [${methods}]`);
+    });
+
+    const generateCapable = models.filter((m) =>
+      m.supportedGenerationMethods?.includes("generateContent")
+    );
+
+    for (const preferred of GEMINI_MODELS) {
+      const found = generateCapable.find((m) => m.name.includes(preferred));
+      if (found) {
+        cachedAvailableModel = found.name;
+        console.log(`[AI Discovery] Selected model: ${found.name}`);
+        return found.name;
+      }
+    }
+
+    if (generateCapable.length > 0) {
+      cachedAvailableModel = generateCapable[0].name;
+      console.log(`[AI Discovery] Using first available model: ${generateCapable[0].name}`);
+      return generateCapable[0].name;
+    }
+
+    console.warn("[AI Discovery] No models support generateContent, using default");
+    return DEFAULT_MODEL;
+  } catch (err) {
+    console.error("[AI Discovery] Failed to query models:", err instanceof Error ? err.message : err);
+    return DEFAULT_MODEL;
+  }
 }
 
 async function loadAIConfig(): Promise<AIConfig> {
@@ -49,22 +108,42 @@ async function loadAIConfig(): Promise<AIConfig> {
   const map = new Map<string, string>();
   (data || []).forEach((row) => map.set(row.key, row.value));
 
-  const dbModel = map.get("ai_model_name") || "";
-  const model_name = isValidGeminiModel(dbModel) ? dbModel : DEFAULT_MODEL;
+  const apiKey = DEFAULT_GEMINI_API_KEY;
+  const apiEndpoint = map.get("ai_api_endpoint") || GEMINI_BASE_URL;
 
-  if (dbModel && !isValidGeminiModel(dbModel)) {
-    console.warn(
-      `Invalid Gemini model "${dbModel}" in system_settings, falling back to ${DEFAULT_MODEL}`
-    );
+  let dbModel = map.get("ai_model_name") || "";
+  if (!isValidGeminiModel(dbModel)) {
+    console.warn(`[AI Config] Invalid model "${dbModel}" in DB, discovering available model...`);
+    dbModel = "";
   }
 
-  return {
-    api_key: DEFAULT_GEMINI_API_KEY,
+  let model_name: string;
+  if (dbModel) {
+    model_name = dbModel;
+  } else if (apiKey) {
+    model_name = await discoverModel(apiKey, apiEndpoint);
+  } else {
+    model_name = DEFAULT_MODEL;
+  }
+
+  const config: AIConfig = {
+    api_key: apiKey,
     model_name,
     temperature: parseFloat(map.get("ai_temperature") || String(DEFAULT_TEMPERATURE)) || DEFAULT_TEMPERATURE,
     timeout_ms: parseInt(map.get("ai_timeout") || String(DEFAULT_TIMEOUT_MS), 10) || DEFAULT_TIMEOUT_MS,
-    api_endpoint: map.get("ai_api_endpoint") || GEMINI_BASE_URL,
+    api_endpoint: apiEndpoint,
   };
+
+  console.log("[AI Config] Loaded:", {
+    model: config.model_name,
+    endpoint: config.api_endpoint,
+    has_key: !!config.api_key,
+    key_prefix: config.api_key ? config.api_key.substring(0, 6) + "..." : "NONE",
+    temperature: config.temperature,
+    timeout: config.timeout_ms,
+  });
+
+  return config;
 }
 
 const SYSTEM_PROMPT = `You are an AI safety analyst for CommuniShield, a community incident reporting system in Argao, Cebu. Analyze incident reports and return a JSON object with exactly these fields:
@@ -124,6 +203,10 @@ async function callGemini(
         ? config.api_endpoint 
         : GEMINI_BASE_URL;
       const url = `${baseEndpoint}/${config.model_name}:generateContent?key=${config.api_key}`;
+      const maskedUrl = url.replace(/key=.*/, "key=***");
+
+      console.log(`[Gemini] Attempt ${attempt}/${retries} — POST ${maskedUrl}`);
+      console.log(`[Gemini] Prompt length: ${prompt.length} chars`);
 
       const response = await fetch(url, {
         method: "POST",
@@ -149,9 +232,11 @@ async function callGemini(
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error(`[Gemini] ERROR ${response.status} — ${errorText}`);
         throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
       }
 
+      console.log(`[Gemini] SUCCESS — ${response.status}`);
       const data = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
       if (text) {
@@ -260,7 +345,7 @@ export const aiService = {
       .select("value")
       .eq("key", "ai_model_version")
       .maybeSingle();
-    return data?.value || "gemini-1.5-flash";
+    return data?.value || "gemini-3.6-flash";
   },
 
   /**
@@ -442,6 +527,10 @@ export const aiService = {
         ? config.api_endpoint 
         : GEMINI_BASE_URL;
       const url = `${baseEndpoint}?key=${config.api_key}`;
+      const maskedUrl = url.replace(/key=.*/, "key=***");
+
+      console.log(`[Gemini Test] GET ${maskedUrl}`);
+
       const response = await fetch(url, {
         method: "GET",
         signal: controller.signal,
@@ -451,6 +540,7 @@ export const aiService = {
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error(`[Gemini Test] ERROR ${response.status} — ${errorText}`);
         return { connected: false, error: `Gemini API returned ${response.status}: ${errorText}` };
       }
 
@@ -458,11 +548,14 @@ export const aiService = {
       const models: Array<{ name: string }> = data.models || [];
       const hasModel = models.some((m) => m.name.includes(config.model_name));
 
+      console.log(`[Gemini Test] SUCCESS — ${models.length} models available, ${config.model_name} found: ${hasModel}`);
+
       return {
         connected: true,
         model: hasModel ? config.model_name : `${config.model_name} (available via API)`,
       };
     } catch (error) {
+      console.error(`[Gemini Test] CONNECTION FAILED —`, error instanceof Error ? error.message : error);
       return {
         connected: false,
         error: error instanceof Error ? error.message : "Connection failed",

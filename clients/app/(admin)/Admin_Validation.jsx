@@ -472,7 +472,7 @@ const handleAddAnnouncement = () => {
       loadValidation();
     } catch (error) {
       toast.error(
-        error.response?.data?.error || "Could not update report status."
+        error?.response?.data?.error || "Could not update report status."
       );
     } finally {
       setValidating(false);
@@ -524,7 +524,7 @@ const handleAddAnnouncement = () => {
       toast.success("The announcement has been posted.");
     } catch (error) {
       toast.error(
-        error.response?.data?.error || "Could not publish the announcement."
+        error?.response?.data?.error || "Could not publish the announcement."
       );
     }
   };

@@ -13,6 +13,7 @@ import { useFonts } from "expo-font";
 import { useRouter } from "expo-router";
 import FullscreenImageViewer from "../FullscreenImageViewer";
 import formatRelativeTime from "../../services/formatRelativeTime";
+import censorText from "../../services/censorText";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
 
 const PRIMARY = "#294880";
@@ -317,7 +318,7 @@ const MyUser_RepPost_Layout = ({
           {incidentType}
         </Text>
 
-        <Text style={styles.detailsText}>{details}</Text>
+        <Text style={styles.detailsText}>{censorText(details)}</Text>
 
         {renderImages()}
       </View>

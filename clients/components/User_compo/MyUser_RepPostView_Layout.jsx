@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import formatRelativeTime from "../../services/formatRelativeTime";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
+import censorText from "../../services/censorText";
 
 const PRIMARY = "#294880";
 
@@ -203,7 +204,7 @@ const MyUser_RepPostView_Layout = ({ report }) => {
           </Text>
 
           <Text style={styles.detailsText}>
-            {report.details || "No report details provided."}
+            {censorText(report.details) || "No report details provided."}
           </Text>
 
           {report.images?.length > 0 ? (
@@ -303,7 +304,7 @@ const MyUser_RepPostView_Layout = ({ report }) => {
                     {comment.user || "CommuniShield User"}
                   </Text>
 
-                  <Text style={styles.commentText}>{comment.text}</Text>
+                  <Text style={styles.commentText}>{censorText(comment.text)}</Text>
                 </View>
 
                 <Text style={styles.commentDate}>

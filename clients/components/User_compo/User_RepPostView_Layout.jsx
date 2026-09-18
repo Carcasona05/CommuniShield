@@ -16,6 +16,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
 import formatRelativeTime from "../../services/formatRelativeTime";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
+import censorText from "../../services/censorText";
 
 const PRIMARY = "#294880";
 
@@ -228,7 +229,7 @@ const User_RepPostView_Layout = ({ post }) => {
           </Text>
 
           <Text style={styles.detailsText}>
-            {post.details || "No details provided."}
+            {censorText(post.details) || "No details provided."}
           </Text>
 
           {post.images?.length > 0 ? (
@@ -328,7 +329,7 @@ const User_RepPostView_Layout = ({ post }) => {
                     {comment.user || "CommuniShield User"}
                   </Text>
 
-                  <Text style={styles.commentText}>{comment.text}</Text>
+                  <Text style={styles.commentText}>{censorText(comment.text)}</Text>
                 </View>
 
                 <Text style={styles.commentDate}>

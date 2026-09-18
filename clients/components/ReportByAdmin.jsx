@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import formatRelativeTime from "../services/formatRelativeTime";
 import formatDisplayLocation from "../services/formatDisplayLocation";
+import censorText from "../services/censorText";
 
 const PRIMARY = "#294880";
 
@@ -59,7 +60,7 @@ const ReportByAdmin = ({
   const finalLocation = formatDisplayLocation(
     location || report?.location || "Location not specified"
   );
-  const finalDetails = details || report?.details || "No details provided.";
+  const finalDetails = censorText(details || report?.details || "No details provided.");
   const finalDatePosted =
     datePosted ||
     postedDate ||

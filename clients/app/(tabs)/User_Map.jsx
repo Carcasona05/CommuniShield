@@ -2,15 +2,12 @@ import React, { useCallback, useMemo, useState, useRef, useEffect } from "react"
 import {
   View,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   Modal,
   Pressable,
-  ScrollView,
   Dimensions,
   Platform,
   Linking,
-  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
@@ -21,8 +18,6 @@ import MapView from "../../components/MapView";
 import { MapSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
-import useScrollToTop from "../../hooks/useScrollToTop";
-import { subscribeRefresh } from "../../services/refreshBus";
 import { getCache, setCache } from "../../services/dataStore";
 
 const COMMUNISHIELD_BLUE = "#294880";
@@ -61,9 +56,9 @@ const getResponseNote = (type) =>
     : "Nearest police assistance for public safety concerns.";
 
 const UserMap = () => {
-  const [searchText, setSearchText] = useState("");
   const [selectedType, setSelectedType] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
+  const [showPanel, setShowPanel] = useState(false);
   const [selectedFacility, setSelectedFacility] = useState(null);
   const [facilities, setFacilities] = useState(() => {
     const cached = getCache("api:/facilities/nearby");
@@ -71,8 +66,6 @@ const UserMap = () => {
   });
   const [loading, setLoading] = useState(() => getCache("api:/facilities/nearby") === undefined);
   const [facilitiesLoading, setFacilitiesLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const scrollRef = useScrollToTop();
   const [userPosition, setUserPosition] = useState(null);
   const mapViewRef = useRef(null);
 
@@ -145,39 +138,20 @@ const UserMap = () => {
       hasLoadedFacilitiesRef.current = true;
       setFacilitiesLoading(false);
       setLoading(false);
-      setRefreshing(false);
     }
   }, [userPosition]);
 
   useAutoRefresh(loadFacilities, 30000);
-
-  useEffect(() => subscribeRefresh(loadFacilities), [loadFacilities]);
-
-  const handleRefresh = useCallback(() => {
-    setRefreshing(true);
-    loadFacilities();
-  }, [loadFacilities]);
 
   useEffect(() => {
     if (userPosition) loadFacilities();
   }, [userPosition, loadFacilities]);
 
   const filteredFacilities = useMemo(() => {
-    const normalizedSearch = searchText.trim().toLowerCase();
-
     return facilities.filter((facility) => {
-      const matchesType =
-        selectedType === "All" || getTypeLabel(facility.type) === selectedType;
-
-      const matchesSearch =
-        normalizedSearch === "" ||
-        facility.name.toLowerCase().includes(normalizedSearch) ||
-        facility.address.toLowerCase().includes(normalizedSearch) ||
-        getTypeLabel(facility.type).toLowerCase().includes(normalizedSearch);
-
-      return matchesType && matchesSearch;
+      return selectedType === "All" || getTypeLabel(facility.type) === selectedType;
     });
-  }, [facilities, searchText, selectedType]);
+  }, [facilities, selectedType]);
 
   const nearestPolice = facilities.find((f) => f.type === "police");
 
@@ -212,7 +186,6 @@ const UserMap = () => {
 
   const resetFilters = () => {
     setSelectedType("All");
-    setSearchText("");
     setSelectedFacility(facilities[0] ?? null);
   };
 
@@ -228,89 +201,59 @@ const UserMap = () => {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView
-        ref={scrollRef}
-        style={styles.screenScroll}
-        contentContainerStyle={styles.screenContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[COMMUNISHIELD_BLUE]}
-            tintColor={COMMUNISHIELD_BLUE}
-          />
-        }
-      >
-        <View style={styles.mapWrapper}>
-          <MapView
-            ref={mapViewRef}
-            style={styles.map}
-            position={mapPosition}
-            markers={filteredFacilities.map((facility) => ({
-              id: facility.id,
-              lat: facility.lat,
-              lng: facility.lng,
-              label: facility.name,
-              color: facility.type === "police" ? COMMUNISHIELD_BLUE : "#D9534F",
-            }))}
-            onMarkerPress={(id) => {
-              const facility = facilities.find((f) => f.id === id);
-              if (facility) setSelectedFacility(facility);
-            }}
-            onLocation={setUserPosition}
-          />
+      <View style={styles.fullMap}>
+        <MapView
+          ref={mapViewRef}
+          style={styles.fullMap}
+          position={mapPosition}
+          markers={filteredFacilities.map((facility) => ({
+            id: facility.id,
+            lat: facility.lat,
+            lng: facility.lng,
+            label: facility.name,
+            color: facility.type === "police" ? COMMUNISHIELD_BLUE : "#D9534F",
+          }))}
+          onMarkerPress={(id) => {
+            const facility = facilities.find((f) => f.id === id);
+            if (facility) {
+              setSelectedFacility(facility);
+              setShowPanel(true);
+            }
+          }}
+          onMapPress={() => setShowPanel(false)}
+          onLocation={setUserPosition}
+        />
 
-          <View style={styles.topBar}>
-            <TextInput
-              style={styles.searchBar}
-              placeholder="Search police or fire station..."
-              placeholderTextColor="#8E8E93"
-              value={searchText}
-              onChangeText={setSearchText}
-            />
-
-            <TouchableOpacity
-              style={styles.filterIconButton}
-              activeOpacity={0.8}
-              onPress={() => setShowFilters(true)}
-            >
-              <Ionicons name="options-outline" size={22} color={COMMUNISHIELD_BLUE} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.legendRow}
-            contentContainerStyle={styles.legendContent}
-          >
-            <View style={styles.legendChip}>
+          <View style={styles.legendContainer}>
+            <View style={styles.legendHeader}>
+              <Ionicons name="information-circle-outline" size={13} color="#5D6F92" />
+              <ThemedText style={styles.legendTitle}>Legend</ThemedText>
+            </View>
+            <View style={styles.legendItem}>
               <View style={[styles.legendDot, styles.policeDot]} />
               <ThemedText style={styles.legendText}>Police Station</ThemedText>
             </View>
-
-            <View style={styles.legendChip}>
+            <View style={styles.legendItem}>
               <View style={[styles.legendDot, styles.fireDot]} />
               <ThemedText style={styles.legendText}>Fire Department</ThemedText>
             </View>
-
-            <View style={styles.legendChip}>
+            <View style={styles.legendItem}>
               <View style={[styles.legendDot, styles.userDotSmall]} />
               <ThemedText style={styles.legendText}>Your Location</ThemedText>
             </View>
-          </ScrollView>
+          </View>
 
-          <TouchableOpacity
-            style={styles.recenterButton}
-            activeOpacity={0.8}
-            onPress={() => mapViewRef.current?.recenter()}
-          >
-            <Ionicons name="locate-outline" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.recenterButton}
+          activeOpacity={0.8}
+          onPress={() => mapViewRef.current?.recenter()}
+        >
+          <Ionicons name="locate-outline" size={22} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
 
-        {selectedFacility && (
+      {showPanel && selectedFacility && (
+        <View style={styles.panelOverlay} pointerEvents="box-none">
           <View style={styles.facilityCard}>
             <View style={styles.facilityHeader}>
               <View style={styles.facilityTitleRow}>
@@ -387,62 +330,62 @@ const UserMap = () => {
               </TouchableOpacity>
             </View>
           </View>
-        )}
 
-        <View style={styles.bottomPanel}>
-          <View style={styles.filtersTag}>
-            <ThemedText style={styles.filtersTagText}>
-              Showing: {selectedType}
+          <View style={styles.bottomPanel}>
+            <View style={styles.filtersTag}>
+              <ThemedText style={styles.filtersTagText}>
+                Showing: {selectedType}
+              </ThemedText>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <View style={styles.summaryCard}>
+                <View style={[styles.summaryIcon, styles.policeIconBox]}>
+                  <Ionicons name="shield-checkmark" size={17} color="#FFFFFF" />
+                </View>
+
+                <View style={styles.summaryTextWrap}>
+                  <ThemedText style={styles.summaryLabel}>
+                    Nearest Police
+                  </ThemedText>
+
+                  <ThemedText numberOfLines={1} style={styles.summaryValue}>
+                    {nearestPolice
+                      ? formatDistance(nearestPolice.distanceKm)
+                      : facilitiesLoading
+                        ? "Searching…"
+                        : "—"}
+                  </ThemedText>
+                </View>
+              </View>
+
+              <View style={styles.summaryCard}>
+                <View style={[styles.summaryIcon, styles.fireIconBox]}>
+                  <Ionicons name="flame" size={17} color="#FFFFFF" />
+                </View>
+
+                <View style={styles.summaryTextWrap}>
+                  <ThemedText style={styles.summaryLabel}>
+                    Nearest Fire Dept.
+                  </ThemedText>
+
+                  <ThemedText numberOfLines={1} style={styles.summaryValue}>
+                    {nearestFire
+                      ? formatDistance(nearestFire.distanceKm)
+                      : facilitiesLoading
+                        ? "Searching…"
+                        : "—"}
+                  </ThemedText>
+                </View>
+              </View>
+            </View>
+
+            <ThemedText style={styles.bottomNote}>
+              Facility pins are loaded from the CommuniShield database for Argao, Cebu.
             </ThemedText>
           </View>
-
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryCard}>
-              <View style={[styles.summaryIcon, styles.policeIconBox]}>
-                <Ionicons name="shield-checkmark" size={17} color="#FFFFFF" />
-              </View>
-
-              <View style={styles.summaryTextWrap}>
-                <ThemedText style={styles.summaryLabel}>
-                  Nearest Police
-                </ThemedText>
-
-                <ThemedText numberOfLines={1} style={styles.summaryValue}>
-                  {nearestPolice
-                    ? formatDistance(nearestPolice.distanceKm)
-                    : facilitiesLoading
-                      ? "Searching…"
-                      : "—"}
-                </ThemedText>
-              </View>
-            </View>
-
-            <View style={styles.summaryCard}>
-              <View style={[styles.summaryIcon, styles.fireIconBox]}>
-                <Ionicons name="flame" size={17} color="#FFFFFF" />
-              </View>
-
-              <View style={styles.summaryTextWrap}>
-                <ThemedText style={styles.summaryLabel}>
-                  Nearest Fire Dept.
-                </ThemedText>
-
-                <ThemedText numberOfLines={1} style={styles.summaryValue}>
-                  {nearestFire
-                    ? formatDistance(nearestFire.distanceKm)
-                    : facilitiesLoading
-                      ? "Searching…"
-                      : "—"}
-                </ThemedText>
-              </View>
-            </View>
-          </View>
-
-          <ThemedText style={styles.bottomNote}>
-            Facility pins are loaded from the CommuniShield database for Argao, Cebu.
-          </ThemedText>
         </View>
-      </ScrollView>
+      )}
 
       <Modal
         visible={showFilters}
@@ -538,97 +481,52 @@ const styles = StyleSheet.create({
     backgroundColor: "#F4F6FA",
   },
 
-  screenScroll: {
+  fullMap: {
     flex: 1,
   },
 
-  screenContent: {
-    paddingBottom: 120,
-  },
-
-  mapWrapper: {
-    width: "100%",
-    height: 560,
-    position: "relative",
-    backgroundColor: "#DCE7F3",
-    overflow: "hidden",
-  },
-
-  map: {
-    width: "100%",
-    height: "100%",
-  },
-
-  topBar: {
+  legendContainer: {
     position: "absolute",
-    top: 14,
+    top: 12,
     left: 12,
-    right: 12,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    zIndex: 10,
+    gap: 5,
+  },
+
+  legendHeader: {
     flexDirection: "row",
     alignItems: "center",
-    zIndex: 10,
+    gap: 4,
+    marginBottom: 2,
   },
 
-  searchBar: {
-    flex: 1,
-    height: 46,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    paddingHorizontal: 14,
+  legendTitle: {
     fontSize: 14,
-    fontFamily: "PoppinsRegular",
-    color: "#1E1E1E",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
+    fontFamily: "PoppinsSemiBold",
+    color: "#5D6F92",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
 
-  filterIconButton: {
-    width: 46,
-    height: 46,
-    marginLeft: 8,
-    borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-  },
-
-  legendRow: {
-    position: "absolute",
-    top: 70,
-    left: 12,
-    right: 12,
-    maxHeight: 42,
-    zIndex: 10,
-  },
-
-  legendContent: {
-    paddingRight: 20,
-  },
-
-  legendChip: {
+  legendItem: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 999,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    marginRight: 8,
-    elevation: 2,
+    gap: 7,
   },
 
   legendDot: {
     width: 10,
     height: 10,
-    borderRadius: 10,
-    marginRight: 6,
+    borderRadius: 5,
   },
 
   policeDot: {
@@ -667,9 +565,17 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
 
+  panelOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    paddingBottom: 100,
+  },
+
   facilityCard: {
     marginHorizontal: 14,
-    marginTop: -78,
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
     padding: 14,
@@ -678,7 +584,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 9,
     shadowOffset: { width: 0, height: 3 },
-    zIndex: 20,
+    marginBottom: 6,
   },
 
   facilityHeader: {
@@ -797,8 +703,7 @@ const styles = StyleSheet.create({
   },
 
   bottomPanel: {
-    marginHorizontal: 10,
-    marginTop: 12,
+    marginHorizontal: 14,
     backgroundColor: "rgba(255,255,255,0.96)",
     borderRadius: 20,
     padding: 12,

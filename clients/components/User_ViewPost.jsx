@@ -14,6 +14,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFonts } from "expo-font";
+import censorText from "../services/censorText";
 
 const PRIMARY = "#294880";
 
@@ -226,7 +227,7 @@ const User_ViewPost = ({ post, onBack }) => {
               </Text>
 
               <Text style={styles.detailsText}>
-                {safePost.details}
+                {censorText(safePost.details)}
               </Text>
 
               {renderImages()}
@@ -271,7 +272,7 @@ const User_ViewPost = ({ post, onBack }) => {
                     </Text>
                   </View>
 
-                  <Text style={styles.commentText}>{comment.text}</Text>
+                  <Text style={styles.commentText}>{censorText(comment.text)}</Text>
                 </View>
               ))
             ) : (
