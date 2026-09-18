@@ -8,9 +8,13 @@ import {
   SafeAreaView,
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import { markTermsAccepted } from "../../services/termsBus";
+import { smartBack } from "../../services/navigation";
 
 export default function TermsAndConditions() {
+  const { viewOnly } = useLocalSearchParams();
+  const isViewOnly = viewOnly === "1";
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
   const [isAccepted, setIsAccepted] = useState(false);
 
@@ -27,16 +31,17 @@ export default function TermsAndConditions() {
 
   const TERMS_VERSION = "1.0";
 
-  const handleAccept = () => {
+  const handleAccept = async () => {
     if (hasScrolledToBottom) {
       setIsAccepted(true);
-      router.back({ params: { termsAccepted: 'true', termsVersion: TERMS_VERSION } });
+      await markTermsAccepted(TERMS_VERSION);
+      smartBack("/(tabs)/User_Register");
     }
   };
 
   const handleDecline = () => {
     setIsAccepted(false);
-    router.back();
+    smartBack("/(tabs)/User_Register");
   };
 
   return (
@@ -44,7 +49,7 @@ export default function TermsAndConditions() {
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={() => smartBack("/(tabs)/User_Settings")}
             style={styles.backButton}
             activeOpacity={0.7}
           >
@@ -264,36 +269,38 @@ export default function TermsAndConditions() {
           </View>
         </ScrollView>
 
-        <View style={styles.bottomBar}>
-          <TouchableOpacity
-            style={[
-              styles.declineButton,
-              { opacity: isAccepted ? 0.5 : 1 },
-            ]}
-            onPress={handleDecline}
-            activeOpacity={0.7}
-            disabled={isAccepted}
-          >
-            <Text style={styles.declineButtonText}>Decline</Text>
-          </TouchableOpacity>
+        {!isViewOnly && (
+          <View style={styles.bottomBar}>
+            <TouchableOpacity
+              style={[
+                styles.declineButton,
+                { opacity: isAccepted ? 0.5 : 1 },
+              ]}
+              onPress={handleDecline}
+              activeOpacity={0.7}
+              disabled={isAccepted}
+            >
+              <Text style={styles.declineButtonText}>Decline</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.acceptButton,
-              !hasScrolledToBottom && styles.acceptButtonDisabled,
-            ]}
-            onPress={handleAccept}
-            activeOpacity={0.7}
-            disabled={!hasScrolledToBottom || isAccepted}
-          >
-            <Text style={[
-              styles.acceptButtonText,
-              !hasScrolledToBottom && styles.acceptButtonTextDisabled,
-            ]}>
-              {isAccepted ? "Accepted" : "I Have Read & Accept"}
-            </Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity
+              style={[
+                styles.acceptButton,
+                !hasScrolledToBottom && styles.acceptButtonDisabled,
+              ]}
+              onPress={handleAccept}
+              activeOpacity={0.7}
+              disabled={!hasScrolledToBottom || isAccepted}
+            >
+              <Text style={[
+                styles.acceptButtonText,
+                !hasScrolledToBottom && styles.acceptButtonTextDisabled,
+              ]}>
+                {isAccepted ? "Accepted" : "I Have Read & Accept"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </SafeAreaView>
   );

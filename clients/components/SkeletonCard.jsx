@@ -1,8 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { View, StyleSheet, Animated, useWindowDimensions } from "react-native";
 
-const PRIMARY = "#294880";
-
 const SkeletonPulse = ({ style }) => {
   const opacity = useRef(new Animated.Value(0.3)).current;
 

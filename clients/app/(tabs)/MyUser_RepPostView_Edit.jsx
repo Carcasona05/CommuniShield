@@ -13,6 +13,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { smartBack } from "../../services/navigation";
 import { useFonts } from "expo-font";
 
 import ThemedView from "../../components/ThemedView";
@@ -207,7 +208,7 @@ function EditScreenInner() {
     toast.success("Your report has been updated successfully.");
 
     setTimeout(() => {
-      router.back();
+      smartBack("/(tabs)/User_MyReports");
     }, 1200);
   };
 

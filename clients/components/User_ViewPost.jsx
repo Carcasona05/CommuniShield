@@ -13,6 +13,7 @@ import {
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { smartBack } from "../services/navigation";
 import { useFonts } from "expo-font";
 import censorText from "../services/censorText";
 
@@ -78,7 +79,7 @@ const User_ViewPost = ({ post, onBack }) => {
       return;
     }
 
-    router.push("/User_Home");
+    smartBack("/(tabs)/User_Home");
   };
 
   const handleNotification = () => {

@@ -3,6 +3,7 @@ import { Alert } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
+import { smartBack } from "../../services/navigation";
 import ToastProvider, { useToast } from "../../components/Toast";
 import MyUser_RepPostView_Layout from "../../components/User_compo/MyUser_RepPostView_Layout";
 
@@ -53,7 +54,7 @@ const MyUser_RepPostView = () => {
             });
 
             toast.success("Report deleted successfully.");
-            router.back();
+            smartBack("/(tabs)/User_MyReports");
           } catch (error) {
             toast.error(error.response?.data?.error || "Could not delete the report.");
           }

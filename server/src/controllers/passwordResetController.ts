@@ -63,9 +63,10 @@ export const forgotPassword = async (req: Request, res: Response) => {
     res.json({
       message: "If an account exists with this email, an OTP has been sent.",
     });
-  } catch (err: any) {
-    console.error("forgotPassword error:", err?.message || err);
-    res.status(500).json({ error: err?.message || "Internal server error" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("forgotPassword error:", message);
+    res.status(500).json({ error: message || "Internal server error" });
   }
 };
 
@@ -101,9 +102,10 @@ export const verifyOtp = async (req: Request, res: Response) => {
     });
 
     res.json({ message: "OTP verified successfully." });
-  } catch (err: any) {
-    console.error("verifyOtp error:", err?.message || err);
-    res.status(500).json({ error: err?.message || "Internal server error" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("verifyOtp error:", message);
+    res.status(500).json({ error: message || "Internal server error" });
   }
 };
 
@@ -154,8 +156,9 @@ export const resetPassword = async (req: Request, res: Response) => {
     await getRedis().del(`otp:${cleanEmail}`);
 
     res.json({ message: "Password has been reset successfully." });
-  } catch (err: any) {
-    console.error("resetPassword error:", err?.message || err);
-    res.status(500).json({ error: err?.message || "Internal server error" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("resetPassword error:", message);
+    res.status(500).json({ error: message || "Internal server error" });
   }
 };

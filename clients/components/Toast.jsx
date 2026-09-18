@@ -11,12 +11,10 @@ import {
   StyleSheet,
   Animated,
   useWindowDimensions,
-  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 const COMMUNISHIELD_BLUE = "#294880";
-const SUCCESS_GREEN = "#22A06B";
 const ERROR_RED = "#E45757";
 
 const ToastContext = createContext(null);
@@ -55,7 +53,7 @@ export default function ToastProvider({ children }) {
         useNativeDriver: true,
       }),
       Animated.timing(translateY, {
-        toValue: toValue,
+        toValue,
         duration: 200,
         useNativeDriver: true,
       }),

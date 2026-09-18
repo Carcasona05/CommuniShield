@@ -14,11 +14,12 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
 import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
+import { checkTermsAccepted } from "../../services/termsBus";
 
 const validatePassword = (value) => {
   if (!value) return "Password is required.";
@@ -47,8 +48,6 @@ export default function Register() {
 function RegisterInner() {
   const toast = useToast();
   const { width, height } = useWindowDimensions();
-  const { termsAccepted, termsVersion } = useLocalSearchParams();
-
   const isSmallPhone = width < 360;
   const isShortScreen = height < 720;
 
@@ -61,9 +60,22 @@ function RegisterInner() {
   const [submitted, setSubmitted] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
-  const [termsAcceptedState, setTermsAcceptedState] = useState(termsAccepted === "true");
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [acceptedTermsVersion, setAcceptedTermsVersion] = useState("");
   const [termsError, setTermsError] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      checkTermsAccepted().then((result) => {
+        if (result?.accepted) {
+          setTermsAccepted(true);
+          setAcceptedTermsVersion(result.version || "1.0");
+          setTermsError(false);
+        }
+      });
+    }, [])
+  );
 
   useEffect(() => {
     if (Platform.OS === "web") {
@@ -105,7 +117,7 @@ function RegisterInner() {
     setPasswordError(pwError);
     setConfirmPasswordError(confirmError);
 
-    if (!termsAccepted || !termsVersion) {
+    if (!termsAccepted || !acceptedTermsVersion) {
       setTermsError(true);
       toast.error("Please accept the Terms and Conditions to continue.");
       return;
@@ -133,7 +145,7 @@ function RegisterInner() {
         userName: userName.trim(),
         email: cleanEmail,
         password,
-        termsVersion,
+        termsVersion: acceptedTermsVersion,
       });
 
       const token = res.data?.access_token;
@@ -339,7 +351,13 @@ function RegisterInner() {
 
               <TouchableOpacity
                 style={styles.termsWrapper}
-                onPress={() => router.push("/(auth)/TermsAndConditions")}
+                onPress={() => {
+                  if (termsAccepted) {
+                    setTermsAccepted(false);
+                  } else {
+                    router.push("/(auth)/TermsAndConditions");
+                  }
+                }}
                 activeOpacity={0.85}
               >
                 <View style={[

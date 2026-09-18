@@ -778,7 +778,7 @@ const UserProfileSettings = () => {
                     styles.termsButton,
                     !termsStatus.hasAcceptedLatest && styles.termsButtonAction,
                   ]}
-                  onPress={() => router.push("/(auth)/TermsAndConditions")}
+                  onPress={() => router.push({ pathname: "/(auth)/TermsAndConditions", params: { viewOnly: "1" } })}
                   activeOpacity={0.7}
                 >
                   <ThemedText

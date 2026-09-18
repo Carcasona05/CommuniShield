@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import BottomNavBar from "../../components/BottomNavBar";
 import { scrollToTop } from "../../services/scrollToTopBus";
+import { smartBack } from "../../services/navigation";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache } from "../../services/dataStore";
@@ -31,6 +32,7 @@ export default function TabLayout() {
   });
 
   const [unreadCount, setUnreadCount] = useState(0);
+  const prevTabRef = useRef("/(tabs)/User_Home");
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -60,6 +62,12 @@ export default function TabLayout() {
   }, []);
 
   useAutoRefresh(loadNotifications, 30000);
+
+  useEffect(() => {
+    if (!isChildScreen) {
+      prevTabRef.current = pathname;
+    }
+  }, [pathname, isChildScreen]);
 
   useEffect(() => {
     if (Platform.OS === "web") {
@@ -120,7 +128,7 @@ export default function TabLayout() {
           <TouchableOpacity
             style={styles.backButton}
             activeOpacity={0.75}
-            onPress={() => router.back()}
+            onPress={() => smartBack(prevTabRef.current || "/(tabs)/User_Home")}
           >
             <Ionicons name="chevron-back" size={24} color={COMMUNISHIELD_BLUE} />
           </TouchableOpacity>
