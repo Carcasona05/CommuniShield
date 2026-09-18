@@ -215,6 +215,41 @@ export const reportService = {
 
     const reportIds = (reports || []).map((r) => r.id);
 
+    const { data: analyses, error: analysisError } = reportIds.length
+      ? await supabaseAdmin
+          .from("report_credibility_analysis")
+          .select("report_id, ai_score, severity, sentiment, credibility_review")
+          .in("report_id", reportIds)
+      : { data: [], error: null };
+
+    if (analysisError) return { data: null, error: analysisError.message };
+
+    const analysisMap = new Map<
+      string,
+      {
+        ai_score: number | null;
+        severity: string;
+        sentiment: string;
+        credibility_review: string;
+      }
+    >();
+    (analyses || []).forEach(
+      (a: {
+        report_id: string;
+        ai_score: number | null;
+        severity: string | null;
+        sentiment: string | null;
+        credibility_review: string | null;
+      }) => {
+        analysisMap.set(a.report_id, {
+          ai_score: a.ai_score ?? null,
+          severity: a.severity ?? "Medium",
+          sentiment: a.sentiment ?? "Neutral",
+          credibility_review: a.credibility_review ?? "",
+        });
+      }
+    );
+
     const { data: images, error: imageError } = reportIds.length
       ? await supabaseAdmin
           .from("report_images")
@@ -267,6 +302,14 @@ export const reportService = {
         type: "",
         category: "",
       };
+      
+      const analysis = analysisMap.get(r.id) ?? {
+        ai_score: null,
+        severity: "Medium",
+        sentiment: "Neutral",
+        credibility_review: "",
+      };
+
       return {
         id: r.id,
         user_id: r.user_id,
@@ -278,10 +321,16 @@ export const reportService = {
         created_at: r.created_at,
         incident_category: typeInfo.category,
         incident_type: typeInfo.type,
+        latitude: r.latitude ?? null,
+        longitude: r.longitude ?? null,
         images: imagesByReport.get(r.id) || [],
         likes: likesByReport.get(r.id) || 0,
         comments: commentsByReport.get(r.id) || 0,
         is_liked: viewerId ? likedByUser.has(`${r.id}:${viewerId}`) : false,
+        ai_score: analysis.ai_score ?? null,
+        severity: analysis.severity ?? "Medium",
+        sentiment: analysis.sentiment ?? "Neutral",
+        credibility_review: analysis.credibility_review ?? "",
       };
     });
 

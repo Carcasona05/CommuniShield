@@ -264,6 +264,25 @@ const User_RepPostView_Layout = ({ post }) => {
           )}
         </View>
 
+        {(post.ai_score !== null && post.ai_score !== undefined) ? (
+          <View style={styles.aiReviewContainer}>
+            <View style={styles.aiHeader}>
+              <Ionicons name="shield-checkmark" size={18} color="#237A4B" />
+              <Text style={styles.aiTitle}>AI Credibility Review</Text>
+              <View style={styles.aiScoreBadge}>
+                <Text style={styles.aiScoreText}>{post.ai_score}%</Text>
+              </View>
+            </View>
+            <Text style={styles.aiReviewText}>
+              {post.credibility_review || "AI analysis completed."}
+            </Text>
+            <View style={styles.aiTags}>
+              <Text style={styles.aiTag}>Severity: {post.severity || "Medium"}</Text>
+              <Text style={styles.aiTag}>Sentiment: {post.sentiment || "Neutral"}</Text>
+            </View>
+          </View>
+        ) : null}
+
         <View style={styles.summaryRow}>
           <View style={styles.summaryItem}>
             <Ionicons name="thumbs-up-outline" size={18} color={PRIMARY} />
@@ -540,6 +559,60 @@ const styles = StyleSheet.create({
     marginTop: 5,
     fontSize: 12,
     color: "#9CA3AF",
+  },
+
+  aiReviewContainer: {
+    padding: 16,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 8,
+    marginVertical: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  aiHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  aiTitle: {
+    fontFamily: FONT.semiBold,
+    fontSize: 15,
+    color: "#0F172A",
+    marginLeft: 6,
+    flex: 1,
+  },
+  aiScoreBadge: {
+    backgroundColor: "#DCFCE7",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  aiScoreText: {
+    fontFamily: FONT.bold,
+    fontSize: 12,
+    color: "#166534",
+  },
+  aiReviewText: {
+    fontFamily: FONT.regular,
+    fontSize: 14,
+    color: "#334155",
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  aiTags: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  aiTag: {
+    fontFamily: FONT.medium,
+    fontSize: 12,
+    color: "#64748B",
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
   },
 
   summaryRow: {

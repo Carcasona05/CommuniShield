@@ -19,6 +19,7 @@ interface AIConfig {
   model_name: string;
   temperature: number;
   timeout_ms: number;
+  api_endpoint?: string;
 }
 
 async function loadAIConfig(): Promise<AIConfig> {
@@ -29,6 +30,7 @@ async function loadAIConfig(): Promise<AIConfig> {
       "ai_model_name",
       "ai_temperature",
       "ai_timeout",
+      "ai_api_endpoint"
     ]);
 
   const map = new Map<string, string>();
@@ -39,6 +41,7 @@ async function loadAIConfig(): Promise<AIConfig> {
     model_name: map.get("ai_model_name") || DEFAULT_MODEL,
     temperature: parseFloat(map.get("ai_temperature") || String(DEFAULT_TEMPERATURE)) || DEFAULT_TEMPERATURE,
     timeout_ms: parseInt(map.get("ai_timeout") || String(DEFAULT_TIMEOUT_MS), 10) || DEFAULT_TIMEOUT_MS,
+    api_endpoint: map.get("ai_api_endpoint") || GEMINI_BASE_URL,
   };
 }
 
@@ -95,7 +98,10 @@ async function callGemini(
     const timeoutId = setTimeout(() => controller.abort(), config.timeout_ms);
 
     try {
-      const url = `${GEMINI_BASE_URL}/${config.model_name}:generateContent?key=${config.api_key}`;
+      const baseEndpoint = (config.api_endpoint && config.api_endpoint.trim() !== "") 
+        ? config.api_endpoint 
+        : GEMINI_BASE_URL;
+      const url = `${baseEndpoint}/${config.model_name}:generateContent?key=${config.api_key}`;
 
       const response = await fetch(url, {
         method: "POST",
@@ -407,7 +413,10 @@ export const aiService = {
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
       // Use the models list endpoint as a lightweight connectivity check
-      const url = `${GEMINI_BASE_URL}?key=${config.api_key}`;
+      const baseEndpoint = (config.api_endpoint && config.api_endpoint.trim() !== "") 
+        ? config.api_endpoint 
+        : GEMINI_BASE_URL;
+      const url = `${baseEndpoint}?key=${config.api_key}`;
       const response = await fetch(url, {
         method: "GET",
         signal: controller.signal,
