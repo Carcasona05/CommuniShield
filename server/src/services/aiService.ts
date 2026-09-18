@@ -138,13 +138,16 @@ async function callGemini(
       throw new Error("Empty response from Gemini API");
     } catch (err) {
       lastError = err;
+      const msg = err instanceof Error ? err.message : "";
+      const isClientError = /Gemini API error: [4]\d{2}/.test(msg);
       console.warn(
         `Gemini attempt ${attempt}/${retries} failed:`,
-        err instanceof Error ? err.message : err
+        msg || err
       );
-      if (attempt < retries) {
+      if (attempt < retries && !isClientError) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
+      if (isClientError) break;
     } finally {
       clearTimeout(timeoutId);
     }
