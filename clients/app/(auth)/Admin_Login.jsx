@@ -155,9 +155,16 @@ function Admin_LoginInner() {
         }
       }, 800);
     } catch (error) {
-      toast.error(
-        error.response?.data?.error || "Invalid admin email or password."
-      );
+      const errMsg = error.response?.data?.error || "";
+      const status = error.response?.status;
+
+      if (status === 403 && /disabled/i.test(errMsg)) {
+        setDisabledMessage(errMsg);
+        setDisabledModalVisible(true);
+        return;
+      }
+
+      toast.error(errMsg || "Invalid admin email or password.");
     } finally {
       setLoading(false);
     }

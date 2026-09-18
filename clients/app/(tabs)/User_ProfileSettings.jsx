@@ -15,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, router } from "expo-router";
 
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
@@ -252,6 +252,13 @@ const UserProfileSettings = () => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  const [termsStatus, setTermsStatus] = useState({
+    hasAcceptedLatest: true,
+    acceptedVersion: null,
+    latestVersion: "1.0",
+    acceptedAt: null,
+  });
+
   const [userDetails, setUserDetails] = useState({
     firstName: "",
     middleName: "",
@@ -334,6 +341,17 @@ const UserProfileSettings = () => {
       const profile = res.data ?? {};
       setCache("api:/profile", profile);
       applyProfile(profile);
+
+      try {
+        const termsRes = await apiClient.get("/terms/status", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (termsRes.data) {
+          setTermsStatus(termsRes.data);
+        }
+      } catch {
+        // terms status fetch is best-effort
+      }
     } catch {
       // profile fetch failed; keep empty defaults
     } finally {
@@ -722,6 +740,58 @@ const UserProfileSettings = () => {
               statusIndex={userDetails.credibilityStatus}
               score={userDetails.credibilityScore}
             />
+
+            <Divboxwhite style={styles.termsCard}>
+              <View style={styles.termsRow}>
+                <View style={styles.termsIconBox}>
+                  <Ionicons
+                    name="document-text-outline"
+                    size={moderateScale(22)}
+                    color={COMMUNISHIELD_BLUE}
+                  />
+                </View>
+
+                <View style={styles.termsTextWrap}>
+                  <ThemedHeader style={styles.cardTitle}>
+                    Terms & Conditions
+                  </ThemedHeader>
+
+                  <ThemedText style={styles.termsSubtitle}>
+                    {termsStatus.hasAcceptedLatest
+                      ? `Accepted version ${termsStatus.acceptedVersion || termsStatus.latestVersion}`
+                      : `Version ${termsStatus.latestVersion} requires your acceptance`}
+                  </ThemedText>
+
+                  {termsStatus.acceptedAt ? (
+                    <ThemedText style={styles.termsDate}>
+                      Accepted on {new Date(termsStatus.acceptedAt).toLocaleDateString("en-US", {
+                        month: "long",
+                        day: "2-digit",
+                        year: "numeric",
+                      })}
+                    </ThemedText>
+                  ) : null}
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.termsButton,
+                    !termsStatus.hasAcceptedLatest && styles.termsButtonAction,
+                  ]}
+                  onPress={() => router.push("/(auth)/TermsAndConditions")}
+                  activeOpacity={0.7}
+                >
+                  <ThemedText
+                    style={[
+                      styles.termsButtonText,
+                      !termsStatus.hasAcceptedLatest && styles.termsButtonTextAction,
+                    ]}
+                  >
+                    {termsStatus.hasAcceptedLatest ? "View" : "Review"}
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
+            </Divboxwhite>
 
             <Divboxwhite style={styles.passwordCard}>
               <View style={styles.cardHeader}>
@@ -1237,6 +1307,71 @@ const styles = StyleSheet.create({
     lineHeight: moderateScale(18),
     fontFamily: "PoppinsRegular",
     color: "#6B7280",
+  },
+
+  termsCard: {
+    padding: moderateScale(16),
+    borderRadius: moderateScale(18),
+    marginTop: moderateScale(14),
+    marginBottom: moderateScale(14),
+  },
+
+  termsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  termsIconBox: {
+    width: moderateScale(44),
+    height: moderateScale(44),
+    borderRadius: moderateScale(22),
+    backgroundColor: "#E8EEF9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: moderateScale(12),
+  },
+
+  termsTextWrap: {
+    flex: 1,
+  },
+
+  termsSubtitle: {
+    fontSize: moderateScale(12),
+    lineHeight: moderateScale(17),
+    fontFamily: "PoppinsRegular",
+    color: "#6B7280",
+    marginTop: moderateScale(3),
+  },
+
+  termsDate: {
+    fontSize: moderateScale(10),
+    fontFamily: "PoppinsRegular",
+    color: "#9CA3AF",
+    marginTop: moderateScale(2),
+  },
+
+  termsButton: {
+    paddingHorizontal: moderateScale(14),
+    paddingVertical: moderateScale(8),
+    borderRadius: moderateScale(8),
+    backgroundColor: "#F0F2F7",
+    borderWidth: 1,
+    borderColor: "#C8CFE0",
+  },
+
+  termsButtonAction: {
+    backgroundColor: COMMUNISHIELD_BLUE,
+    borderColor: COMMUNISHIELD_BLUE,
+  },
+
+  termsButtonText: {
+    fontSize: moderateScale(12),
+    fontFamily: "PoppinsSemiBold",
+    color: "#5A6F9E",
+  },
+
+  termsButtonTextAction: {
+    color: "#FFFFFF",
   },
 });
 

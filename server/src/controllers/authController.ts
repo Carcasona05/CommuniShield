@@ -23,10 +23,14 @@ const detectDevice = (userAgent?: string): string => {
 
 export const register = async (req: Request, res: Response) => {
   try {
-    const { userName, email, password } = req.body;
+    const { userName, email, password, termsVersion } = req.body;
 
     if (!userName || !email || !password) {
       return res.status(400).json({ error: "Username, email, and password are required" });
+    }
+
+    if (!termsVersion) {
+      return res.status(400).json({ error: "Terms and conditions acceptance is required" });
     }
 
     const { error } = await supabaseAdmin.auth.admin.createUser({
@@ -44,6 +48,11 @@ export const register = async (req: Request, res: Response) => {
     });
 
     if (authError) return res.status(401).json({ error: authError.message });
+
+    const userId = authData.user?.id;
+    if (userId) {
+      await profileService.recordTermsAcceptance(userId, termsVersion);
+    }
 
     res.json({
       message: "Registered",
@@ -312,4 +321,46 @@ export const changeEmail = async (req: AuthRequest, res: Response) => {
   res.json({
     message: "Email update requested. Confirm the change from your new email.",
   });
+};
+
+const LATEST_TERMS_VERSION = "1.0";
+
+export const getTermsStatus = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user || !req.token) return res.status(401).json({ error: "Unauthorized" });
+
+  const { data: latest, error: latestErr } = await profileService.getLatestAcceptedVersion(user.id);
+
+  if (latestErr) {
+    return res.status(500).json({ error: "Failed to check terms status" });
+  }
+
+  const acceptedVersion = latest?.terms_version ?? null;
+  const hasAcceptedLatest = acceptedVersion === LATEST_TERMS_VERSION;
+
+  res.json({
+    hasAcceptedLatest,
+    acceptedVersion,
+    latestVersion: LATEST_TERMS_VERSION,
+    acceptedAt: latest?.accepted_at ?? null,
+  });
+};
+
+export const recordTermsAcceptance = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user || !req.token) return res.status(401).json({ error: "Unauthorized" });
+
+  const { termsVersion } = req.body ?? {};
+
+  if (!termsVersion) {
+    return res.status(400).json({ error: "termsVersion is required" });
+  }
+
+  const { error } = await profileService.recordTermsAcceptance(user.id, termsVersion);
+
+  if (error) {
+    return res.status(500).json({ error: "Failed to record terms acceptance" });
+  }
+
+  res.json({ message: "Terms acceptance recorded" });
 };

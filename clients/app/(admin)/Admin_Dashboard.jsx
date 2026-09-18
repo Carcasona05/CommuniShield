@@ -180,7 +180,8 @@ export default function Admin_Dashboard() {
       r.latitude != null &&
       r.longitude != null &&
       Number.isFinite(Number(r.latitude)) &&
-      Number.isFinite(Number(r.longitude))
+      Number.isFinite(Number(r.longitude)) &&
+      r.status !== "Rejected"
   );
 
   const filteredMapReports =

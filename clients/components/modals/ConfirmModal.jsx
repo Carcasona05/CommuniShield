@@ -12,6 +12,7 @@ export default function ConfirmModal({
   icon = "alert-circle-outline",
   iconColor = "#DC2626",
   iconBg = "#FDEBEC",
+  hideCancel = false,
 }) {
   return (
     <Modal
@@ -30,17 +31,9 @@ export default function ConfirmModal({
 
           <Text style={styles.subtitle}>{message}</Text>
 
-          <View style={styles.buttonRow}>
+          {hideCancel ? (
             <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={onClose}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.confirmButton, { backgroundColor: iconColor }]}
+              style={[styles.confirmButton, { backgroundColor: iconColor, width: "100%" }]}
               onPress={() => {
                 onClose();
                 onConfirm();
@@ -49,7 +42,28 @@ export default function ConfirmModal({
             >
               <Text style={styles.confirmText}>{confirmLabel}</Text>
             </TouchableOpacity>
-          </View>
+          ) : (
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={onClose}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.confirmButton, { backgroundColor: iconColor }]}
+                onPress={() => {
+                  onClose();
+                  onConfirm();
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.confirmText}>{confirmLabel}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
     </Modal>

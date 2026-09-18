@@ -6,14 +6,13 @@ import {
   StyleSheet,
   TouchableOpacity,
   SafeAreaView,
-  useWindowDimensions,
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 export default function TermsAndConditions() {
-  const { width, height } = useWindowDimensions();
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
+  const [isAccepted, setIsAccepted] = useState(false);
 
   const handleScroll = (event) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -26,13 +25,17 @@ export default function TermsAndConditions() {
     }
   };
 
+  const TERMS_VERSION = "1.0";
+
   const handleAccept = () => {
     if (hasScrolledToBottom) {
-      router.back({ params: { termsAccepted: 'true' } });
+      setIsAccepted(true);
+      router.back({ params: { termsAccepted: 'true', termsVersion: TERMS_VERSION } });
     }
   };
 
   const handleDecline = () => {
+    setIsAccepted(false);
     router.back();
   };
 
@@ -60,10 +63,10 @@ export default function TermsAndConditions() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>1. Introduction</Text>
             <Text style={styles.bodyText}>
-              Welcome to ARGUS ("we," "our," or "us"). These Terms and Conditions ("Terms") constitute a legally binding agreement between you ("User," "you," or "your") and ARGUS governing your access to and use of our mobile application and related services (collectively, the "Service").
+              Welcome to ARGUS (&ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;). These Terms and Conditions (&ldquo;Terms&rdquo;) constitute a legally binding agreement between you (&ldquo;User,&rdquo; &ldquo;you,&rdquo; or &ldquo;your&rdquo;) and ARGUS governing your access to and use of our mobile application and related services (collectively, the &ldquo;Service&rdquo;).
             </Text>
             <Text style={styles.bodyText}>
-              By registering for an account and using the Service, you acknowledge that you have read, understood, and agree to be bound by these Terms, including the Non-Disclosure Agreement ("NDA") and Data Privacy Act ("DPA") Compliance provisions set forth below. If you do not agree to these Terms, you must not register for or use the Service.
+              By registering for an account and using the Service, you acknowledge that you have read, understood, and agree to be bound by these Terms, including the Non-Disclosure Agreement (&ldquo;NDA&rdquo;) and Data Privacy Act (&ldquo;DPA&rdquo;) Compliance provisions set forth below. If you do not agree to these Terms, you must not register for or use the Service.
             </Text>
           </View>
 
@@ -73,7 +76,7 @@ export default function TermsAndConditions() {
             <View style={styles.subSection}>
               <Text style={styles.subSectionTitle}>2.1 Definition of Confidential Information</Text>
               <Text style={styles.bodyText}>
-                "Confidential Information" means any and all non-public information, data, or knowledge, whether oral, written, electronic, or in any other form, disclosed by either party to the other, directly or indirectly, including but not limited to: trade secrets, business plans, financial data, technical data, algorithms, source code, user data, proprietary methodologies, customer lists, pricing structures, and any information marked as confidential or that a reasonable person would understand to be confidential given the nature of the information and the circumstances of disclosure.
+                &ldquo;Confidential Information&rdquo; means any and all non-public information, data, or knowledge, whether oral, written, electronic, or in any other form, disclosed by either party to the other, directly or indirectly, including but not limited to: trade secrets, business plans, financial data, technical data, algorithms, source code, user data, proprietary methodologies, customer lists, pricing structures, and any information marked as confidential or that a reasonable person would understand to be confidential given the nature of the information and the circumstances of disclosure.
               </Text>
             </View>
 
@@ -117,7 +120,7 @@ export default function TermsAndConditions() {
             <View style={styles.subSection}>
               <Text style={styles.subSectionTitle}>3.1 Commitment to Data Protection</Text>
               <Text style={styles.bodyText}>
-                ARGUS is committed to protecting your personal information in compliance with the Data Privacy Act of 2012 (Republic Act No. 10173) of the Philippines, its Implementing Rules and Regulations, and all other applicable data privacy laws and regulations (collectively, "Data Privacy Laws").
+                ARGUS is committed to protecting your personal information in compliance with the Data Privacy Act of 2012 (Republic Act No. 10173) of the Philippines, its Implementing Rules and Regulations, and all other applicable data privacy laws and regulations (collectively, &ldquo;Data Privacy Laws&rdquo;).
               </Text>
             </View>
 
@@ -207,21 +210,21 @@ export default function TermsAndConditions() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>6. Disclaimer of Warranties</Text>
             <Text style={styles.bodyText}>
-              THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND ACCURACY. ARGUS DOES NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS.
+              THE SERVICE IS PROVIDED &ldquo;AS IS&ldquo; AND &ldquo;AS AVAILABLE&rdquo; WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND ACCURACY. ARGUS DOES NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS.
             </Text>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>7. Limitation of Liability</Text>
             <Text style={styles.bodyText}>
-              TO THE MAXIMUM EXTENT PERMITTED BY LAW, ARGUS SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING LOSS OF PROFITS, DATA, USE, GOODWILL, OR OTHER INTANGIBLE LOSSES, ARISING OUT OF OR RELATED TO YOUR USE OR INABILITY TO USE THE SERVICE, EVEN IF ARGUS HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. ARGUS'S TOTAL AGGREGATE LIABILITY SHALL NOT EXCEED THE AMOUNT PAID BY YOU, IF ANY, FOR THE SERVICE IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM.
+              TO THE MAXIMUM EXTENT PERMITTED BY LAW, ARGUS SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING LOSS OF PROFITS, DATA, USE, GOODWILL, OR OTHER INTANGIBLE LOSSES, ARISING OUT OF OR RELATED TO YOUR USE OR INABILITY TO USE THE SERVICE, EVEN IF ARGUS HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. ARGUS&ldquo;S TOTAL AGGREGATE LIABILITY SHALL NOT EXCEED THE AMOUNT PAID BY YOU, IF ANY, FOR THE SERVICE IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM.
             </Text>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>8. Indemnification</Text>
             <Text style={styles.bodyText}>
-              You agree to defend, indemnify, and hold harmless ARGUS and its officers, directors, employees, and agents from and against any claims, damages, obligations, losses, liabilities, costs, and expenses (including reasonable attorney's fees) arising out of or related to: (a) your use of the Service; (b) your violation of these Terms; (c) your violation of any third-party right; or (d) any personal information you submit that is false, inaccurate, or misleading.
+              You agree to defend, indemnify, and hold harmless ARGUS and its officers, directors, employees, and agents from and against any claims, damages, obligations, losses, liabilities, costs, and expenses (including reasonable attorney&ldquo;s fees) arising out of or related to: (a) your use of the Service; (b) your violation of these Terms; (c) your violation of any third-party right; or (d) any personal information you submit that is false, inaccurate, or misleading.
             </Text>
           </View>
 
@@ -235,7 +238,7 @@ export default function TermsAndConditions() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>10. Governing Law and Dispute Resolution</Text>
             <Text style={styles.bodyText}>
-              These Terms shall be governed by and construed in accordance with the laws of the Republic of the Philippines. Any dispute arising out of or relating to these Terms shall be resolved through good-faith negotiation. If unresolved within thirty (30) days, the dispute shall be submitted to the appropriate courts of the Philippines, with venue in the city where ARGUS's principal office is located.
+              These Terms shall be governed by and construed in accordance with the laws of the Republic of the Philippines. Any dispute arising out of or relating to these Terms shall be resolved through good-faith negotiation. If unresolved within thirty (30) days, the dispute shall be submitted to the appropriate courts of the Philippines, with venue in the city where ARGUS&ldquo;s principal office is located.
             </Text>
           </View>
 

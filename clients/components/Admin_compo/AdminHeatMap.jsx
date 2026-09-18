@@ -96,6 +96,7 @@ const MAP_HTML = `
         marker.bindPopup(
           "<b>" + (r.incident_type || "Incident") + "</b><br/>" +
             (r.location || "") +
+            "<br/>Status: " + (r.status || "Pending Review") +
             "<br/>Severity: " + (r.severity || "Medium") +
             "<br/>AI Score: " + score
         );

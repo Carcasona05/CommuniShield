@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon app.ts",
+    "dev": "nodemon --exec tsx app.ts",
     "lint": "eslint src",
     "build": "tsc --noEmit"
   },
@@ -22,6 +22,7 @@
     "globals": "^17.9.0",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
+    "tsx": "^4.23.13",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.66.0"
   },

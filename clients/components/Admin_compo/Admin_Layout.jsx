@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -54,6 +54,7 @@ function Admin_Layout({ children }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showDisabledModal, setShowDisabledModal] = useState(false);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -123,12 +124,77 @@ function Admin_Layout({ children }) {
 
       setCache("api:/admin/notifications", res.data ?? {});
       applyNotifications(res.data?.notifications || []);
-    } catch {
-      // keep last loaded data on failure
+    } catch (err) {
+      const status = err.response?.status;
+      const message = err.response?.data?.error || "";
+
+      if (status === 403 && /disabled/i.test(message)) {
+        setShowDisabledModal(true);
+        return;
+      }
+    }
+
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+
+      const profileRes = await apiClient.get("/profile", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (profileRes.data?.status === "Disabled") {
+        setShowDisabledModal(true);
+      }
+    } catch (err) {
+      const status = err.response?.status;
+      const message = err.response?.data?.error || "";
+
+      if (status === 403 && /disabled/i.test(message)) {
+        setShowDisabledModal(true);
+      }
     }
   }, []);
 
   useAutoRefresh(loadNotifications, 30000);
+
+  const handleDisabledLogout = async () => {
+    setShowDisabledModal(false);
+    await clearAuth();
+    router.replace("/(auth)/Admin_Login");
+  };
+
+  const disabledCheckRef = useRef(false);
+
+  const checkDisabled = useCallback(async () => {
+    if (disabledCheckRef.current) return;
+    disabledCheckRef.current = true;
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+
+      const res = await apiClient.get("/profile", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.data?.status === "Disabled") {
+        setShowDisabledModal(true);
+      }
+    } catch (err) {
+      const status = err.response?.status;
+      const message = err.response?.data?.error || "";
+
+      if (status === 403 && /disabled/i.test(message)) {
+        setShowDisabledModal(true);
+      }
+    } finally {
+      disabledCheckRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(checkDisabled, 4000);
+    return () => clearInterval(id);
+  }, [checkDisabled]);
 
   if (!fontsLoaded) {
     return null;
@@ -605,6 +671,38 @@ function Admin_Layout({ children }) {
                 activeOpacity={0.85}
               >
                 <Text style={styles.modalConfirmText}>Logout</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showDisabledModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconWrap}>
+              <Ionicons name="ban-outline" size={28} color="#DC2626" />
+            </View>
+
+            <Text style={styles.modalTitle}>Account Disabled</Text>
+
+            <Text style={styles.modalSubtitle}>
+              Your account has been disabled.{"\n\n"}Please contact your
+              supervisor to restore access.
+            </Text>
+
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity
+                style={styles.modalConfirmButton}
+                onPress={handleDisabledLogout}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.modalConfirmText}>Understood</Text>
               </TouchableOpacity>
             </View>
           </View>

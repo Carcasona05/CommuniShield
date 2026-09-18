@@ -47,7 +47,7 @@ export default function Register() {
 function RegisterInner() {
   const toast = useToast();
   const { width, height } = useWindowDimensions();
-  const { termsAccepted } = useLocalSearchParams();
+  const { termsAccepted, termsVersion } = useLocalSearchParams();
 
   const isSmallPhone = width < 360;
   const isShortScreen = height < 720;
@@ -105,7 +105,7 @@ function RegisterInner() {
     setPasswordError(pwError);
     setConfirmPasswordError(confirmError);
 
-    if (!termsAccepted) {
+    if (!termsAccepted || !termsVersion) {
       setTermsError(true);
       toast.error("Please accept the Terms and Conditions to continue.");
       return;
@@ -133,6 +133,7 @@ function RegisterInner() {
         userName: userName.trim(),
         email: cleanEmail,
         password,
+        termsVersion,
       });
 
       const token = res.data?.access_token;

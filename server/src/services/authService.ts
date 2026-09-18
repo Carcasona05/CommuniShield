@@ -105,6 +105,55 @@ export const profileService = {
     return await supabaseAdmin.auth.admin.updateUserById(userId, data);
   },
 
+  async recordTermsAcceptance(userId: string, termsVersion: string) {
+    const { error } = await supabaseAdmin
+      .from("user_terms_acceptance")
+      .insert({
+        user_id: userId,
+        terms_version: termsVersion,
+      });
+
+    if (error && error.code !== "23505") {
+      console.error("recordTermsAcceptance error:", error.message);
+      return { error };
+    }
+
+    return { error: null };
+  },
+
+  async getLatestAcceptedVersion(userId: string) {
+    const { data, error } = await supabaseAdmin
+      .from("user_terms_acceptance")
+      .select("terms_version, accepted_at")
+      .eq("user_id", userId)
+      .order("accepted_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("getLatestAcceptedVersion error:", error.message);
+      return { data: null, error };
+    }
+
+    return { data, error: null };
+  },
+
+  async hasAcceptedVersion(userId: string, termsVersion: string) {
+    const { data, error } = await supabaseAdmin
+      .from("user_terms_acceptance")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("terms_version", termsVersion)
+      .maybeSingle();
+
+    if (error) {
+      console.error("hasAcceptedVersion error:", error.message);
+      return { accepted: false, error };
+    }
+
+    return { accepted: !!data, error: null };
+  },
+
   async createAdmin(email: string, password: string, name: string, role?: string, department?: string, phone?: string) {
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,

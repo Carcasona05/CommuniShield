@@ -5,7 +5,7 @@ import ThemedView from "../components/ThemedView";
 import ThemedText from "../components/ThemedText";
 import { getAuth } from "../services/auth";
 import { prefetchAllData, hydrateCache } from "../services/dataStore";
-import apiClient from "../services/apiClient";
+import apiClient, { getDisabledReason } from "../services/apiClient";
 
 const LoadingScreen = () => {
   useEffect(() => {
@@ -31,6 +31,7 @@ const LoadingScreen = () => {
         });
       } catch {
         const { clearAuth } = await import("../services/auth");
+        const disabledReason = await getDisabledReason();
         await clearAuth();
         if (Platform.OS === "web") {
           router.replace("/(auth)/Admin_Login");
