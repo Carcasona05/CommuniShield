@@ -4,6 +4,15 @@ import { profileService } from "../services/authService.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string } };
 
+const ALLOWED_AI_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
+];
+
 const DEFAULT_SETTINGS: Record<string, string> = {
   map_auto_map_verified: "true",
   map_cluster_overlay: "true",
@@ -43,6 +52,13 @@ export const getSettings = async (req: AuthRequest, res: Response) => {
       if (row.key in merged) merged[row.key] = row.value;
     });
 
+    if (merged.ai_model_name) {
+      const isValid = ALLOWED_AI_MODELS.some(
+        (m) => merged.ai_model_name === m || merged.ai_model_name.startsWith(m + "-")
+      );
+      if (!isValid) merged.ai_model_name = DEFAULT_SETTINGS.ai_model_name;
+    }
+
     res.json({ settings: merged });
   } catch {
     res.status(500).json({ error: "Internal server error" });
@@ -71,6 +87,16 @@ export const updateSettings = async (req: AuthRequest, res: Response) => {
     }
 
     for (const [key, value] of entries) {
+      if (key === "ai_model_name") {
+        const v = String(value);
+        const isValid = ALLOWED_AI_MODELS.some((m) => v === m || v.startsWith(m + "-"));
+        if (!isValid) {
+          return res.status(400).json({
+            error: `Invalid model "${v}". Allowed: ${ALLOWED_AI_MODELS.join(", ")}`,
+          });
+        }
+      }
+
       const { error } = await supabaseAdmin
         .from("system_settings")
         .upsert(

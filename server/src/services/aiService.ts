@@ -22,6 +22,19 @@ interface AIConfig {
   api_endpoint?: string;
 }
 
+const GEMINI_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
+];
+
+function isValidGeminiModel(name: string): boolean {
+  return GEMINI_MODELS.some((m) => name === m || name.startsWith(m + "-"));
+}
+
 async function loadAIConfig(): Promise<AIConfig> {
   const { data } = await supabaseAdmin
     .from("system_settings")
@@ -36,9 +49,18 @@ async function loadAIConfig(): Promise<AIConfig> {
   const map = new Map<string, string>();
   (data || []).forEach((row) => map.set(row.key, row.value));
 
+  const dbModel = map.get("ai_model_name") || "";
+  const model_name = isValidGeminiModel(dbModel) ? dbModel : DEFAULT_MODEL;
+
+  if (dbModel && !isValidGeminiModel(dbModel)) {
+    console.warn(
+      `Invalid Gemini model "${dbModel}" in system_settings, falling back to ${DEFAULT_MODEL}`
+    );
+  }
+
   return {
     api_key: DEFAULT_GEMINI_API_KEY,
-    model_name: map.get("ai_model_name") || DEFAULT_MODEL,
+    model_name,
     temperature: parseFloat(map.get("ai_temperature") || String(DEFAULT_TEMPERATURE)) || DEFAULT_TEMPERATURE,
     timeout_ms: parseInt(map.get("ai_timeout") || String(DEFAULT_TIMEOUT_MS), 10) || DEFAULT_TIMEOUT_MS,
     api_endpoint: map.get("ai_api_endpoint") || GEMINI_BASE_URL,
