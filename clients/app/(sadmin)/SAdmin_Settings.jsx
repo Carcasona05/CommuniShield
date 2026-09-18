@@ -330,11 +330,7 @@ function SAdmin_SettingsContent() {
   }
 
   if (loading) {
-    return (
-      <SAdmin_Layout>
-        <SettingsSkeleton />
-      </SAdmin_Layout>
-    );
+    return <SettingsSkeleton />;
   }
 
 

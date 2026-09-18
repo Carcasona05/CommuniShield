@@ -120,6 +120,39 @@ function SAdmin_Layout({ children }) {
 
   useAutoRefresh(loadNotifications, 30000);
 
+  const disabledCheckRef = useRef(false);
+
+  const checkDisabled = useCallback(async () => {
+    if (disabledCheckRef.current) return;
+    disabledCheckRef.current = true;
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+
+      const res = await apiClient.get("/profile", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.data?.status === "Disabled") {
+        setShowDisabledModal(true);
+      }
+    } catch (err) {
+      const status = err.response?.status;
+      const message = err.response?.data?.error || "";
+
+      if (status === 403 && /disabled/i.test(message)) {
+        setShowDisabledModal(true);
+      }
+    } finally {
+      disabledCheckRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(checkDisabled, 4000);
+    return () => clearInterval(id);
+  }, [checkDisabled]);
+
   if (!fontsLoaded) {
     return null;
   }
@@ -330,39 +363,6 @@ function SAdmin_Layout({ children }) {
     await clearAuth();
     router.replace("/(auth)/Admin_Login");
   };
-
-  const disabledCheckRef = useRef(false);
-
-  const checkDisabled = useCallback(async () => {
-    if (disabledCheckRef.current) return;
-    disabledCheckRef.current = true;
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-
-      const res = await apiClient.get("/profile", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (res.data?.status === "Disabled") {
-        setShowDisabledModal(true);
-      }
-    } catch (err) {
-      const status = err.response?.status;
-      const message = err.response?.data?.error || "";
-
-      if (status === 403 && /disabled/i.test(message)) {
-        setShowDisabledModal(true);
-      }
-    } finally {
-      disabledCheckRef.current = false;
-    }
-  }, []);
-
-  useEffect(() => {
-    const id = setInterval(checkDisabled, 4000);
-    return () => clearInterval(id);
-  }, [checkDisabled]);
 
   const closeDropdowns = () => {
     setShowNotifications(false);

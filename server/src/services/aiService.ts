@@ -1,9 +1,10 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 
-const DEFAULT_OLLAMA_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
-const DEFAULT_MODEL = "tinyllama:1.1b";
+const DEFAULT_GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const DEFAULT_MODEL = "gemini-1.5-flash";
 const DEFAULT_TEMPERATURE = 0.1;
-const DEFAULT_TIMEOUT_MS = 120000;
+const DEFAULT_TIMEOUT_MS = 30000;
+const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
 interface AIAnalysisResult {
   ai_score: number;
@@ -14,7 +15,7 @@ interface AIAnalysisResult {
 }
 
 interface AIConfig {
-  ollama_url: string;
+  api_key: string;
   model_name: string;
   temperature: number;
   timeout_ms: number;
@@ -25,7 +26,6 @@ async function loadAIConfig(): Promise<AIConfig> {
     .from("system_settings")
     .select("key, value")
     .in("key", [
-      "ai_ollama_url",
       "ai_model_name",
       "ai_temperature",
       "ai_timeout",
@@ -35,7 +35,7 @@ async function loadAIConfig(): Promise<AIConfig> {
   (data || []).forEach((row) => map.set(row.key, row.value));
 
   return {
-    ollama_url: map.get("ai_ollama_url") || DEFAULT_OLLAMA_URL,
+    api_key: DEFAULT_GEMINI_API_KEY,
     model_name: map.get("ai_model_name") || DEFAULT_MODEL,
     temperature: parseFloat(map.get("ai_temperature") || String(DEFAULT_TEMPERATURE)) || DEFAULT_TEMPERATURE,
     timeout_ms: parseInt(map.get("ai_timeout") || String(DEFAULT_TIMEOUT_MS), 10) || DEFAULT_TIMEOUT_MS,
@@ -77,13 +77,17 @@ SEVERITY — analyze based on threat level and language construction:
 Write the credibility_review as a direct, specific statement about THIS report. Do not use generic phrases. Base it on the actual data provided — mention the real image count, real similar post count, real location detail, and real sentiment. Never repeat the same template for every report.`;
 
 /**
- * Calls TinyLlama via Ollama API to analyze a report with retry logic
+ * Calls Gemini API to analyze a report with retry logic
  */
-async function callTinyLlama(
+async function callGemini(
   prompt: string,
   config: AIConfig,
   retries = 3
 ): Promise<string> {
+  if (!config.api_key) {
+    throw new Error("GEMINI_API_KEY is not set. Add it to your environment variables.");
+  }
+
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -91,17 +95,25 @@ async function callTinyLlama(
     const timeoutId = setTimeout(() => controller.abort(), config.timeout_ms);
 
     try {
-      const response = await fetch(`${config.ollama_url}/api/generate`, {
+      const url = `${GEMINI_BASE_URL}/${config.model_name}:generateContent?key=${config.api_key}`;
+
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: config.model_name,
-          prompt: `${SYSTEM_PROMPT}\n\nReport: ${prompt}\n\nReturn ONLY valid JSON, nothing else:`,
-          stream: false,
-          options: {
+          contents: [
+            {
+              parts: [
+                {
+                  text: `${SYSTEM_PROMPT}\n\nReport:\n${prompt}\n\nReturn ONLY valid JSON, nothing else:`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
             temperature: config.temperature,
-            top_p: 0.9,
-            num_predict: 300,
+            topP: 0.9,
+            maxOutputTokens: 300,
           },
         }),
         signal: controller.signal,
@@ -109,19 +121,19 @@ async function callTinyLlama(
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Ollama API error: ${response.status} - ${errorText}`);
+        throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
-      const text = data.response?.trim() || "";
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
       if (text) {
         return text;
       }
-      throw new Error("Empty response from Ollama API");
+      throw new Error("Empty response from Gemini API");
     } catch (err) {
       lastError = err;
       console.warn(
-        `TinyLlama attempt ${attempt}/${retries} failed:`,
+        `Gemini attempt ${attempt}/${retries} failed:`,
         err instanceof Error ? err.message : err
       );
       if (attempt < retries) {
@@ -140,7 +152,7 @@ async function callTinyLlama(
  */
 function parseAIResponse(response: string): AIAnalysisResult {
   try {
-    // Extract JSON from response (TinyLlama sometimes adds extra text)
+    // Extract JSON from response (Gemini sometimes wraps in markdown code fences)
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : response;
     const parsed = JSON.parse(jsonStr);
@@ -194,7 +206,7 @@ Similar reports in area: ${report.similar_post_count ?? 0}`;
 }
 
 /**
- * Analyzes a report using TinyLlama and stores results
+ * Analyzes a report using Gemini and stores results
  */
 export const aiService = {
   /**
@@ -217,7 +229,7 @@ export const aiService = {
       .select("value")
       .eq("key", "ai_model_version")
       .maybeSingle();
-    return data?.value || "TinyLlama-1.1b";
+    return data?.value || "gemini-1.5-flash";
   },
 
   /**
@@ -278,9 +290,9 @@ export const aiService = {
     const startTime = Date.now();
 
     try {
-      aiResponse = await callTinyLlama(prompt, config);
+      aiResponse = await callGemini(prompt, config);
     } catch (error) {
-      console.error("TinyLlama analysis failed:", error);
+      console.error("Gemini analysis failed:", error);
       return {
         ai_score: 50,
         severity: "Medium",
@@ -381,34 +393,40 @@ export const aiService = {
   },
 
   /**
-   * Test TinyLlama connectivity
+   * Test Gemini API connectivity
    */
   async testConnection(): Promise<{ connected: boolean; model?: string; error?: string }> {
     const config = await loadAIConfig();
+
+    if (!config.api_key) {
+      return { connected: false, error: "GEMINI_API_KEY is not set in environment variables." };
+    }
+
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch(`${config.ollama_url}/api/tags`, {
+      // Use the models list endpoint as a lightweight connectivity check
+      const url = `${GEMINI_BASE_URL}?key=${config.api_key}`;
+      const response = await fetch(url, {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        return { connected: false, error: `Ollama API returned ${response.status}` };
+        const errorText = await response.text();
+        return { connected: false, error: `Gemini API returned ${response.status}: ${errorText}` };
       }
 
       const data = await response.json();
-      const modelNameBase = config.model_name.split(":")[0] ?? config.model_name;
-      const hasModel = data.models?.some((m: { name: string }) => m.name.startsWith(modelNameBase));
+      const models: Array<{ name: string }> = data.models || [];
+      const hasModel = models.some((m) => m.name.includes(config.model_name));
 
       return {
         connected: true,
-        model: hasModel ? config.model_name : `${config.model_name} (not pulled)`,
-        ...(hasModel ? {} : { error: `Model not found. Run: ollama pull ${config.model_name}` }),
+        model: hasModel ? config.model_name : `${config.model_name} (available via API)`,
       };
     } catch (error) {
       return {

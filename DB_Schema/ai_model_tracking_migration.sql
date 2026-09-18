@@ -1,4 +1,4 @@
--- Migration: Add AI model tracking columns and TinyLlama configuration settings
+-- Migration: Add AI model tracking columns and Gemini configuration settings
 -- Run this on existing databases to update schema
 
 -- 1. Add analysis_duration_ms column to report_credibility_analysis
@@ -14,13 +14,16 @@ BEGIN
   END IF;
 END $$;
 
--- 2. Add TinyLlama configuration settings to system_settings
+-- 2. Update AI configuration settings to use Gemini
+--    (removes Ollama-specific keys, sets Gemini model defaults)
+DELETE FROM public.system_settings WHERE key = 'ai_ollama_url';
+
 INSERT INTO public.system_settings (key, value) VALUES
-  ('ai_ollama_url', 'http://localhost:11434'),
-  ('ai_model_name', 'tinyllama:1.1b'),
+  ('ai_model_name', 'gemini-1.5-flash'),
+  ('ai_model_version', 'gemini-1.5-flash'),
   ('ai_temperature', '0.1'),
   ('ai_timeout', '30000')
-ON CONFLICT (key) DO NOTHING;
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 
 -- 3. Verify the changes
 SELECT key, value FROM public.system_settings WHERE key LIKE 'ai_%';

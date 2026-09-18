@@ -22,11 +22,10 @@ export const getAIStatus = async (req: AuthRequest, res: Response) => {
 
     res.json({
       ai_enabled: enabled,
-      ollama_connected: status.connected,
+      gemini_connected: status.connected,
       model: status.model,
       error: status.error,
       config: {
-        ollama_url: config.ollama_url,
         model_name: config.model_name,
         temperature: config.temperature,
         timeout_ms: config.timeout_ms,
