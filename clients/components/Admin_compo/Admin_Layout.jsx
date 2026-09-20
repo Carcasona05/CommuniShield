@@ -17,6 +17,8 @@ import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
 import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
+import ErrorBoundary from "../../components/ErrorBoundary";
+import { saveLastPage } from "../../services/lastPage";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -41,7 +43,9 @@ const formatRelativeTime = (iso) => {
 export default function Admin_LayoutWrapper({ children }) {
   return (
     <ToastProvider>
-      <Admin_Layout>{children}</Admin_Layout>
+      <ErrorBoundary>
+        <Admin_Layout>{children}</Admin_Layout>
+      </ErrorBoundary>
     </ToastProvider>
   );
 }
@@ -195,6 +199,10 @@ function Admin_Layout({ children }) {
     const id = setInterval(checkDisabled, 4000);
     return () => clearInterval(id);
   }, [checkDisabled]);
+
+  useEffect(() => {
+    if (pathname) saveLastPage("admin", pathname);
+  }, [pathname]);
 
   if (!fontsLoaded) {
     return null;

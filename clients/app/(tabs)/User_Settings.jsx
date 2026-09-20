@@ -47,6 +47,7 @@ const UserSettings = () => {
   const [crimeAlerts, setCrimeAlerts] = useState(true);
   const [displayName, setDisplayName] = useState("");
   const [displayEmail, setDisplayEmail] = useState("");
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const loadProfile = useCallback(async () => {
     try {
@@ -96,8 +97,6 @@ const UserSettings = () => {
       </ThemedView>
     );
   }
-
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const handleLogout = async () => {
     await clearAuth();

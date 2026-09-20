@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { Image } from "expo-image";
-import apiClient from "./apiClient";
+import apiClient, { apiRequest } from "./apiClient";
 import { ROLE_KEY } from "./auth";
 
 const CACHE_KEY = "communishield_data_cache";
@@ -124,41 +124,58 @@ const ADMIN_ENDPOINTS = [
   ["api:/admin/accounts", "/admin/accounts"],
 ];
 
-const fetchIntoCache = async (key, url, headers) => {
-  const res = await apiClient.get(url, { headers });
+const fetchIntoCache = async (key, url) => {
+  const res = await apiRequest({ method: "GET", url });
   setCache(key, res.data ?? {});
 };
 
-export const prefetchAllData = async () => {
-  const token = await AsyncStorage.getItem("access_token");
-  if (!token) return;
-  const headers = { Authorization: `Bearer ${token}` };
+const BATCH_SIZE = 3;
 
+const fetchBatch = async (batch) => {
   await Promise.allSettled(
-    ENDPOINTS.map(async ([key, url]) => fetchIntoCache(key, url, headers))
+    batch.map(async ([key, url]) => fetchIntoCache(key, url))
   );
+};
+
+let prefetchInflight = false;
+
+export const prefetchAllData = async () => {
+  if (prefetchInflight) return;
+  prefetchInflight = true;
 
   try {
-    const res = await apiClient.get("/facilities/nearby", {
-      params: {
-        lat: DEFAULT_FACILITY_ANCHOR.lat,
-        lng: DEFAULT_FACILITY_ANCHOR.lng,
-        radius: 8000,
-      },
-      headers,
-      timeout: 20000,
-    });
-    setCache("api:/facilities/nearby", res.data ?? {});
-  } catch {}
+    const token = await AsyncStorage.getItem("access_token");
+    if (!token) return;
 
-  const role = await AsyncStorage.getItem(ROLE_KEY);
-  if (role === "admin" || role === "super_admin") {
-    await Promise.allSettled(
-      ADMIN_ENDPOINTS.map(async ([key, url]) => fetchIntoCache(key, url, headers))
-    );
+    for (let i = 0; i < ENDPOINTS.length; i += BATCH_SIZE) {
+      await fetchBatch(ENDPOINTS.slice(i, i + BATCH_SIZE));
+    }
+
+    try {
+      const res = await apiRequest({
+        method: "GET",
+        url: "/facilities/nearby",
+        params: {
+          lat: DEFAULT_FACILITY_ANCHOR.lat,
+          lng: DEFAULT_FACILITY_ANCHOR.lng,
+          radius: 8000,
+        },
+        timeout: 20000,
+      });
+      setCache("api:/facilities/nearby", res.data ?? {});
+    } catch {}
+
+    const role = await AsyncStorage.getItem(ROLE_KEY);
+    if (role === "admin" || role === "super_admin") {
+      for (let i = 0; i < ADMIN_ENDPOINTS.length; i += BATCH_SIZE) {
+        await fetchBatch(ADMIN_ENDPOINTS.slice(i, i + BATCH_SIZE));
+      }
+    }
+
+    prefetchReportImages();
+  } finally {
+    prefetchInflight = false;
   }
-
-  prefetchReportImages();
 };
 
 const prefetchReportImages = () => {

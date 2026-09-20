@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useLocalSearchParams } from "expo-router";
-import { markTermsAccepted } from "../../services/termsBus";
+import { clearTermsAccepted, markTermsAccepted } from "../../services/termsBus";
 import { smartBack } from "../../services/navigation";
 
 export default function TermsAndConditions() {
@@ -35,13 +35,14 @@ export default function TermsAndConditions() {
     if (hasScrolledToBottom) {
       setIsAccepted(true);
       await markTermsAccepted(TERMS_VERSION);
-      smartBack("/(tabs)/User_Register");
+      smartBack("/User_Register");
     }
   };
 
-  const handleDecline = () => {
+  const handleDecline = async () => {
     setIsAccepted(false);
-    smartBack("/(tabs)/User_Register");
+    await clearTermsAccepted();
+    smartBack("/User_Register");
   };
 
   return (

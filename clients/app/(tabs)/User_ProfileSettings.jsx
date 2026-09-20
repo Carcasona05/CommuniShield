@@ -443,6 +443,7 @@ const UserProfileSettings = () => {
       };
       setUserDetails(synced);
       setTempDetails(synced);
+      toast.success("Profile updated successfully.");
     } catch (error) {
       console.warn(
         "Failed to save profile:",

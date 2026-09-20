@@ -469,6 +469,7 @@ const handleAddAnnouncement = () => {
 
       setViewVisible(false);
       setSelectedCompiledGroup(null);
+      toast.success(`Report status updated to "${newStatus}".`);
       loadValidation();
     } catch (error) {
       toast.error(

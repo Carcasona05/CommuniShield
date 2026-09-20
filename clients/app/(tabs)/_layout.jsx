@@ -12,11 +12,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import BottomNavBar from "../../components/BottomNavBar";
+import ErrorBoundary from "../../components/ErrorBoundary";
 import { scrollToTop } from "../../services/scrollToTopBus";
 import { smartBack } from "../../services/navigation";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache } from "../../services/dataStore";
+import { saveLastPage } from "../../services/lastPage";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -70,16 +72,38 @@ export default function TabLayout() {
   }, [pathname, isChildScreen]);
 
   useEffect(() => {
-    if (Platform.OS === "web") {
-      const role = window.localStorage.getItem("user_role");
-      if (role === "super_admin") {
-        window.location.href = "/(sadmin)/SAdmin_Dashboard";
-      } else if (role === "admin") {
-        window.location.href = "/(admin)/Admin_Dashboard";
-      } else {
-        window.location.href = "/(auth)/Admin_Login";
-      }
-    }
+    if (pathname) saveLastPage("user", pathname);
+  }, [pathname]);
+
+  useEffect(() => {
+    const guard = async () => {
+      try {
+        let role;
+        if (Platform.OS === "web") {
+          role = window.localStorage.getItem("user_role");
+        } else {
+          role = await AsyncStorage.getItem("user_role");
+        }
+
+        if (role === "super_admin") {
+          const target = await getLastPage("super_admin");
+          if (Platform.OS === "web") {
+            window.location.href = target;
+          } else {
+            router.replace(target);
+          }
+        } else if (role === "admin") {
+          const target = await getLastPage("admin");
+          if (Platform.OS === "web") {
+            window.location.href = target;
+          } else {
+            router.replace(target);
+          }
+        }
+      } catch {}
+    };
+
+    guard();
   }, []);
 
   if (Platform.OS === "web") {
@@ -175,6 +199,7 @@ export default function TabLayout() {
   };
 
   return (
+    <ErrorBoundary>
     <View style={[styles.root, isDark && styles.darkRoot]}>
       <Header />
 
@@ -261,6 +286,7 @@ export default function TabLayout() {
 
       {showBottomNav && <BottomNavBar />}
     </View>
+    </ErrorBoundary>
   );
 }
 
