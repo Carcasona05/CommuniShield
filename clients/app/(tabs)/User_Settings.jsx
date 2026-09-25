@@ -45,8 +45,14 @@ const UserSettings = () => {
 
   const [notifications, setNotifications] = useState(true);
   const [crimeAlerts, setCrimeAlerts] = useState(true);
-  const [displayName, setDisplayName] = useState("");
-  const [displayEmail, setDisplayEmail] = useState("");
+  const [displayName, setDisplayName] = useState(() => {
+    const cached = getCache("api:/profile");
+    if (cached === undefined) return "";
+    return cached.user_name || cached.name || cached.email || "SafeZone User";
+  });
+  const [displayEmail, setDisplayEmail] = useState(
+    () => getCache("api:/profile")?.email || "youraccount@email.com"
+  );
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const loadProfile = useCallback(async () => {
@@ -73,8 +79,8 @@ const UserSettings = () => {
       );
       setDisplayEmail(profile.email || "youraccount@email.com");
     } catch {
-      setDisplayName("SafeZone User");
-      setDisplayEmail("youraccount@email.com");
+      setDisplayName((prev) => prev || "SafeZone User");
+      setDisplayEmail((prev) => prev || "youraccount@email.com");
     } finally {
       setLoading(false);
     }

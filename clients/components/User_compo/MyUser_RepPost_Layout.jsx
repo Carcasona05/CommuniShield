@@ -38,6 +38,13 @@ const MyUser_RepPost_Layout = ({
   likes = 0,
   comments = 0,
   commentList = [],
+  sentiment = null,
+  sentiment_status = "unavailable",
+  sentiment_confidence = 0,
+  sentiment_language = "unknown",
+  sentiment_provider = "none",
+  sentiment_model = "none",
+  sentiment_analyzed_at = null,
   isLiked = false,
   onLike = () => {},
   onComment = () => {},
@@ -151,6 +158,13 @@ const MyUser_RepPost_Layout = ({
       likes,
       comments,
       commentList,
+      sentiment,
+      sentiment_status,
+      sentiment_confidence,
+      sentiment_language,
+      sentiment_provider,
+      sentiment_model,
+      sentiment_analyzed_at,
     };
 
     router.push({

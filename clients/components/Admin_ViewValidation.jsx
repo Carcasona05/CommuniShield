@@ -146,7 +146,9 @@ export default function Admin_ViewValidation({
             <View style={styles.dualRow}>
               <View style={styles.halfCard}>
                 <Text style={styles.sectionTitle}>AI Sentiment Review</Text>
-                <Text style={styles.sentimentValue}>{report.sentiment || "No sentiment"}</Text>
+                <Text style={styles.sentimentValue}>
+                  {report.sentiment ?? "Unavailable"}
+                </Text>
                 <Text style={styles.supportingText}>
                   The system analyzed the tone and urgency of the submitted report to help
                   the admin prioritize validation.

@@ -7,7 +7,7 @@ import { defineConfig } from "eslint/config";
 export default defineConfig([
   // 0. Global Ignores
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "**/.expo/**"],
+    ignores: ["**/dist/**", "**/node_modules/**", "**/.expo/**", "**/.venv-data/**", "**/__pycache__/**"],
   },
 
   // 1. Core Recommended Rules

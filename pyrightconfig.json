@@ -1,0 +1,12 @@
+{
+  "venvPath": ".",
+  "venv": ".venv-data",
+  "typeCheckingMode": "basic",
+  "reportMissingModuleSource": "none",
+  "exclude": [
+    "**/node_modules",
+    "**/.expo",
+    "**/dist",
+    "**/.venv-data"
+  ]
+}

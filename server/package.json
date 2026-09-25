@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon --exec tsx app.ts",
     "lint": "eslint src",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "keywords": [],
   "author": "",
@@ -32,6 +33,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "nodemailer": "^10.0.9"
+    "nodemailer": "^10.0.9",
+    "onnxruntime-node": "^1.30.0"
   }
 }

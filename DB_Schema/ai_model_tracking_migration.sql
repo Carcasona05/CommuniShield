@@ -15,7 +15,7 @@ BEGIN
 END $$;
 
 -- 2. Update AI configuration settings to use Gemini
---    (removes Ollama-specific keys, sets Gemini model defaults)
+--    (removes Ollama-specific keys, seeds Gemini model defaults without overwriting user config)
 DELETE FROM public.system_settings WHERE key = 'ai_ollama_url';
 
 INSERT INTO public.system_settings (key, value) VALUES
@@ -23,7 +23,7 @@ INSERT INTO public.system_settings (key, value) VALUES
   ('ai_model_version', 'gemini-3.6-flash'),
   ('ai_temperature', '0.1'),
   ('ai_timeout', '30000')
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+ON CONFLICT (key) DO NOTHING;
 
 -- 3. Verify the changes
 SELECT key, value FROM public.system_settings WHERE key LIKE 'ai_%';

@@ -145,9 +145,18 @@ function SAdmin_SettingsContent() {
   const toast = useToast();
   const [loading, setLoading] = useState(() => getCache("api:/profile") === undefined);
 
-  const [fullName, setFullName] = useState("CommuniShield SuperAdmin");
-  const [emailAddress, setEmailAddress] = useState("");
-  const [phoneNumber, setPhoneNumber] = useState("0912 345 6789");
+  const [fullName, setFullName] = useState(
+    () =>
+      getCache("api:/profile")?.name ||
+      getCache("api:/profile")?.fullname ||
+      "CommuniShield SuperAdmin"
+  );
+  const [emailAddress, setEmailAddress] = useState(
+    () => getCache("api:/profile")?.email || ""
+  );
+  const [phoneNumber, setPhoneNumber] = useState(
+    () => getCache("api:/profile")?.phone || ""
+  );
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -197,7 +206,12 @@ function SAdmin_SettingsContent() {
   const [mapCenter, setMapCenter] = useState("Argao, Cebu");
   const [modelVersion, setModelVersion] = useState("CommuniShield-AI v1.0");
   const [apiEndpoint, setApiEndpoint] = useState("");
-  const [initialEmail, setInitialEmail] = useState("");
+  const [localModelEnabled, setLocalModelEnabled] = useState(true);
+  const [geminiEnabled, setGeminiEnabled] = useState(true);
+  const [cebuanoMode, setCebuanoMode] = useState("gemini");
+  const [initialEmail, setInitialEmail] = useState(
+    () => getCache("api:/profile")?.email || ""
+  );
 
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [confirmData, setConfirmData] = useState(null);
@@ -236,6 +250,9 @@ function SAdmin_SettingsContent() {
         setMapCenter(s.map_center || "Argao, Cebu");
         setModelVersion(s.ai_model_version || "CommuniShield-AI v1.0");
         setApiEndpoint(s.ai_api_endpoint || "");
+        setLocalModelEnabled(s.sentiment_local_model_enabled !== "false");
+        setGeminiEnabled(s.sentiment_gemini_enabled !== "false");
+        setCebuanoMode(s.sentiment_cebuano_mode || "gemini");
       }
 
       const [profileRes, settingsRes] = await Promise.all([
@@ -269,6 +286,9 @@ function SAdmin_SettingsContent() {
       setMapCenter(settings.map_center || "Argao, Cebu");
       setModelVersion(settings.ai_model_version || "CommuniShield-AI v1.0");
       setApiEndpoint(settings.ai_api_endpoint || "");
+      setLocalModelEnabled(settings.sentiment_local_model_enabled !== "false");
+      setGeminiEnabled(settings.sentiment_gemini_enabled !== "false");
+      setCebuanoMode(settings.sentiment_cebuano_mode || "gemini");
     } catch {
       // keep existing defaults on failure
     } finally {
@@ -379,6 +399,14 @@ function SAdmin_SettingsContent() {
       }
 
       await Promise.all(changes);
+
+      const cachedProfile = getCache("api:/profile");
+      setCache("api:/profile", {
+        ...(cachedProfile || {}),
+        name: fullName.trim(),
+        fullname: fullName.trim(),
+        phone: phoneNumber.trim(),
+      });
 
       saveAdminInfo({
         ...(globalThis.adminAccount || {}),
@@ -781,6 +809,100 @@ function SAdmin_SettingsContent() {
                     />
                   </View>
                 </View>
+              </View>
+
+              <View style={styles.sectionCard}>
+                <View style={styles.sectionHeader}>
+                  <View style={styles.sectionHeaderText}>
+                    <Text style={styles.sectionTitle}>
+                      Sentiment Analysis
+                    </Text>
+                    <Text style={styles.sectionDescription}>
+                      Control the providers used for report and comment
+                      sentiment classification.
+                    </Text>
+                  </View>
+
+                  <StatusBadge
+                    label={
+                      localModelEnabled || geminiEnabled
+                        ? "Providers Active"
+                        : "Providers Disabled"
+                    }
+                    tone={
+                      localModelEnabled || geminiEnabled ? "success" : "danger"
+                    }
+                  />
+                </View>
+
+                <SettingRow
+                  icon="hardware-chip-outline"
+                  title="Local Sentiment Model"
+                  description="Run the built-in English and Filipino sentiment model on-device. Cebuano text never uses this model."
+                  rightContent={
+                    <Switch
+                      value={localModelEnabled}
+                      onValueChange={() =>
+                        confirmToggleOff(
+                          "Local Sentiment Model",
+                          localModelEnabled,
+                          setLocalModelEnabled,
+                          "sentiment_local_model_enabled"
+                        )
+                      }
+                      trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
+                      thumbColor={localModelEnabled ? "#294880" : "#FFFFFF"}
+                    />
+                  }
+                />
+
+                <SettingRow
+                  icon="cloud-outline"
+                  title="Gemini Sentiment"
+                  description="Use Gemini as a fallback for English and Filipino, and as the provider for Cebuano text."
+                  rightContent={
+                    <Switch
+                      value={geminiEnabled}
+                      onValueChange={() =>
+                        confirmToggleOff(
+                          "Gemini Sentiment",
+                          geminiEnabled,
+                          setGeminiEnabled,
+                          "sentiment_gemini_enabled"
+                        )
+                      }
+                      trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
+                      thumbColor={geminiEnabled ? "#294880" : "#FFFFFF"}
+                    />
+                  }
+                />
+
+                <SettingRow
+                  icon="language-outline"
+                  title="Cebuano Handling"
+                  description={
+                    cebuanoMode === "disabled"
+                      ? "Cebuano text is marked unavailable instead of analyzed."
+                      : "Cebuano text is sent to Gemini only; the local model is never used."
+                  }
+                  isLast
+                  rightContent={
+                    <TouchableOpacity
+                      style={styles.secondaryButton}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        const next =
+                          cebuanoMode === "disabled" ? "gemini" : "disabled";
+                        setCebuanoMode(next);
+                        saveSetting("sentiment_cebuano_mode", next);
+                      }}
+                    >
+                      <Text style={styles.secondaryButtonText}>
+                        {cebuanoMode === "disabled" ? "Disabled" : "Gemini"}
+                      </Text>
+                    </TouchableOpacity>
+                  }
+                />
               </View>
 
               <View style={styles.sectionCard}>

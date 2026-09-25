@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import ThemedView from "../components/ThemedView";
 import ThemedText from "../components/ThemedText";
 import { getAuth } from "../services/auth";
-import { prefetchAllData, hydrateCache } from "../services/dataStore";
+import { prefetchAllData, hydrateCache, setCache } from "../services/dataStore";
 import apiClient from "../services/apiClient";
 
 const LoadingScreen = () => {
@@ -26,9 +26,10 @@ const LoadingScreen = () => {
       }
 
       try {
-        await apiClient.get("/profile", {
+        const res = await apiClient.get("/profile", {
           headers: { Authorization: `Bearer ${token}` },
         });
+        setCache("api:/profile", res.data ?? {});
       } catch {
         const { clearAuth } = await import("../services/auth");
         await clearAuth();

@@ -98,7 +98,7 @@ export default function Admin_ViewSimilarReportsModal({
   };
 
   const getSentimentStyle = (sentiment) => {
-    if (sentiment === "Negative") {
+    if (sentiment === "negative") {
       return {
         color: "#E45757",
         bg: "#FFF5F5",
@@ -106,7 +106,7 @@ export default function Admin_ViewSimilarReportsModal({
       };
     }
 
-    if (sentiment === "Positive") {
+    if (sentiment === "positive") {
       return {
         color: "#22A06B",
         bg: "#EAF8F1",
@@ -114,7 +114,7 @@ export default function Admin_ViewSimilarReportsModal({
       };
     }
 
-    if (sentiment === "Mixed") {
+    if (sentiment === "mixed") {
       return {
         color: "#7C3AED",
         bg: "#F3E8FF",
@@ -122,7 +122,7 @@ export default function Admin_ViewSimilarReportsModal({
       };
     }
 
-    if (sentiment === "No Majority") {
+    if (sentiment === "unclear" || sentiment === "unavailable") {
       return {
         color: "#6B7280",
         bg: "#EEF1F5",
@@ -182,180 +182,68 @@ export default function Admin_ViewSimilarReportsModal({
     );
   };
 
-  const getCommentText = (comment) => {
-    if (!comment) return "";
-
-    if (typeof comment === "string") {
-      return comment;
-    }
-
-    return (
-      comment.text ||
-      comment.comment ||
-      comment.details ||
-      comment.message ||
-      comment.content ||
-      ""
-    );
-  };
-
-  const analyzeSingleComment = (commentText) => {
-    const text = commentText.toLowerCase();
-
-    const negativeWords = [
-      "danger",
-      "dangerous",
-      "unsafe",
-      "scared",
-      "afraid",
-      "panic",
-      "emergency",
-      "urgent",
-      "accident",
-      "injured",
-      "hurt",
-      "damage",
-      "damaged",
-      "blocked",
-      "blocking",
-      "fire",
-      "flood",
-      "theft",
-      "stolen",
-      "harassment",
-      "suspicious",
-      "reckless",
-      "violent",
-      "threat",
-      "problem",
-      "issue",
-      "bad",
-      "worse",
-      "worst",
-      "concern",
-      "delikado",
-      "hadlok",
-      "kuyaw",
-      "guba",
-      "nasamad",
-      "aksidente",
-      "sunog",
-      "baha",
-      "kawat",
-      "haras",
-      "problema",
-    ];
-
-    const positiveWords = [
-      "safe",
-      "resolved",
-      "fixed",
-      "cleared",
-      "helped",
-      "responded",
-      "thank",
-      "thanks",
-      "good",
-      "better",
-      "okay",
-      "ok",
-      "fine",
-      "secured",
-      "assisted",
-      "improved",
-      "solved",
-      "salamat",
-      "maayo",
-      "ayo",
-      "naayo",
-      "okay na",
-      "nasulbad",
-      "tabang",
-      "natabangan",
-      "safe na",
-    ];
-
-    let negativeScore = 0;
-    let positiveScore = 0;
-
-    negativeWords.forEach((word) => {
-      if (text.includes(word)) negativeScore += 1;
-    });
-
-    positiveWords.forEach((word) => {
-      if (text.includes(word)) positiveScore += 1;
-    });
-
-    if (negativeScore > positiveScore) return "Negative";
-    if (positiveScore > negativeScore) return "Positive";
-
-    return "Neutral";
-  };
-
   const getCommentSentimentAnalysis = (comments = []) => {
     if (!Array.isArray(comments) || comments.length === 0) {
       return {
-        overall: "Neutral",
-        majority: "No Majority",
+        overall: "unavailable",
+        majority: "unavailable",
         total: 0,
+        succeeded: 0,
         positive: 0,
         negative: 0,
         neutral: 0,
+        mixed: 0,
+        unclear: 0,
         positivePercent: 0,
         negativePercent: 0,
         neutralPercent: 0,
+        mixedPercent: 0,
+        unclearPercent: 0,
       };
     }
 
-    let positive = 0;
-    let negative = 0;
-    let neutral = 0;
-
-    comments.forEach((comment) => {
-      const commentText = getCommentText(comment);
-      const sentiment = analyzeSingleComment(commentText);
-
-      if (sentiment === "Positive") positive += 1;
-      else if (sentiment === "Negative") negative += 1;
-      else neutral += 1;
-    });
-
-    const total = comments.length;
-
-    const positivePercent = Math.round((positive / total) * 100);
-    const negativePercent = Math.round((negative / total) * 100);
-    const neutralPercent = Math.max(
-      0,
-      100 - positivePercent - negativePercent
+    const succeededComments = comments.filter(
+      (comment) => comment?.sentiment_status === "succeeded"
     );
-
-    let overall = "Neutral";
-    let majority = "Neutral";
-
-    if (negative > positive && negative > neutral) {
-      overall = "Negative";
-      majority = "Negative";
-    } else if (positive > negative && positive > neutral) {
-      overall = "Positive";
-      majority = "Positive";
-    } else if (neutral > positive && neutral > negative) {
-      overall = "Neutral";
-      majority = "Neutral";
-    } else {
-      overall = "Mixed";
-      majority = "Mixed";
-    }
+    const counts = {
+      positive: 0,
+      negative: 0,
+      neutral: 0,
+      mixed: 0,
+      unclear: 0,
+    };
+    succeededComments.forEach((comment) => {
+      const sentiment = String(comment.sentiment || "").toLowerCase();
+      if (sentiment in counts) counts[sentiment] += 1;
+    });
+    const total = succeededComments.length;
+    const percentage = (count) => (total ? Math.round((count / total) * 100) : 0);
+    const positivePercent = percentage(counts.positive);
+    const negativePercent = percentage(counts.negative);
+    const neutralPercent = percentage(counts.neutral);
+    const mixedPercent = percentage(counts.mixed);
+    const unclearPercent = percentage(counts.unclear);
+    const ranked = Object.entries(counts).sort(([, a], [, b]) => b - a);
+    const [topLabel, topCount] = ranked[0] || ["unavailable", 0];
+    const hasTie = ranked.filter(([, count]) => count === topCount).length > 1;
+    const majority = total === 0
+      ? "unavailable"
+      : hasTie
+        ? "mixed"
+        : topLabel;
+    const overall = total === 0 ? "unavailable" : majority;
 
     return {
       overall,
       majority,
       total,
-      positive,
-      negative,
-      neutral,
+      succeeded: total,
+      ...counts,
       positivePercent,
       negativePercent,
       neutralPercent,
+      mixedPercent,
+      unclearPercent,
     };
   };
 

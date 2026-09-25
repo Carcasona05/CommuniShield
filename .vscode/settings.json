@@ -8,5 +8,13 @@
   ],
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "explicit"
+  },
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv-data\\Scripts\\python.exe",
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}\\.venv-data\\Lib\\site-packages"
+  ],
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingModuleSource": "none"
   }
 }

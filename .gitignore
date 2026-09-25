@@ -45,3 +45,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+/.venv-data/
+/datasets/raw/
+/datasets/processed/
+/datasets/models/
+__pycache__/
+*.py[cod]

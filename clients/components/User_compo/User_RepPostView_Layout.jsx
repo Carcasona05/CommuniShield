@@ -42,7 +42,7 @@ const User_RepPostView_Layout = ({ post }) => {
         });
         setComments(res.data?.comments || []);
       } catch {
-        setComments(post?.commentList || []);
+        setComments([]);
       }
     };
 
@@ -279,7 +279,35 @@ const User_RepPostView_Layout = ({ post }) => {
             </Text>
             <View style={styles.aiTags}>
               <Text style={styles.aiTag}>Severity: {post.severity || "Medium"}</Text>
-              <Text style={styles.aiTag}>Sentiment: {post.sentiment || "Neutral"}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {post.sentiment_status ? (
+          <View style={styles.aiReviewContainer}>
+            <View style={styles.aiHeader}>
+              <Ionicons name="happy-outline" size={18} color={PRIMARY} />
+              <Text style={styles.aiTitle}>Sentiment Analysis</Text>
+              <View style={styles.aiScoreBadge}>
+                <Text style={styles.aiScoreText}>
+                  {post.sentiment || post.sentiment_status}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.aiTags}>
+              {post.sentiment_language && post.sentiment_language !== "unknown" ? (
+                <Text style={styles.aiTag}>
+                  Language: {post.sentiment_language}
+                </Text>
+              ) : null}
+              {post.sentiment_confidence ? (
+                <Text style={styles.aiTag}>
+                  Confidence: {Math.round(post.sentiment_confidence * 100)}%
+                </Text>
+              ) : null}
+              {post.sentiment_error ? (
+                <Text style={styles.aiTag}>{post.sentiment_error}</Text>
+              ) : null}
             </View>
           </View>
         ) : null}

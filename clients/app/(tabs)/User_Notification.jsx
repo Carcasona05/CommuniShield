@@ -281,16 +281,25 @@ const User_Notification = () => {
   });
 
   const [userReports, setUserReports] = useState(() => {
-    const cached = getCache("api:/notifications");
-    return cached?.reports || [];
+    const mapped = mapNotifications(
+      getCache("api:/notifications"),
+      getCache("api:/notifications/login-activity")
+    );
+    return mapped.userReports;
   });
   const [nearbyIncidents, setNearbyIncidents] = useState(() => {
-    const cached = getCache("api:/notifications");
-    return cached?.nearby || [];
+    const mapped = mapNotifications(
+      getCache("api:/notifications"),
+      getCache("api:/notifications/login-activity")
+    );
+    return mapped.nearbyIncidents;
   });
   const [loginActivity, setLoginActivity] = useState(() => {
-    const cached = getCache("api:/notifications/login-activity");
-    return cached?.activity || [];
+    const mapped = mapNotifications(
+      getCache("api:/notifications"),
+      getCache("api:/notifications/login-activity")
+    );
+    return mapped.loginActivity;
   });
   const [refreshing, setRefreshing] = useState(false);
   const [marking, setMarking] = useState(false);
@@ -314,6 +323,7 @@ const User_Notification = () => {
         const res = await apiClient.get("/reports", {
           headers: { Authorization: `Bearer ${token}` },
         });
+        setCache("api:/reports", res.data ?? {});
         const report = (res.data?.reports || []).find(
           (r) => r.id === reportId
         );
@@ -385,6 +395,19 @@ const User_Notification = () => {
     userReports.filter((n) => !n.isRead).length +
     nearbyIncidents.filter((n) => !n.isRead).length;
 
+  const setCachedReadFlags = useCallback((ids) => {
+    if (!ids.length) return;
+    const cached = getCache("api:/notifications");
+    if (!cached) return;
+    const apply = (list) =>
+      (list || []).map((n) => (ids.includes(n.id) ? { ...n, isRead: true } : n));
+    setCache("api:/notifications", {
+      ...cached,
+      reportStatuses: apply(cached.reportStatuses),
+      nearbyIncidents: apply(cached.nearbyIncidents),
+    });
+  }, []);
+
   const handleMarkAllRead = useCallback(async () => {
     if (marking) return;
     setMarking(true);
@@ -409,12 +432,13 @@ const User_Notification = () => {
 
       setUserReports((prev) => prev.map((n) => ({ ...n, isRead: true })));
       setNearbyIncidents((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      setCachedReadFlags(unreadIds);
     } catch {
       Alert.alert("Error", "Could not mark notifications as read.");
     } finally {
       setMarking(false);
     }
-  }, [marking, userReports, nearbyIncidents]);
+  }, [marking, userReports, nearbyIncidents, setCachedReadFlags]);
 
   const markAsRead = useCallback(async (id) => {
     setUserReports((prev) =>
@@ -423,6 +447,7 @@ const User_Notification = () => {
     setNearbyIncidents((prev) =>
       prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
     );
+    setCachedReadFlags([id]);
 
     try {
       const token = await AsyncStorage.getItem("access_token");
@@ -436,7 +461,7 @@ const User_Notification = () => {
     } catch {
       // keep local read state
     }
-  }, []);
+  }, [setCachedReadFlags]);
 
   if (!fontsLoaded) {
     return null;

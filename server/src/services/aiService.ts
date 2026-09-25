@@ -9,7 +9,6 @@ const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models
 interface AIAnalysisResult {
   ai_score: number;
   severity: "Low" | "Medium" | "High" | "Critical";
-  sentiment: "Negative" | "Neutral" | "Positive" | "Concerned" | "Anxious" | "Unclear";
   credibility_review: string;
   analysis_duration_ms?: number;
 }
@@ -80,10 +79,11 @@ async function discoverModel(apiKey: string, baseEndpoint: string): Promise<stri
       }
     }
 
-    if (generateCapable.length > 0) {
-      cachedAvailableModel = generateCapable[0].name;
-      console.log(`[AI Discovery] Using first available model: ${generateCapable[0].name}`);
-      return generateCapable[0].name;
+    const firstGenerateCapable = generateCapable[0];
+    if (firstGenerateCapable) {
+      cachedAvailableModel = firstGenerateCapable.name;
+      console.log(`[AI Discovery] Using first available model: ${firstGenerateCapable.name}`);
+      return firstGenerateCapable.name;
     }
 
     console.warn("[AI Discovery] No models support generateContent, using default");
@@ -150,7 +150,6 @@ const SYSTEM_PROMPT = `You are an AI safety analyst for CommuniShield, a communi
 
 - ai_score: number 0-100
 - severity: "Low" | "Medium" | "High" | "Critical"
-- sentiment: "Negative" | "Neutral" | "Positive" | "Concerned" | "Anxious" | "Unclear"
 - credibility_review: string
 
 AI SCORE — calculate based on these three factors combined:
@@ -161,9 +160,9 @@ AI SCORE — calculate based on these three factors combined:
    - 21-30: Good detail (mentions time, place, people involved, what happened)
    - 31-40: Highly detailed (exact time, full description, witness accounts, specific barangay/street)
 
-2) Sentiment quality (0-30 points):
-   - 0-10: Panic-driven, exaggerated, emotionally manipulative ("HELP!!! URGENT!!!", excessive caps, all exclamations)
-   - 11-20: Concerned or anxious tone but still informative
+2) Language quality (0-30 points):
+   - 0-10: Vague, manipulative, or emotionally distorted wording
+   - 11-20: Some concerns or uncertainty but mostly informative
    - 21-30: Calm, factual, objective language
 
 3) Corroboration (0-30 points):
@@ -178,11 +177,8 @@ SEVERITY — analyze based on threat level and language construction:
 - Medium: Incident happened but contained, no immediate danger, minor injury or property damage. Language is informational, reporting what happened.
 - Low: Minor issue, nuisance, suspicious activity with no direct threat. Phrases like "saw something strange", "noise complaint", "suspicious person loitering".
 
-Write the credibility_review as a direct, specific statement about THIS report. Do not use generic phrases. Base it on the actual data provided — mention the real image count, real similar post count, real location detail, and real sentiment. Never repeat the same template for every report.`;
+Write the credibility_review as a direct, specific statement about THIS report. Do not use generic phrases. Base it on the actual data provided, including image count, similar post count, and location detail. Do not classify sentiment.`;
 
-/**
- * Calls Gemini API to analyze a report with retry logic
- */
 async function callGemini(
   prompt: string,
   config: AIConfig,
@@ -278,24 +274,18 @@ function parseAIResponse(response: string): AIAnalysisResult {
     const severity = ["Low", "Medium", "High", "Critical"].includes(parsed.severity)
       ? parsed.severity
       : "Medium";
-    const sentiment = ["Negative", "Neutral", "Positive", "Concerned", "Anxious", "Unclear"].includes(
-      parsed.sentiment
-    )
-      ? parsed.sentiment
-      : "Neutral";
     const credibility_review = String(parsed.credibility_review || "AI analysis completed").slice(
       0,
       500
     );
 
-    return { ai_score, severity, sentiment, credibility_review };
+    return { ai_score, severity, credibility_review };
   } catch {
     // Fallback on parse failure
     return {
-      ai_score: 50,
-      severity: "Medium",
-      sentiment: "Neutral",
-      credibility_review: "Unable to generate AI review. Manual verification recommended.",
+        ai_score: 50,
+        severity: "Medium",
+        credibility_review: "Unable to generate AI review. Manual verification recommended.",
     };
   }
 }
@@ -330,10 +320,11 @@ export const aiService = {
    */
   async isEnabled(): Promise<boolean> {
     const { data } = await supabaseAdmin
-      .from("app_settings")
-      .select("ai_credibility_enabled")
+      .from("system_settings")
+      .select("value")
+      .eq("key", "ai_scoring_enabled")
       .maybeSingle();
-    return data?.ai_credibility_enabled ?? true;
+    return data?.value === undefined ? true : data.value === "true";
   },
 
   /**
@@ -364,7 +355,6 @@ export const aiService = {
       return {
         ai_score: 50,
         severity: "Medium",
-        sentiment: "Neutral",
         credibility_review: "AI analysis disabled",
       };
     }
@@ -412,7 +402,6 @@ export const aiService = {
       return {
         ai_score: 50,
         severity: "Medium",
-        sentiment: "Neutral",
         credibility_review: `AI analysis unavailable: ${error instanceof Error ? error.message : "Unknown error"}`,
         analysis_duration_ms: Date.now() - startTime,
       };
@@ -429,7 +418,6 @@ export const aiService = {
         report_id: reportId,
         ai_score: result.ai_score,
         severity: result.severity,
-        sentiment: result.sentiment,
         credibility_review: result.credibility_review,
         ai_model_version: modelVersion,
         analysis_duration_ms: durationMs,
@@ -473,7 +461,6 @@ export const aiService = {
           results[id] = {
             ai_score: 0,
             severity: "Low",
-            sentiment: "Unclear",
             credibility_review: "Report not found",
           };
           continue;
@@ -499,7 +486,6 @@ export const aiService = {
         results[id] = {
           ai_score: 50,
           severity: "Medium",
-          sentiment: "Neutral",
           credibility_review: "Analysis failed",
         };
       }

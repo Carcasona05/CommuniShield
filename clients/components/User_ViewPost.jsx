@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,8 @@ import { useRouter } from "expo-router";
 import { smartBack } from "../services/navigation";
 import { useFonts } from "expo-font";
 import censorText from "../services/censorText";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import apiClient from "../services/apiClient";
 
 const PRIMARY = "#294880";
 
@@ -36,24 +38,27 @@ const User_ViewPost = ({ post, onBack }) => {
     "Poppins-SemiBold": require("../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const safePost = post || {
-    id: "report_001",
-    userName: "CommuniShield User",
-    userAvatar: null,
-    location: "Mabini Street, Manila",
-    incidentCategory: "Suspicious Activities",
-    incidentType: "Loitering / Suspicious Presence",
-    details:
-      "A suspicious person was seen loitering near the gate around 9:30 PM.",
-    verified: true,
-    likes: 12,
-    comments: 2,
-    images: [],
-    commentList: [],
-  };
+  const safePost = post || null;
 
-  const [comments, setComments] = useState(safePost.commentList || []);
+  const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
+
+  const loadComments = useCallback(async () => {
+    if (!safePost?.id) return;
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      const res = await apiClient.get(`/reports/${safePost.id}/comments`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      setComments(res.data?.comments || []);
+    } catch {
+      setComments([]);
+    }
+  }, [safePost?.id]);
+
+  useEffect(() => {
+    loadComments();
+  }, [loadComments]);
 
   const avatarSize = isSmallScreen ? 42 : 46;
   const iconSize = isSmallScreen ? 18 : 20;
@@ -63,6 +68,16 @@ const User_ViewPost = ({ post, onBack }) => {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="small" color={PRIMARY} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!safePost) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Report not found.</Text>
         </View>
       </SafeAreaView>
     );
@@ -86,17 +101,21 @@ const User_ViewPost = ({ post, onBack }) => {
     router.push("/User_Notification");
   };
 
-  const handleAddComment = () => {
-    if (!newComment.trim()) return;
-
-    const commentToAdd = {
-      id: Date.now().toString(),
-      user: "CommuniShield User",
-      text: newComment.trim(),
-    };
-
-    setComments((prev) => [...prev, commentToAdd]);
+  const handleAddComment = async () => {
+    if (!newComment.trim() || !safePost?.id) return;
+    const text = newComment.trim();
     setNewComment("");
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      await apiClient.post(
+        `/reports/${safePost.id}/comments`,
+        { content: text },
+        { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
+      );
+      await loadComments();
+    } catch {
+      setNewComment(text);
+    }
   };
 
   const renderImages = () => {

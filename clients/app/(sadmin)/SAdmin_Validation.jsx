@@ -24,6 +24,57 @@ import { useToast } from "../../components/Toast";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
+const formatSubmittedAt = (iso) => {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return (
+    date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+    }) +
+    " • " +
+    date.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    })
+  );
+};
+
+const mapValidationReports = (list) =>
+  (list || []).map((r) => ({
+    id: r.id,
+    title: `${r.incident_type || "Incident"} in ${r.barangay || "Argao"}`,
+    category: r.incident_category || "",
+    type: r.incident_type || "",
+    location: r.location || "",
+    barangay: r.barangay || "",
+    details: r.details || "",
+    status: r.status || "Pending Review",
+    aiScore: r.ai_score ?? 0,
+    severity: r.severity || "Medium",
+    sentiment: r.sentiment ?? null,
+    sentiment_status: r.sentiment_status ?? "unavailable",
+    sentiment_error: r.sentiment_error ?? "",
+    sentiment_confidence: r.sentiment_confidence ?? 0,
+    sentiment_language: r.sentiment_language ?? "unknown",
+    sentiment_provider: r.sentiment_provider ?? "none",
+    sentiment_model: r.sentiment_model ?? "none",
+    sentiment_analyzed_at: r.sentiment_analyzed_at ?? null,
+    credibilityReview: r.credibility_review || "",
+    submittedBy: r.poster_name || "Anonymous User",
+    submittedRole: r.source === "Admin" ? "Admin" : "User",
+    submittedAt: formatSubmittedAt(r.created_at),
+    verifiedBy: r.is_verified ? "System" : "",
+    remarks: "",
+    is_verified: r.is_verified,
+    comments: Array.isArray(r.comments) ? r.comments : [],
+    images: Array.isArray(r.images) ? r.images : [],
+  }));
+
 export default function SAdmin_Validation() {
   const toast = useToast();
   const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
@@ -54,62 +105,15 @@ export default function SAdmin_Validation() {
 
   const [reports, setReports] = useState(() => {
     const cached = getCache("api:/admin/dashboard");
-    return cached?.reports || [];
+    return Array.isArray(cached?.reports) ? mapValidationReports(cached.reports) : [];
   });
-
-  const formatSubmittedAt = (iso) => {
-    if (!iso) return "";
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return "";
-
-    return (
-      date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "2-digit",
-        year: "numeric",
-      }) +
-      " • " +
-      date.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      })
-    );
-  };
 
   const loadValidation = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      const applyList = (list) => {
-        setReports(
-          list.map((r) => ({
-            id: r.id,
-            title: `${r.incident_type || "Incident"} in ${
-              r.barangay || "Argao"
-            }`,
-            category: r.incident_category || "",
-            type: r.incident_type || "",
-            location: r.location || "",
-            barangay: r.barangay || "",
-            details: r.details || "",
-            status: r.status || "Pending Review",
-            aiScore: r.ai_score ?? 0,
-            severity: r.severity || "Medium",
-            sentiment: r.sentiment || "Neutral",
-            credibilityReview: r.credibility_review || "",
-            submittedBy: r.poster_name || "Anonymous User",
-            submittedRole: r.source === "Admin" ? "Admin" : "User",
-            submittedAt: formatSubmittedAt(r.created_at),
-            verifiedBy: r.is_verified ? "System" : "",
-            remarks: "",
-            is_verified: r.is_verified,
-            comments: r.comments || [],
-            images: Array.isArray(r.images) ? r.images : [],
-          }))
-        );
-      };
+      const applyList = (list) => setReports(mapValidationReports(list));
 
       const cached = getCache("api:/admin/dashboard");
       if (cached && Array.isArray(cached.reports)) {
@@ -492,6 +496,11 @@ export default function SAdmin_Validation() {
 
   const handleMarkAsFake = (report, group) => {
     applyValidation(group || report, "Marked Fake");
+  };
+
+  const handleReportSubmit = () => {
+    setAddReportVisible(false);
+    loadValidation();
   };
 
   const handleAnnouncementSubmit = async (announcement) => {
@@ -914,7 +923,7 @@ export default function SAdmin_Validation() {
         <Admin_AddReportModal
         visible={addReportVisible}
         onClose={() => setAddReportVisible(false)}
-        onSubmit={handleAnnouncementSubmit}
+        onSubmit={handleReportSubmit}
     />
 
     <Admin_AddAnnouncementModal

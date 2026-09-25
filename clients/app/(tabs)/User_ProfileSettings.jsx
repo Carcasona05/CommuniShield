@@ -226,6 +226,38 @@ const CredibilityScore = ({ statusIndex = 3, score = 60 }) => {
   );
 };
 
+const buildProfileDetails = (profile) => {
+  let credibilityStatus = 3;
+  const rawStatus = Number(profile.credibility_status);
+  if (Number.isFinite(rawStatus) && rawStatus >= 0 && rawStatus <= 4) {
+    credibilityStatus = rawStatus;
+  } else {
+    console.warn(
+      "[profile] credibility_status missing/invalid - restart the server so /profile returns it:",
+      profile.credibility_status
+    );
+  }
+
+  let credibilityScore = 60;
+  const rawScore = Number(profile.credibility_score);
+  if (Number.isFinite(rawScore)) {
+    credibilityScore = Math.min(100, Math.max(0, rawScore));
+  }
+
+  return {
+    firstName: profile.first_name ?? "",
+    middleName: profile.middle_name ?? "",
+    lastName: profile.last_name ?? "",
+    username: profile.user_name ?? profile.name ?? "",
+    birthdate: parseBirthdate(profile.birthdate),
+    contactNumber: profile.phone ?? "",
+    location: profile.location ?? "",
+    email: profile.email ?? "",
+    credibilityStatus,
+    credibilityScore,
+  };
+};
+
 const UserProfileSettingsWrapper = () => {
   return (
     <ToastProvider>
@@ -259,17 +291,23 @@ const UserProfileSettings = () => {
     acceptedAt: null,
   });
 
-  const [userDetails, setUserDetails] = useState({
-    firstName: "",
-    middleName: "",
-    lastName: "",
-    username: "",
-    birthdate: new Date(2000, 0, 1),
-    contactNumber: "",
-    location: "",
-    email: "",
-    credibilityStatus: 3,
-    credibilityScore: 60,
+  const [userDetails, setUserDetails] = useState(() => {
+    const defaults = {
+      firstName: "",
+      middleName: "",
+      lastName: "",
+      username: "",
+      birthdate: new Date(2000, 0, 1),
+      contactNumber: "",
+      location: "",
+      email: "",
+      credibilityStatus: 3,
+      credibilityScore: 60,
+    };
+    const cached = getCache("api:/profile");
+    return cached !== undefined
+      ? { ...defaults, ...buildProfileDetails(cached) }
+      : defaults;
   });
 
   const [tempDetails, setTempDetails] = useState(userDetails);
@@ -286,35 +324,7 @@ const UserProfileSettings = () => {
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
 
   const applyProfile = useCallback((profile) => {
-    let credibilityStatus = 3;
-    const rawStatus = Number(profile.credibility_status);
-    if (Number.isFinite(rawStatus) && rawStatus >= 0 && rawStatus <= 4) {
-      credibilityStatus = rawStatus;
-    } else {
-      console.warn(
-        "[profile] credibility_status missing/invalid - restart the server so /profile returns it:",
-        profile.credibility_status
-      );
-    }
-
-    let credibilityScore = 60;
-    const rawScore = Number(profile.credibility_score);
-    if (Number.isFinite(rawScore)) {
-      credibilityScore = Math.min(100, Math.max(0, rawScore));
-    }
-
-    const loaded = {
-      firstName: profile.first_name ?? "",
-      middleName: profile.middle_name ?? "",
-      lastName: profile.last_name ?? "",
-      username: profile.user_name ?? profile.name ?? "",
-      birthdate: parseBirthdate(profile.birthdate),
-      contactNumber: profile.phone ?? "",
-      location: profile.location ?? "",
-      email: profile.email ?? "",
-      credibilityStatus,
-      credibilityScore,
-    };
+    const loaded = buildProfileDetails(profile);
 
     setUserDetails((prev) => ({
       ...prev,
@@ -428,6 +438,7 @@ const UserProfileSettings = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const profile = res.data ?? {};
+      setCache("api:/profile", profile);
       const synced = {
         ...tempDetails,
         firstName: profile.first_name ?? tempDetails.firstName,

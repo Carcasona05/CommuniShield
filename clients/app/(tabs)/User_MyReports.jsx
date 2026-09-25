@@ -28,7 +28,7 @@ import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
-import { getCache, setCache } from "../../services/dataStore";
+import { getCache, setCache, patchCachedReports, removeCachedReport } from "../../services/dataStore";
 
 const PRIMARY = "#294880";
 
@@ -114,6 +114,14 @@ const mapMyReports = (data) =>
     comments: r.comments ?? 0,
     isLiked: r.is_liked ?? false,
     images: Array.isArray(r.images) ? r.images : [],
+    sentiment: r.sentiment ?? null,
+    sentiment_status: r.sentiment_status ?? "unavailable",
+    sentiment_error: r.sentiment_error ?? "",
+    sentiment_confidence: r.sentiment_confidence ?? 0,
+    sentiment_language: r.sentiment_language ?? "unknown",
+    sentiment_provider: r.sentiment_provider ?? "none",
+    sentiment_model: r.sentiment_model ?? "none",
+    sentiment_analyzed_at: r.sentiment_analyzed_at ?? null,
     commentList: [],
   }));
 
@@ -243,10 +251,16 @@ const EditReportModal = ({ visible, report, onClose, onSave }) => {
         const token = await AsyncStorage.getItem("access_token");
         if (!token) return;
 
+        const cached = getCache("api:/incidents/options");
+        if (Array.isArray(cached?.categories) && cached.categories.length) {
+          setCategoryOptions(cached.categories);
+        }
+
         const res = await apiClient.get("/incidents/options", {
           headers: { Authorization: `Bearer ${token}` },
         });
 
+        setCache("api:/incidents/options", res.data ?? {});
         setCategoryOptions(res.data?.categories || []);
       } catch {
         // keep defaults empty
@@ -523,7 +537,7 @@ const MyReportsInner = () => {
   const toast = useToast();
   const router = useRouter();
 
-  const [loading, setLoading] = useState(() => getCache("api:/reports") === undefined);
+  const [loading, setLoading] = useState(() => getCache("api:/reports/mine") === undefined);
 
   const [fontsLoaded] = useFonts({
     "Poppins-Regular": require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -626,6 +640,12 @@ const MyReportsInner = () => {
             : report
         )
       );
+
+      patchCachedReports(reportId, (r) => ({
+        ...r,
+        is_liked: liked,
+        likes: (r.likes ?? 0) + (liked ? 1 : -1),
+      }));
     } catch {
       // ignore like failures
     }
@@ -688,6 +708,16 @@ const MyReportsInner = () => {
         )
       );
 
+      patchCachedReports(updatedReport.id, (r) => ({
+        ...r,
+        details: updatedReport.details,
+        location: updatedReport.location,
+        poster_name: updatedReport.userName,
+        incident_category: updatedReport.incidentCategory,
+        incident_type: updatedReport.incidentType,
+        images: uploadPhotos,
+      }));
+
       setEditModalVisible(false);
       setSelectedReport(null);
 
@@ -720,6 +750,8 @@ const MyReportsInner = () => {
             setMyReports((prevReports) =>
               prevReports.filter((report) => report.id !== reportId)
             );
+
+            removeCachedReport(reportId);
 
             toast.success("Report deleted successfully.");
           } catch (error) {
@@ -803,9 +835,16 @@ const MyReportsInner = () => {
                 status={report.status}
                 verified={report.verified}
                 likes={report.likes}
-                comments={report.comments}
-                isLiked={report.isLiked}
-                images={report.images}
+                 comments={report.comments}
+                 isLiked={report.isLiked}
+                 images={report.images}
+                 sentiment={report.sentiment}
+                 sentiment_status={report.sentiment_status}
+                 sentiment_confidence={report.sentiment_confidence}
+                 sentiment_language={report.sentiment_language}
+                 sentiment_provider={report.sentiment_provider}
+                 sentiment_model={report.sentiment_model}
+                 sentiment_analyzed_at={report.sentiment_analyzed_at}
                 onLike={() => handleLike(report.id)}
                 onComment={() => handleOpenReport(report)}
                 onEdit={() => handleEditReport(report)}

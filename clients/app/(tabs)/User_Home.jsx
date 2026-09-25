@@ -18,7 +18,7 @@ import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
-import { getCache, setCache } from "../../services/dataStore";
+import { getCache, setCache, patchCachedReports } from "../../services/dataStore";
 import { SkeletonFeed } from "../../components/SkeletonCard";
 
 const PRIMARY = "#294880";
@@ -75,6 +75,14 @@ const mapFeed = (reportsData, adminData) => {
     comments: r.comments ?? 0,
     isLiked: r.is_liked ?? false,
     images: Array.isArray(r.images) ? r.images : [],
+    sentiment: r.sentiment ?? null,
+    sentiment_status: r.sentiment_status ?? "unavailable",
+    sentiment_error: r.sentiment_error ?? "",
+    sentiment_confidence: r.sentiment_confidence ?? 0,
+    sentiment_language: r.sentiment_language ?? "unknown",
+    sentiment_provider: r.sentiment_provider ?? "none",
+    sentiment_model: r.sentiment_model ?? "none",
+    sentiment_analyzed_at: r.sentiment_analyzed_at ?? null,
     commentList: [],
   }));
 
@@ -318,6 +326,12 @@ const User_Home = () => {
             : report
         )
       );
+
+      patchCachedReports(reportId, (r) => ({
+        ...r,
+        is_liked: liked,
+        likes: (r.likes ?? 0) + (liked ? 1 : -1),
+      }));
     } catch {
       // ignore like failures
     }

@@ -22,6 +22,7 @@ import Dropdown from "../../components/Dropdown";
 import ToastProvider, { useToast } from "../../components/Toast";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
+import { getCache, setCache } from "../../services/dataStore";
 
 const PRIMARY = "#294880";
 
@@ -106,7 +107,12 @@ function EditScreenInner() {
   const [location, setLocation] = useState("");
   const [incidentCategory, setIncidentCategory] = useState("");
   const [incidentType, setIncidentType] = useState("");
-  const [categoryOptions, setCategoryOptions] = useState(FALLBACK_CATEGORIES);
+  const [categoryOptions, setCategoryOptions] = useState(() => {
+    const cached = getCache("api:/incidents/options");
+    return Array.isArray(cached?.categories) && cached.categories.length
+      ? cached.categories
+      : FALLBACK_CATEGORIES;
+  });
   const [details, setDetails] = useState("");
   const [photos, setPhotos] = useState([]);
 
@@ -121,10 +127,16 @@ function EditScreenInner() {
         const token = await AsyncStorage.getItem("access_token");
         if (!token) return;
 
+        const cached = getCache("api:/incidents/options");
+        if (Array.isArray(cached?.categories) && cached.categories.length) {
+          setCategoryOptions(cached.categories);
+        }
+
         const res = await apiClient.get("/incidents/options", {
           headers: { Authorization: `Bearer ${token}` },
         });
 
+        setCache("api:/incidents/options", res.data ?? {});
         setCategoryOptions(res.data?.categories || []);
       } catch {
         // keep defaults empty

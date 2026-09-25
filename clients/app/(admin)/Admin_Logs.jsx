@@ -18,6 +18,34 @@ import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache, toReportCode, hashReportIdsInText } from "../../services/dataStore";
 
+const formatLogTime = (iso) => {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return (
+    date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+    }) +
+    " • " +
+    date.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    })
+  );
+};
+
+const mapLogs = (list) =>
+  (list || []).map((log) => ({
+    ...log,
+    reportId: toReportCode(log.reportId || log.id),
+    details: hashReportIdsInText(log.details || ""),
+    dateTime: formatLogTime(log.dateTime),
+  }));
+
 export default function Admin_Logs() {
   const [loading, setLoading] = useState(() => getCache("api:/admin/logs") === undefined);
   const [searchText, setSearchText] = useState("");
@@ -31,43 +59,15 @@ export default function Admin_Logs() {
 
   const [logs, setLogs] = useState(() => {
     const cached = getCache("api:/admin/logs");
-    return cached?.logs || [];
+    return Array.isArray(cached?.logs) ? mapLogs(cached.logs) : [];
   });
-
-  const formatLogTime = (iso) => {
-    if (!iso) return "";
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return "";
-
-    return (
-      date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "2-digit",
-        year: "numeric",
-      }) +
-      " • " +
-      date.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      })
-    );
-  };
 
   const loadLogs = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      const applyLogs = (list) =>
-        setLogs(
-          list.map((log) => ({
-            ...log,
-            reportId: toReportCode(log.reportId || log.id),
-            details: hashReportIdsInText(log.details || ""),
-            dateTime: formatLogTime(log.dateTime),
-          }))
-        );
+      const applyLogs = (list) => setLogs(mapLogs(list));
 
       const cached = getCache("api:/admin/logs");
       if (cached && Array.isArray(cached.logs)) {

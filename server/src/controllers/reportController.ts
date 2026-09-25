@@ -4,9 +4,24 @@ import { profileService } from "../services/authService.js";
 import { notificationService } from "../services/notificationService.js";
 import { credibilityService } from "../services/credibilityService.js";
 import { aiService } from "../services/aiService.js";
+import {
+  sentimentService,
+  type SentimentAnalysis,
+} from "../services/sentimentService.js";
 import { toReportCode } from "../utils/toReportCode.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string }; token?: string };
+
+const sentimentResponse = (analysis: SentimentAnalysis | null | undefined) => ({
+  sentiment: analysis?.label ?? null,
+  sentiment_status: analysis?.status ?? "unavailable",
+  sentiment_confidence: analysis?.confidence ?? 0,
+  sentiment_language: analysis?.language ?? "unknown",
+  sentiment_provider: analysis?.provider ?? "none",
+  sentiment_model: analysis?.model ?? "none",
+  sentiment_error: analysis?.error_code ?? "",
+  sentiment_analyzed_at: analysis?.analyzed_at ?? null,
+});
 
 export const validateReport = async (req: AuthRequest, res: Response) => {
   const user = req.user;
@@ -129,14 +144,34 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
           incident_categories: { name: string };
         };
 
-        aiService.analyzeReport(result.data.id, {
-          incident_category: typeData.incident_categories.name,
-          incident_type: typeData.name,
-          location: fullReport.location || "",
-          details: fullReport.details || "",
-          latitude: fullReport.latitude,
-          longitude: fullReport.longitude,
-        }).catch((err) => console.error("AI re-analysis failed:", err));
+        const [credibility, sentiment] = await Promise.all([
+          aiService.analyzeReport(result.data.id, {
+            incident_category: typeData.incident_categories.name,
+            incident_type: typeData.name,
+            location: fullReport.location || "",
+            details: fullReport.details || "",
+            latitude: fullReport.latitude,
+            longitude: fullReport.longitude,
+          }).catch((error) => {
+            console.error("Credibility re-analysis failed:", error);
+            return null;
+          }),
+          sentimentService.analyze("report", result.data.id, { force: true }).catch((error) => {
+            console.error("Sentiment re-analysis failed:", error);
+            return null;
+          }),
+        ]);
+        if (credibility || sentiment) {
+          await reportService.insertAuditLog({
+            actorId: user.id,
+            actorName: profile?.fullname || "Admin",
+            actionType: "AI Analysis Completed",
+            title: `Report analysis refreshed: ${typeData.name}`,
+            details: `Credibility and sentiment analysis refreshed for report ${toReportCode(result.data.id)}.`,
+            reportId: result.data.id,
+            newValue: `Sentiment: ${sentiment?.label ?? "unclear"} (${sentiment?.status ?? "unavailable"})`,
+          }).catch(() => {});
+        }
       }
     }
   }
@@ -161,13 +196,18 @@ export const createReport = async (req: AuthRequest, res: Response) => {
   });
 
   if (result.error) return res.status(400).json({ error: result.error });
+  const createdReport = result.data;
+  const reportId = createdReport?.id;
+  if (!createdReport || !reportId) {
+    return res.status(500).json({ error: "Failed to create report" });
+  }
 
   await credibilityService
     .addPoints(
       user.id,
       "report_submitted",
       "Report submitted",
-      result.data ?? null
+      reportId
     )
     .catch(() => {});
 
@@ -176,7 +216,7 @@ export const createReport = async (req: AuthRequest, res: Response) => {
 
   await notificationService
     .notifyNearbyUsers({
-      reportId: result.data ?? "",
+      reportId,
       latitude: latNum,
       longitude: lngNum,
       title: req.body?.incident_type || "Incident report near you",
@@ -188,7 +228,7 @@ export const createReport = async (req: AuthRequest, res: Response) => {
 
   await notificationService
     .notifyAllAdmins({
-      reportId: result.data ?? "",
+      reportId,
       title: req.body?.incident_type || "New Incident Report",
       message: `A new "${req.body?.incident_type || "incident"}" report was filed at ${req.body?.location || "an unspecified location"}.`,
       priority: "High",
@@ -196,21 +236,33 @@ export const createReport = async (req: AuthRequest, res: Response) => {
     })
     .catch(() => {});
 
-  // Trigger AI analysis asynchronously
-  if (result.data) {
-    aiService.analyzeReport(result.data, {
-      incident_category: req.body?.incident_category || "",
-      incident_type: req.body?.incident_type || "",
-      location: req.body?.location || "",
-      details: req.body?.details || "",
-      latitude: latNum,
-      longitude: lngNum,
-    }).catch((err) => console.error("AI analysis failed:", err));
-  }
+  const reportLocation = createdReport.location || req.body?.location || "";
+  const analysisInput = {
+    incident_category: req.body?.incident_category || "",
+    incident_type: req.body?.incident_type || "",
+    location: reportLocation,
+    details: req.body?.details || "",
+    latitude: latNum,
+    longitude: lngNum,
+  };
+  const [credibility, sentiment] = await Promise.all([
+    aiService.analyzeReport(reportId, analysisInput).catch((error) => {
+      console.error("Credibility analysis failed:", error);
+      return null;
+    }),
+    sentimentService.analyze("report", reportId).catch((error) => {
+      console.error("Report sentiment analysis failed:", error);
+      return null;
+    }),
+  ]);
 
   res.status(201).json({
     message: "Report submitted successfully",
-    report_id: result.data,
+    report_id: reportId,
+    analysis: {
+      credibility: credibility ? "succeeded" : "unavailable",
+      ...sentimentResponse(sentiment),
+    },
   });
 };
 
@@ -237,6 +289,25 @@ export const getMyReports = async (req: AuthRequest, res: Response) => {
   res.json({ reports: data });
 };
 
+export const getReport = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: "Report id required" });
+
+    const { data, error } = await reportService.getReportById(
+      req.user?.id,
+      String(id)
+    );
+
+    if (error) return res.status(500).json({ error });
+    if (!data) return res.status(404).json({ error: "Report not found" });
+
+    res.json({ report: data });
+  } catch {
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 export const updateReport = async (req: AuthRequest, res: Response) => {
   const user = req.user;
   if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
@@ -248,7 +319,18 @@ export const updateReport = async (req: AuthRequest, res: Response) => {
 
   if (result.error) return res.status(400).json({ error: result.error });
 
-  res.json({ message: "Report updated successfully", report_id: result.data });
+  const sentiment = await sentimentService
+    .analyze("report", String(id))
+    .catch((error) => {
+      console.error("Report sentiment refresh failed:", error);
+      return null;
+    });
+
+  res.json({
+    message: "Report updated successfully",
+    report_id: result.data,
+    ...sentimentResponse(sentiment),
+  });
 };
 
 export const deleteReport = async (req: AuthRequest, res: Response) => {
@@ -286,8 +368,18 @@ export const addComment = async (req: AuthRequest, res: Response) => {
   const result = await reportService.addComment(user.id, String(id), content);
 
   if (result.error) return res.status(400).json({ error: result.error });
+  if (!result.data) return res.status(500).json({ error: "Failed to create comment" });
 
-  res.status(201).json({ message: "Comment added" });
+  const sentiment = await sentimentService.analyze("comment", result.data).catch((error) => {
+    console.error("Comment sentiment analysis failed:", error);
+    return null;
+  });
+
+  res.status(201).json({
+    message: "Comment added",
+    comment_id: result.data,
+    ...sentimentResponse(sentiment),
+  });
 };
 
 export const getComments = async (req: AuthRequest, res: Response) => {

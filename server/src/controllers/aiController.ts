@@ -2,6 +2,8 @@ import type { Response } from "express";
 import { aiService } from "../services/aiService.js";
 import { reportService } from "../services/reportService.js";
 import { profileService } from "../services/authService.js";
+import { sentimentService, type SentimentSubjectType } from "../services/sentimentService.js";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { toReportCode } from "../utils/toReportCode.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string } };
@@ -124,6 +126,108 @@ export const batchAnalyzeReports = async (req: AuthRequest, res: Response) => {
   }
 };
 
+const isAdminRole = (role: string | undefined): boolean =>
+  role === "admin" || role === "super_admin";
+
+const sentimentIds = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return [...new Set(value.filter((id): id is string => typeof id === "string" && id.length > 0))];
+  }
+  return typeof value === "string" && value.length > 0 ? [value] : [];
+};
+
+export const reanalyzeSentiment = async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+    const { data: profile } = await profileService.getProfile(user.id);
+    if (!isAdminRole(profile?.role)) {
+      return res.status(403).json({ error: "Admin access only" });
+    }
+
+    const subjectType = String(req.params.type || req.body?.subject_type || "") as SentimentSubjectType;
+    if (subjectType !== "report" && subjectType !== "comment") {
+      return res.status(400).json({ error: "subject_type must be report or comment" });
+    }
+
+    const ids = sentimentIds(req.params.id || req.body?.id || req.body?.ids);
+    if (ids.length === 0) {
+      return res.status(400).json({ error: "id or ids array required" });
+    }
+
+    const results = await sentimentService.analyzeMany(subjectType, ids, { force: true });
+    const auditLog: {
+      actorId: string;
+      actorName: string;
+      actionType: string;
+      title: string;
+      details: string;
+      newValue: string;
+      reportId?: string;
+    } = {
+      actorId: user.id,
+      actorName: profile?.fullname || "Admin",
+      actionType: "AI Analysis Completed",
+      title: `${subjectType} sentiment reanalysis`,
+      details: `Reanalyzed ${ids.length} ${subjectType} record(s): ${toReportCode(ids[0])}.`,
+      newValue: JSON.stringify(
+        ids.slice(0, 10).map((id) => ({
+          id,
+          status: results[id]?.status,
+          label: results[id]?.label,
+        }))
+      ),
+    };
+    if (subjectType === "report" && ids[0]) auditLog.reportId = ids[0];
+    await reportService.insertAuditLog(auditLog).catch(() => {});
+
+    res.json({ results });
+  } catch (error) {
+    console.error("Sentiment reanalysis error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const reanalyzeAllSentiment = async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+    const { data: profile } = await profileService.getProfile(user.id);
+    if (!isAdminRole(profile?.role)) {
+      return res.status(403).json({ error: "Admin access only" });
+    }
+
+    const subjectType = String(req.body?.subject_type || "report") as SentimentSubjectType;
+    if (subjectType !== "report" && subjectType !== "comment") {
+      return res.status(400).json({ error: "subject_type must be report or comment" });
+    }
+
+    const table = subjectType === "report" ? "reports" : "report_comments";
+    const { data: rows, error: rowsError } = await supabaseAdmin
+      .from(table)
+      .select("id")
+      .limit(1000);
+    if (rowsError) return res.status(500).json({ error: rowsError.message });
+
+    const ids = (rows || []).map((row) => String(row.id));
+    const results = await sentimentService.analyzeMany(subjectType, ids, { force: true });
+    await reportService.insertAuditLog({
+      actorId: user.id,
+      actorName: profile?.fullname || "Admin",
+      actionType: "AI Analysis Completed",
+      title: "Sentiment reanalysis completed",
+      details: `Reanalyzed ${ids.length} ${subjectType} record(s).`,
+      newValue: JSON.stringify({ count: ids.length }),
+    }).catch(() => {});
+    res.json({ results, count: ids.length });
+  } catch (error) {
+    console.error("Batch sentiment reanalysis error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 export const toggleAI = async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user;
@@ -139,10 +243,12 @@ export const toggleAI = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: "enabled (boolean) required" });
     }
 
-    const { error } = await import("../config/supabaseAdmin.js").then(m => m.supabaseAdmin
-      .from("app_settings")
-      .upsert({ ai_credibility_enabled: enabled }, { onConflict: "id" })
-    );
+    const { error } = await supabaseAdmin
+      .from("system_settings")
+      .upsert(
+        { key: "ai_scoring_enabled", value: String(enabled) },
+        { onConflict: "key" }
+      );
 
     if (error) return res.status(500).json({ error: error.message });
 

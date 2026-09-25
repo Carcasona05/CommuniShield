@@ -92,9 +92,15 @@ insert into public.system_settings (key, value) values
   ('ai_model_version', 'CommuniShield-AI v1.0'),
   ('ai_api_endpoint', ''),
   ('ai_ollama_url', 'http://localhost:11434'),
-  ('ai_model_name', 'tinyllama:1.1b'),
+  ('ai_model_name', 'gemini-3.6-flash'),
   ('ai_temperature', '0.1'),
-  ('ai_timeout', '30000')
+  ('ai_timeout', '30000'),
+  ('ai_scoring_enabled', 'true'),
+  ('ai_high_threshold', '85'),
+  ('ai_medium_threshold', '60'),
+  ('sentiment_local_model_enabled', 'true'),
+  ('sentiment_gemini_enabled', 'true'),
+  ('sentiment_cebuano_mode', 'gemini')
 on conflict (key) do nothing;
 
 create or replace function public.set_updated_at()

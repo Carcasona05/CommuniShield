@@ -186,7 +186,7 @@ with scored as (
   from public.reports r
   where r.details like 'Sample report:%'
 )
-insert into public.report_credibility_analysis (report_id, ai_score, severity, sentiment, credibility_review, ai_model_version)
+insert into public.report_credibility_analysis (report_id, ai_score, severity, credibility_review, ai_model_version)
 select s.id, s.score,
   case
     when s.score >= 80 then 'Critical'
@@ -194,7 +194,6 @@ select s.id, s.score,
     when s.score >= 45 then 'Medium'
     else 'Low'
   end,
-  (array['Negative','Neutral','Positive','Concerned','Anxious','Unclear'])[1+floor(random()*6)],
   'Sample AI review: generated score ' || s.score || '.',
   'CommuniShield-AI v1.0'
 from scored s
@@ -274,11 +273,7 @@ insert into public.emergency_facilities (name, type, latitude, longitude, addres
   ('Argao Fire Station', 'fire', 9.8738, 123.5998, 'Poblacion, Argao, Cebu', '911')
 on conflict (name) do nothing;
 
--- 10) app settings + system settings (idempotent)
-insert into public.app_settings (ai_credibility_enabled, high_credibility_threshold, medium_credibility_threshold)
-select true, 90, 60
-where not exists (select 1 from public.app_settings);
-
+-- 10) system settings (idempotent)
 insert into public.system_settings (key, value) values
   ('map_auto_map_verified', 'true'),
   ('map_cluster_overlay', 'true'),
@@ -288,5 +283,11 @@ insert into public.system_settings (key, value) values
   ('notification_email', 'true'),
   ('notification_push', 'false'),
   ('ai_model_version', 'CommuniShield-AI v1.0'),
-  ('ai_api_endpoint', '')
+  ('ai_api_endpoint', ''),
+  ('ai_scoring_enabled', 'true'),
+  ('ai_high_threshold', '85'),
+  ('ai_medium_threshold', '60'),
+  ('sentiment_local_model_enabled', 'true'),
+  ('sentiment_gemini_enabled', 'true'),
+  ('sentiment_cebuano_mode', 'gemini')
 on conflict (key) do nothing;

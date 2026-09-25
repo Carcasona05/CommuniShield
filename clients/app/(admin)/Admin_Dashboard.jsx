@@ -166,7 +166,8 @@ export default function Admin_Dashboard() {
       title: r.incident_type || "Incident",
       location: r.location || "Location not specified",
       score: r.ai_score != null ? `${r.ai_score}%` : "—",
-      sentiment: r.sentiment || "Neutral",
+      sentiment: r.sentiment ?? null,
+      sentimentStatus: r.sentiment_status ?? "unavailable",
       status: r.is_verified ? "Verified" : r.status || "Pending",
       source: r.source || "User",
       time: formatFeedTime(r.created_at),
@@ -462,7 +463,7 @@ export default function Admin_Dashboard() {
                       <Text style={styles.feedMeta}>
                         Sentiment:{" "}
                         <Text style={styles.feedSentiment}>
-                          {item.sentiment}
+                          {item.sentiment || item.sentimentStatus}
                         </Text>
                       </Text>
                     </TouchableOpacity>

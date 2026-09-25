@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Alert } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -6,6 +6,7 @@ import apiClient from "../../services/apiClient";
 import { smartBack } from "../../services/navigation";
 import ToastProvider, { useToast } from "../../components/Toast";
 import MyUser_RepPostView_Layout from "../../components/User_compo/MyUser_RepPostView_Layout";
+import { removeCachedReport } from "../../services/dataStore";
 
 const MyUser_RepPostView = () => {
   const router = useRouter();
@@ -25,11 +26,31 @@ const MyUser_RepPostView = () => {
     parsedReport = null;
   }
 
+  const [freshReport, setFreshReport] = useState(parsedReport);
+
+  const refresh = useCallback(async () => {
+    if (!parsedReport?.id) return;
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      const res = await apiClient.get(`/reports/${parsedReport.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      const report = res.data?.report;
+      if (report) setFreshReport(report);
+    } catch {
+      // keep serialized fallback
+    }
+  }, [parsedReport?.id]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
   const handleEdit = () => {
     router.push({
       pathname: "/MyUser_RepPostView_Edit",
       params: {
-        report: JSON.stringify(parsedReport),
+        report: JSON.stringify(freshReport || parsedReport),
       },
     });
   };
@@ -44,14 +65,19 @@ const MyUser_RepPostView = () => {
         text: "Delete",
         style: "destructive",
         onPress: async () => {
-          if (!parsedReport?.id) return;
+          if (!(freshReport?.id || parsedReport?.id)) return;
           try {
             const token = await AsyncStorage.getItem("access_token");
             if (!token) return;
 
-            await apiClient.delete(`/reports/${parsedReport.id}`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
+            await apiClient.delete(
+              `/reports/${freshReport?.id || parsedReport.id}`,
+              {
+                headers: { Authorization: `Bearer ${token}` },
+              }
+            );
+
+            removeCachedReport(freshReport?.id || parsedReport.id);
 
             toast.success("Report deleted successfully.");
             smartBack("/(tabs)/User_MyReports");
@@ -66,7 +92,7 @@ const MyUser_RepPostView = () => {
   return (
     <ToastProvider>
       <MyUser_RepPostView_Layout
-        report={parsedReport}
+        report={freshReport || parsedReport}
         onEdit={handleEdit}
         onDelete={handleDelete}
       />

@@ -53,6 +53,23 @@ const SentimentChart = ({ data = [] }) => {
   );
 };
 
+const distColor = (label) => {
+  switch (label) {
+    case "positive":
+      return "#3DBB74";
+    case "neutral":
+      return "#4F8EF7";
+    case "negative":
+      return "#E45757";
+    case "mixed":
+      return "#F29A2E";
+    case "unclear":
+      return "#9AA8C2";
+    default:
+      return "#9AA8C2";
+  }
+};
+
 const ScatterChart = ({ data = [] }) => {
   const W = 340;
   const H = 150;
@@ -99,8 +116,11 @@ export default function Admin_Analytics() {
     return cached?.summary || {
       activeIncidents: 0,
       criticalHotspots: 0,
-      avgSentiment: "0.0",
-      sentimentLabel: "Neutral",
+      avgSentiment: "—",
+      sentimentLabel: "Unavailable",
+      sentimentAnalyzed: 0,
+      sentimentTotal: 0,
+      sentimentDistribution: [],
       credibilityRate: 0,
     };
   });
@@ -232,7 +252,7 @@ export default function Admin_Analytics() {
     },
     {
       title: "Avg. Sentiment",
-      value: `${summary.avgSentiment}/5.0`,
+      value: summary.avgSentiment == null || summary.avgSentiment === "—" ? "—" : `${summary.avgSentiment}/5.0`,
       subtext: summary.sentimentLabel,
       subColor: "#D97A1E",
       icon: "happy-outline",
@@ -477,6 +497,50 @@ export default function Admin_Analytics() {
                         <Text style={styles.axisText}>12:00</Text>
                         <Text style={styles.axisText}>18:00</Text>
                         <Text style={styles.axisText}>23:00</Text>
+                      </View>
+
+                      <Text style={[styles.chartSubhead, { marginTop: 16 }]}>
+                        Distribution
+                      </Text>
+                      <Text style={styles.sentimentCoverage}>
+                        {summary.sentimentAnalyzed ?? 0}/{summary.sentimentTotal ?? 0} analyzed
+                      </Text>
+                      <View style={styles.distList}>
+                        {(Array.isArray(summary.sentimentDistribution)
+                          ? summary.sentimentDistribution
+                          : []
+                        ).map((item) => {
+                          const total = Math.max(
+                            1,
+                            Number(summary.sentimentTotal) || 0
+                          );
+                          const count = Number(item?.count) || 0;
+                          const pct = Math.round((count / total) * 100);
+                          const isNone = item?.label === "none";
+                          return (
+                            <View key={String(item?.label)} style={styles.distRow}>
+                              <Text style={styles.distLabel}>
+                                {isNone ? "No data" : String(item?.label)}
+                              </Text>
+                              <View style={styles.distBarTrack}>
+                                <View
+                                  style={[
+                                    styles.distBarFill,
+                                    {
+                                      width: `${pct}%`,
+                                      backgroundColor: isNone
+                                        ? "#9AA8C2"
+                                        : distColor(String(item?.label)),
+                                    },
+                                  ]}
+                                />
+                              </View>
+                              <Text style={styles.distCount}>
+                                {count} ({pct}%)
+                              </Text>
+                            </View>
+                          );
+                        })}
                       </View>
                     </View>
                   </View>
@@ -883,6 +947,52 @@ const styles = {
     color: "#4F70A5",
     fontFamily: "PoppinsSemiBold",
     marginBottom: 10,
+  },
+
+  sentimentCoverage: {
+    fontSize: 12,
+    color: "#5D6F92",
+    fontFamily: "PoppinsMedium",
+    marginBottom: 8,
+  },
+
+  distList: {
+    gap: 6,
+  },
+
+  distRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  distLabel: {
+    width: 72,
+    fontSize: 11,
+    color: "#435A84",
+    fontFamily: "PoppinsMedium",
+    textTransform: "capitalize",
+  },
+
+  distBarTrack: {
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#E8EEF8",
+    overflow: "hidden",
+  },
+
+  distBarFill: {
+    height: 8,
+    borderRadius: 4,
+  },
+
+  distCount: {
+    width: 58,
+    fontSize: 11,
+    color: "#5D6F92",
+    fontFamily: "PoppinsMedium",
+    textAlign: "right",
   },
 
   lineChartBox: {

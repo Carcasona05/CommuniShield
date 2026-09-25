@@ -16,6 +16,18 @@ type ReportInput = {
   role?: "user" | "admin" | "super_admin";
 };
 
+type SentimentRow = {
+  subject_id: string;
+  label: string;
+  confidence: number | string | null;
+  language: string;
+  provider: string;
+  model: string;
+  status: string;
+  error_code: string;
+  analyzed_at: string | null;
+};
+
 const VALID_STATUSES = [
   "Pending Review",
   "Under Verification",
@@ -68,6 +80,20 @@ function categoryNameOf(rel: unknown): string {
   }
   return (rel as { name?: string }).name ?? "";
 }
+
+const sentimentFields = (analysis: SentimentRow | undefined) => {
+  const succeeded = analysis?.status === "succeeded";
+  return {
+    sentiment: succeeded ? (analysis?.label ?? null) : null,
+    sentiment_confidence: succeeded ? Number(analysis?.confidence ?? 0) : 0,
+    sentiment_language: analysis?.language ?? "unknown",
+    sentiment_provider: analysis?.provider ?? "none",
+    sentiment_model: analysis?.model ?? "none",
+    sentiment_status: analysis?.status ?? "unavailable",
+    sentiment_error: analysis?.error_code ?? "",
+    sentiment_analyzed_at: analysis?.analyzed_at ?? null,
+  };
+};
 
 async function resolveIncidentType(
   categoryName: string,
@@ -181,7 +207,16 @@ export const reportService = {
       if (imageError) return { error: imageError.message };
     }
 
-    return { data: report.id };
+    return {
+      data: {
+        id: report.id,
+        location: (await supabaseAdmin
+          .from("reports")
+          .select("location")
+          .eq("id", report.id)
+          .maybeSingle()).data?.location ?? input.location ?? "",
+      },
+    };
   },
 
   async listReports(viewerId?: string) {
@@ -218,7 +253,7 @@ export const reportService = {
     const { data: analyses, error: analysisError } = reportIds.length
       ? await supabaseAdmin
           .from("report_credibility_analysis")
-          .select("report_id, ai_score, severity, sentiment, credibility_review")
+          .select("report_id, ai_score, severity, credibility_review")
           .in("report_id", reportIds)
       : { data: [], error: null };
 
@@ -229,7 +264,6 @@ export const reportService = {
       {
         ai_score: number | null;
         severity: string;
-        sentiment: string;
         credibility_review: string;
       }
     >();
@@ -238,17 +272,28 @@ export const reportService = {
         report_id: string;
         ai_score: number | null;
         severity: string | null;
-        sentiment: string | null;
         credibility_review: string | null;
       }) => {
         analysisMap.set(a.report_id, {
           ai_score: a.ai_score ?? null,
           severity: a.severity ?? "Medium",
-          sentiment: a.sentiment ?? "Neutral",
           credibility_review: a.credibility_review ?? "",
         });
       }
     );
+
+    const { data: sentimentRows, error: sentimentError } = reportIds.length
+      ? await supabaseAdmin
+          .from("sentiment_analysis")
+          .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
+          .eq("subject_type", "report")
+          .in("subject_id", reportIds)
+      : { data: [], error: null };
+    if (sentimentError) return { data: null, error: sentimentError.message };
+    const sentimentMap = new Map<string, SentimentRow>();
+    (sentimentRows || []).forEach((row: SentimentRow) => {
+      sentimentMap.set(row.subject_id, row);
+    });
 
     const { data: images, error: imageError } = reportIds.length
       ? await supabaseAdmin
@@ -306,9 +351,9 @@ export const reportService = {
       const analysis = analysisMap.get(r.id) ?? {
         ai_score: null,
         severity: "Medium",
-        sentiment: "Neutral",
         credibility_review: "",
       };
+      const sentiment = sentimentMap.get(r.id);
 
       return {
         id: r.id,
@@ -329,7 +374,7 @@ export const reportService = {
         is_liked: viewerId ? likedByUser.has(`${r.id}:${viewerId}`) : false,
         ai_score: analysis.ai_score ?? null,
         severity: analysis.severity ?? "Medium",
-        sentiment: analysis.sentiment ?? "Neutral",
+        ...sentimentFields(sentiment),
         credibility_review: analysis.credibility_review ?? "",
       };
     });
@@ -369,6 +414,14 @@ export const reportService = {
     const filtered = (all.data || []).filter((r) => r.user_id === userId);
 
     return { data: filtered, error: null };
+  },
+
+  async getReportById(viewerId: string | undefined, reportId: string) {
+    const all = await this.listReports(viewerId);
+    if (all.error) return all;
+
+    const report = (all.data || []).find((r) => r.id === reportId) ?? null;
+    return { data: report, error: null };
   },
 
   async updateReport(userId: string, reportId: string, input: ReportInput) {
@@ -467,15 +520,29 @@ export const reportService = {
   async addComment(userId: string, reportId: string, content: string) {
     const text = (content || "").trim();
     if (!text) return { error: "Comment is required" };
+    if (text.length > 2000) return { error: "Comment must be 2000 characters or fewer" };
 
-    const { error } = await supabaseAdmin.from("report_comments").insert({
-      report_id: reportId,
-      user_id: userId,
-      content: text,
-    });
+    const { data: report, error: reportError } = await supabaseAdmin
+      .from("reports")
+      .select("id")
+      .eq("id", reportId)
+      .maybeSingle();
+    if (reportError) return { error: reportError.message };
+    if (!report) return { error: "Report not found" };
+
+    const { data, error } = await supabaseAdmin
+      .from("report_comments")
+      .insert({
+        report_id: reportId,
+        user_id: userId,
+        content: text,
+      })
+      .select("id")
+      .maybeSingle();
 
     if (error) return { error: error.message };
-    return { data: true };
+    if (!data) return { error: "Failed to create comment" };
+    return { data: data.id };
   },
 
   async listComments(reportId: string) {
@@ -486,6 +553,20 @@ export const reportService = {
       .order("created_at", { ascending: true });
 
     if (error) return { data: null, error: error.message };
+
+    const commentIds = (data || []).map((comment) => comment.id);
+    const sentimentByComment = new Map<string, SentimentRow>();
+    if (commentIds.length > 0) {
+      const { data: sentimentRows, error: sentimentError } = await supabaseAdmin
+        .from("sentiment_analysis")
+        .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
+        .eq("subject_type", "comment")
+        .in("subject_id", commentIds);
+      if (sentimentError) return { data: null, error: sentimentError.message };
+      (sentimentRows || []).forEach((analysis: SentimentRow) => {
+        sentimentByComment.set(analysis.subject_id, analysis);
+      });
+    }
 
     const userIds = [...new Set((data || []).map((c) => c.user_id).filter(Boolean))];
 
@@ -501,12 +582,16 @@ export const reportService = {
       );
     }
 
-    const comments = (data || []).map((c) => ({
-      id: c.id,
-      user: nameByUser.get(c.user_id) || "User",
-      text: c.content,
-      datePosted: c.created_at,
-    }));
+    const comments = (data || []).map((c) => {
+      const analysis = sentimentByComment.get(c.id);
+      return {
+        id: c.id,
+        user: nameByUser.get(c.user_id) || "User",
+        text: c.content,
+        datePosted: c.created_at,
+        ...sentimentFields(analysis),
+      };
+    });
 
     return { data: comments, error: null };
   },
@@ -694,18 +779,30 @@ export const reportService = {
     const { data: analyses, error: analysisError } = reportIds.length
       ? await supabaseAdmin
           .from("report_credibility_analysis")
-          .select("report_id, ai_score, severity, sentiment, credibility_review")
+          .select("report_id, ai_score, severity, credibility_review")
           .in("report_id", reportIds)
       : { data: [], error: null };
 
     if (analysisError) return { data: null, error: analysisError.message };
+
+    const { data: sentimentRows, error: sentimentError } = reportIds.length
+      ? await supabaseAdmin
+          .from("sentiment_analysis")
+          .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
+          .eq("subject_type", "report")
+          .in("subject_id", reportIds)
+      : { data: [], error: null };
+    if (sentimentError) return { data: null, error: sentimentError.message };
+    const sentimentMap = new Map<string, SentimentRow>();
+    (sentimentRows || []).forEach((row: SentimentRow) => {
+      sentimentMap.set(row.subject_id, row);
+    });
 
     const analysisMap = new Map<
       string,
       {
         ai_score: number | null;
         severity: string;
-        sentiment: string;
         credibility_review: string;
       }
     >();
@@ -714,13 +811,11 @@ export const reportService = {
         report_id: string;
         ai_score: number | null;
         severity: string | null;
-        sentiment: string | null;
         credibility_review: string | null;
       }) => {
         analysisMap.set(a.report_id, {
           ai_score: a.ai_score ?? null,
           severity: a.severity ?? "Medium",
-          sentiment: a.sentiment ?? "Neutral",
           credibility_review: a.credibility_review ?? "",
         });
       }
@@ -729,18 +824,73 @@ export const reportService = {
     const { data: commentRows, error: commentsError } = reportIds.length
       ? await supabaseAdmin
           .from("report_comments")
-          .select("report_id, content")
+          .select("id, report_id, user_id, content, created_at")
           .in("report_id", reportIds)
+          .order("created_at", { ascending: true })
       : { data: [], error: null };
 
     if (commentsError) return { data: null, error: commentsError.message };
 
-    const commentsByReport = new Map<string, string[]>();
-    (commentRows || []).forEach((c: { report_id: string; content: string }) => {
-      const list = commentsByReport.get(c.report_id) || [];
-      list.push(c.content);
-      commentsByReport.set(c.report_id, list);
-    });
+    const dashboardUserIds = [
+      ...new Set(
+        (commentRows || [])
+          .map((c: { user_id: string | null }) => c.user_id)
+          .filter((id: string | null): id is string => Boolean(id))
+      ),
+    ];
+    const dashboardNameByUser = new Map<string, string>();
+    if (dashboardUserIds.length > 0) {
+      const { data: dashboardProfiles } = await supabaseAdmin
+        .from("profiles")
+        .select("id, fullname, user_name")
+        .in("id", dashboardUserIds);
+      (dashboardProfiles || []).forEach(
+        (profile: { id: string; fullname: string | null; user_name: string | null }) => {
+          dashboardNameByUser.set(
+            profile.id,
+            profile.fullname || profile.user_name || "User"
+          );
+        }
+      );
+    }
+
+    const dashboardCommentIds = (commentRows || []).map((c) => c.id);
+    const dashboardCommentSentiment = new Map<string, SentimentRow>();
+    if (dashboardCommentIds.length > 0) {
+      const { data: commentSentimentRows, error: commentSentimentError } =
+        await supabaseAdmin
+          .from("sentiment_analysis")
+          .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
+          .eq("subject_type", "comment")
+          .in("subject_id", dashboardCommentIds);
+      if (commentSentimentError) {
+        return { data: null, error: commentSentimentError.message };
+      }
+      (commentSentimentRows || []).forEach((row: SentimentRow) => {
+        dashboardCommentSentiment.set(row.subject_id, row);
+      });
+    }
+
+    const commentsByReport = new Map<string, Array<Record<string, unknown>>>();
+    (commentRows || []).forEach(
+      (c: {
+        id: string;
+        report_id: string;
+        user_id: string | null;
+        content: string;
+        created_at: string;
+      }) => {
+        const list = commentsByReport.get(c.report_id) || [];
+        list.push({
+          id: c.id,
+          user: c.user_id ? (dashboardNameByUser.get(c.user_id) || "User") : "CommuniShield User",
+          text: c.content,
+          datePosted: c.created_at,
+          ...sentimentFields(dashboardCommentSentiment.get(c.id)),
+        });
+        commentsByReport.set(c.report_id, list);
+      }
+    );
 
     const { data: images, error: imageError } = reportIds.length
       ? await supabaseAdmin
@@ -767,7 +917,6 @@ export const reportService = {
       const analysis = analysisMap.get(r.id) ?? {
         ai_score: null,
         severity: "Medium",
-        sentiment: "Neutral",
         credibility_review: "",
       };
       return {
@@ -785,7 +934,7 @@ export const reportService = {
         longitude: r.longitude,
         ai_score: analysis.ai_score ?? null,
         severity: analysis.severity ?? "Medium",
-        sentiment: analysis.sentiment ?? "Neutral",
+        ...sentimentFields(sentimentMap.get(r.id)),
         credibility_review: analysis.credibility_review ?? "",
         comments: commentsByReport.get(r.id) || [],
         images: imagesByReport.get(r.id) || [],
@@ -859,27 +1008,62 @@ export const reportService = {
     const { data: analyses, error: analysisError } = reportIds.length
       ? await supabaseAdmin
           .from("report_credibility_analysis")
-          .select("report_id, ai_score, severity, sentiment")
+          .select("report_id, ai_score, severity")
           .in("report_id", reportIds)
       : { data: [], error: null };
 
     if (analysisError) return { data: null, error: analysisError.message };
 
+    const { data: sentimentRows, error: sentimentError } = reportIds.length
+      ? await supabaseAdmin
+          .from("sentiment_analysis")
+          .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
+          .eq("subject_type", "report")
+          .in("subject_id", reportIds)
+      : { data: [], error: null };
+    if (sentimentError) return { data: null, error: sentimentError.message };
+    const sentimentMap = new Map<string, SentimentRow>();
+    (sentimentRows || []).forEach((row: SentimentRow) => {
+      sentimentMap.set(row.subject_id, row);
+    });
+
+    const { data: commentRows, error: commentError } = reportIds.length
+      ? await supabaseAdmin
+          .from("report_comments")
+          .select("id, report_id, created_at")
+          .in("report_id", reportIds)
+      : { data: [], error: null };
+    if (commentError) return { data: null, error: commentError.message };
+    const commentIds = (commentRows || []).map((c: { id: string }) => c.id);
+    const commentSentimentMap = new Map<string, SentimentRow>();
+    if (commentIds.length) {
+      const { data: commentSentimentRows, error: commentSentimentError } =
+        await supabaseAdmin
+          .from("sentiment_analysis")
+          .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
+          .eq("subject_type", "comment")
+          .in("subject_id", commentIds);
+      if (commentSentimentError) {
+        return { data: null, error: commentSentimentError.message };
+      }
+      (commentSentimentRows || []).forEach((row: SentimentRow) => {
+        commentSentimentMap.set(row.subject_id, row);
+      });
+    }
+
     const analysisMap = new Map<
       string,
-      { ai_score: number | null; severity: string; sentiment: string }
+      { ai_score: number | null; severity: string }
     >();
     (analyses || []).forEach(
       (a: {
         report_id: string;
         ai_score: number | null;
         severity: string | null;
-        sentiment: string | null;
       }) => {
         analysisMap.set(a.report_id, {
           ai_score: a.ai_score ?? null,
           severity: a.severity ?? "Medium",
-          sentiment: a.sentiment ?? "Neutral",
         });
       }
     );
@@ -892,7 +1076,6 @@ export const reportService = {
       const analysis = analysisMap.get(r.id) ?? {
         ai_score: null,
         severity: "Medium",
-        sentiment: "Neutral",
       };
       return {
         id: r.id,
@@ -907,17 +1090,16 @@ export const reportService = {
         longitude: r.longitude,
         ai_score: analysis.ai_score ?? null,
         severity: analysis.severity ?? "Medium",
-        sentiment: analysis.sentiment ?? "Neutral",
+        ...sentimentFields(sentimentMap.get(r.id)),
       };
     });
 
     const SENTIMENT_POLARITY: Record<string, number> = {
-      Anxious: 1,
-      Concerned: 0.8,
-      Negative: 0.7,
-      Unclear: 0.5,
-      Neutral: 0.4,
-      Positive: 0.2,
+      negative: 0.8,
+      mixed: 0.5,
+      unclear: 0.5,
+      neutral: 0.5,
+      positive: 0.2,
     };
 
     const SEVERITY_WEIGHT: Record<string, number> = {
@@ -935,21 +1117,48 @@ export const reportService = {
       (r) => r.severity === "High" || r.severity === "Critical"
     ).length;
 
-    const avgPolarity = list.length
-      ? list.reduce(
-          (sum, r) => sum + (SENTIMENT_POLARITY[r.sentiment] ?? 0.5),
+    const successfulReportSentiments = list.filter(
+      (r) => r.sentiment_status === "succeeded" && r.sentiment
+    );
+    const successfulCommentSentiments: Array<{ label: string; created_at: string }> = [];
+    for (const c of commentRows || []) {
+      const row = commentSentimentMap.get((c as { id: string }).id);
+      if (row?.status === "succeeded" && row.label) {
+        successfulCommentSentiments.push({
+          label: row.label,
+          created_at: (c as { created_at: string }).created_at,
+        });
+      }
+    }
+    const successfulLabels = [
+      ...successfulReportSentiments.map((r) => String(r.sentiment)),
+      ...successfulCommentSentiments.map((c) => c.label),
+    ];
+    const totalSubjects = list.length + (commentRows || []).length;
+    const noSentimentCount = Math.max(0, totalSubjects - successfulLabels.length);
+    const distribution = [
+      ...["positive", "neutral", "negative", "mixed", "unclear"].map((label) => ({
+        label,
+        count: successfulLabels.filter((l) => l === label).length,
+      })),
+      { label: "none", count: noSentimentCount },
+    ];
+    const avgPolarity = successfulLabels.length
+      ? successfulLabels.reduce(
+          (sum, label) => sum + (SENTIMENT_POLARITY[label] ?? 0.5),
           0
-        ) / list.length
+        ) / successfulLabels.length
       : 0.5;
-    const avgSentiment = (avgPolarity * 5).toFixed(1);
-    const sentimentLabel =
-      avgPolarity >= 0.75
-        ? "Anxious"
-        : avgPolarity >= 0.6
-          ? "Concerned"
-          : avgPolarity >= 0.45
-            ? "Neutral"
-            : "Calm";
+    const avgSentiment = successfulLabels.length
+      ? (avgPolarity * 5).toFixed(1)
+      : "—";
+    const sentimentLabel = successfulLabels.length
+      ? avgPolarity >= 0.6
+        ? "negative"
+        : avgPolarity >= 0.4
+          ? "neutral"
+          : "positive"
+      : "unavailable";
 
     const nonRejected = list.filter((r) => r.status !== "Rejected");
     const verifiedCount = nonRejected.filter(
@@ -962,21 +1171,46 @@ export const reportService = {
     const sentimentTrend = Array.from({ length: 24 }, (_, i) => {
       const start = new Date(now.getTime() - (23 - i) * 60 * 60 * 1000);
       const end = new Date(start.getTime() + 60 * 60 * 1000);
-      const bucket = list.filter((r) => {
+      const reportBucket = successfulReportSentiments.filter((r) => {
         const t = new Date(r.created_at);
         return t >= start && t < end;
       });
-      const value = bucket.length
+      const commentBucket = successfulCommentSentiments.filter((c) => {
+        const t = new Date(c.created_at);
+        return t >= start && t < end;
+      });
+      const bucketLabels = [
+        ...reportBucket.map((r) => String(r.sentiment)),
+        ...commentBucket.map((c) => c.label),
+      ];
+      const allReportsInBucket = list.filter((r) => {
+        const t = new Date(r.created_at);
+        return t >= start && t < end;
+      });
+      const allCommentsInBucket = (commentRows || []).filter((c) => {
+        const t = new Date((c as { created_at: string }).created_at);
+        return t >= start && t < end;
+      });
+      const noSentiment = Math.max(
+        0,
+        allReportsInBucket.length + allCommentsInBucket.length - bucketLabels.length
+      );
+      const value = bucketLabels.length
         ? Math.round(
-            (bucket.reduce(
-              (sum, r) => sum + (SENTIMENT_POLARITY[r.sentiment] ?? 0.5),
+            (bucketLabels.reduce(
+              (sum, label) => sum + (SENTIMENT_POLARITY[label] ?? 0.5),
               0
             ) /
-              bucket.length) *
+              bucketLabels.length) *
               100
           )
         : 0;
-      return { hour: start.getHours(), value, count: bucket.length };
+      return {
+        hour: start.getHours(),
+        value,
+        count: bucketLabels.length,
+        noSentiment,
+      };
     });
 
     const hourWeights = new Array(24).fill(0);
@@ -1070,6 +1304,9 @@ export const reportService = {
           criticalHotspots,
           avgSentiment,
           sentimentLabel,
+          sentimentAnalyzed: successfulLabels.length,
+          sentimentTotal: totalSubjects,
+          sentimentDistribution: distribution,
           credibilityRate,
         },
         sentimentTrend,

@@ -132,18 +132,21 @@ function Admin_Settings() {
   const toast = useToast();
   const [loading, setLoading] = useState(() => getCache("api:/profile") === undefined);
 
-  const [profile, setProfile] = useState({
-    fullName: "",
-    username: "",
-    phone: "",
-    department: "",
+  const [profile, setProfile] = useState(() => {
+    const cached = getCache("api:/profile");
+    return {
+      fullName: cached?.name || cached?.fullname || "",
+      username: cached?.user_name || "",
+      phone: cached?.phone || "",
+      department: cached?.department || "",
+    };
   });
 
-  const [emailData, setEmailData] = useState({
-    currentEmail: "",
+  const [emailData, setEmailData] = useState(() => ({
+    currentEmail: getCache("api:/profile")?.email || "",
     newEmail: "",
     confirmEmail: "",
-  });
+  }));
 
   const [passwordData, setPasswordData] = useState({
     currentPassword: "",
@@ -268,6 +271,16 @@ function Admin_Settings() {
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
+
+      const cached = getCache("api:/profile");
+      setCache("api:/profile", {
+        ...(cached || {}),
+        name: profile.fullName,
+        fullname: profile.fullName,
+        user_name: profile.username,
+        phone: profile.phone,
+        department: profile.department,
+      });
 
       showMessage(
         "Profile Updated",

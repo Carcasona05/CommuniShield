@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Slot, useRouter } from "expo-router";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";

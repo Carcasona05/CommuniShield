@@ -7,10 +7,13 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import apiClient from "../../services/apiClient";
 import formatRelativeTime from "../../services/formatRelativeTime";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
 import censorText from "../../services/censorText";
@@ -34,8 +37,28 @@ const MyUser_RepPostView_Layout = ({ report }) => {
   });
 
   useEffect(() => {
-    setComments(report?.commentList || []);
-  }, [report]);
+    let active = true;
+    const loadComments = async () => {
+      if (!report?.id) {
+        setComments([]);
+        return;
+      }
+      try {
+        const token = await AsyncStorage.getItem("access_token");
+        if (!token) return;
+        const response = await apiClient.get(`/reports/${report.id}/comments`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (active) setComments(response.data?.comments || []);
+      } catch {
+        if (active) setComments([]);
+      }
+    };
+    loadComments();
+    return () => {
+      active = false;
+    };
+  }, [report?.id]);
 
   if (!fontsLoaded) {
     return (
@@ -104,18 +127,31 @@ const MyUser_RepPostView_Layout = ({ report }) => {
     }
   };
 
-  const handleAddComment = () => {
-    if (!commentText.trim()) return;
+  const handleAddComment = async () => {
+    if (!commentText.trim() || !report?.id) return;
 
-    const newComment = {
-      id: Date.now().toString(),
-      user: "You",
-      text: commentText.trim(),
-      datePosted: "Just now",
-    };
-
-    setComments((prev) => [...prev, newComment]);
-    setCommentText("");
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) {
+        Alert.alert("Not Signed In", "Please sign in to comment.");
+        return;
+      }
+      await apiClient.post(
+        `/reports/${report.id}/comments`,
+        { content: commentText.trim() },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const response = await apiClient.get(`/reports/${report.id}/comments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setComments(response.data?.comments || []);
+      setCommentText("");
+    } catch (error) {
+      Alert.alert(
+        "Comment Failed",
+        error.response?.data?.error || "Could not add comment."
+      );
+    }
   };
 
   if (!report) {
@@ -253,8 +289,38 @@ const MyUser_RepPostView_Layout = ({ report }) => {
               {report.credibility_review || "AI analysis completed."}
             </Text>
             <View style={styles.aiTags}>
-              <Text style={styles.aiTag}>Severity: {report.severity || "Medium"}</Text>
-              <Text style={styles.aiTag}>Sentiment: {report.sentiment || "Neutral"}</Text>
+              <Text style={styles.aiTag}>
+                Severity: {report.severity || "Medium"}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
+        {report.sentiment_status ? (
+          <View style={styles.aiReviewContainer}>
+            <View style={styles.aiHeader}>
+              <Ionicons name="happy-outline" size={18} color={PRIMARY} />
+              <Text style={styles.aiTitle}>Sentiment Analysis</Text>
+              <View style={styles.aiScoreBadge}>
+                <Text style={styles.aiScoreText}>
+                  {report.sentiment || report.sentiment_status}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.aiTags}>
+              {report.sentiment_language && report.sentiment_language !== "unknown" ? (
+                <Text style={styles.aiTag}>
+                  Language: {report.sentiment_language}
+                </Text>
+              ) : null}
+              {report.sentiment_confidence ? (
+                <Text style={styles.aiTag}>
+                  Confidence: {Math.round(report.sentiment_confidence * 100)}%
+                </Text>
+              ) : null}
+              {report.sentiment_error ? (
+                <Text style={styles.aiTag}>{report.sentiment_error}</Text>
+              ) : null}
             </View>
           </View>
         ) : null}

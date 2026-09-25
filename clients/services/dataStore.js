@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { Image } from "expo-image";
-import apiClient, { apiRequest } from "./apiClient";
+import { apiRequest } from "./apiClient";
 import { ROLE_KEY } from "./auth";
 
 const CACHE_KEY = "communishield_data_cache";
@@ -36,10 +36,20 @@ const persistCache = () => {
   if (persistTimer) return;
   persistTimer = setTimeout(() => {
     persistTimer = null;
-    const obj = {};
-    cache.forEach((v, k) => { obj[k] = v; });
-    writeStorage(obj);
+    flushCache();
   }, 300);
+};
+
+const flushCache = () => {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  const obj = {};
+  cache.forEach((v, k) => {
+    obj[k] = v;
+  });
+  writeStorage(obj);
 };
 
 export const setCache = (key, value) => {
@@ -58,6 +68,14 @@ const hydrateFromStorage = () => {
 
 if (isWeb) {
   hydrateFromStorage();
+  if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", flushCache);
+  }
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flushCache();
+    });
+  }
 }
 
 export const hydrateCache = async () => {
@@ -77,6 +95,30 @@ export const clearDataCache = () => {
     localStorage.removeItem(CACHE_KEY);
   }
   AsyncStorage.removeItem(CACHE_KEY).catch(() => {});
+};
+
+const REPORT_CACHE_KEYS = ["api:/reports", "api:/reports/mine"];
+
+export const patchCachedReports = (id, patch) => {
+  REPORT_CACHE_KEYS.forEach((key) => {
+    const cached = getCache(key);
+    if (!cached || !Array.isArray(cached.reports)) return;
+    setCache(key, {
+      ...cached,
+      reports: cached.reports.map((r) => (r.id === id ? patch(r) : r)),
+    });
+  });
+};
+
+export const removeCachedReport = (id) => {
+  REPORT_CACHE_KEYS.forEach((key) => {
+    const cached = getCache(key);
+    if (!cached || !Array.isArray(cached.reports)) return;
+    setCache(key, {
+      ...cached,
+      reports: cached.reports.filter((r) => r.id !== id),
+    });
+  });
 };
 
 export const toReportCode = (id) => {
@@ -122,6 +164,7 @@ const ADMIN_ENDPOINTS = [
   ["api:/admin/logs", "/admin/logs"],
   ["api:/admin/notifications", "/admin/notifications"],
   ["api:/admin/accounts", "/admin/accounts"],
+  ["api:/admin/settings", "/admin/settings"],
 ];
 
 const fetchIntoCache = async (key, url) => {

@@ -17,8 +17,8 @@ import { scrollToTop } from "../../services/scrollToTopBus";
 import { smartBack } from "../../services/navigation";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
-import { getCache } from "../../services/dataStore";
-import { saveLastPage } from "../../services/lastPage";
+import { getCache, setCache } from "../../services/dataStore";
+import { saveLastPage, getLastPage } from "../../services/lastPage";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -33,7 +33,14 @@ export default function TabLayout() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(() => {
+    const cached = getCache("api:/notifications");
+    if (!cached) return 0;
+    return [
+      ...(cached.reportStatuses || []),
+      ...(cached.nearbyIncidents || []),
+    ].filter((n) => !n.isRead).length;
+  });
   const prevTabRef = useRef("/(tabs)/User_Home");
 
   const loadNotifications = useCallback(async () => {
@@ -53,6 +60,7 @@ export default function TabLayout() {
       const res = await apiClient.get("/notifications", {
         headers: { Authorization: `Bearer ${token}` },
       });
+      setCache("api:/notifications", res.data ?? {});
       const allItems = [
         ...(res.data?.reportStatuses || []),
         ...(res.data?.nearbyIncidents || []),

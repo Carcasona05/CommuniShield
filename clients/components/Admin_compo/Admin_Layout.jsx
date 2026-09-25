@@ -102,7 +102,14 @@ function Admin_Layout({ children }) {
     },
   ];
 
-  const [notifications, setNotifications] = useState([]);
+  const [notifications, setNotifications] = useState(() => {
+    const cached = getCache("api:/admin/notifications");
+    if (!cached || !Array.isArray(cached.notifications)) return [];
+    return cached.notifications.map((item) => ({
+      ...item,
+      time: formatRelativeTime(item.time),
+    }));
+  });
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -330,6 +337,16 @@ function Admin_Layout({ children }) {
       setNotifications((prev) =>
         prev.map((n) => (n.id === item.id ? { ...n, unread: false } : n))
       );
+
+      const cached = getCache("api:/admin/notifications");
+      if (cached && Array.isArray(cached.notifications)) {
+        setCache("api:/admin/notifications", {
+          ...cached,
+          notifications: cached.notifications.map((n) =>
+            n.id === item.id ? { ...n, unread: false } : n
+          ),
+        });
+      }
 
       try {
         const token = await AsyncStorage.getItem("access_token");

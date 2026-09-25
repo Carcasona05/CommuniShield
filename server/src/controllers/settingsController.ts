@@ -36,6 +36,116 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   ai_model_name: "gemini-3.6-flash",
   ai_temperature: "0.1",
   ai_timeout: "30000",
+  sentiment_local_model_enabled: "true",
+  sentiment_gemini_enabled: "true",
+  sentiment_cebuano_mode: "gemini",
+};
+
+const BOOLEAN_KEYS = [
+  "map_auto_map_verified",
+  "map_cluster_overlay",
+  "map_heatmap_overlay",
+  "notification_email",
+  "notification_push",
+  "ai_scoring_enabled",
+  "sentiment_local_model_enabled",
+  "sentiment_gemini_enabled",
+] as const;
+
+const normalizeModelName = (rawValue: string): string | null => {
+  const value = rawValue.replace(/^models\//, "");
+  const isValid = ALLOWED_AI_MODELS.some(
+    (m) => value === m || value.startsWith(m + "-")
+  );
+  return isValid ? value : null;
+};
+
+export const validateSetting = (
+  key: string,
+  rawValue: unknown
+): { value: string } | { error: string } => {
+  const value = String(rawValue ?? "").trim();
+
+  if ((BOOLEAN_KEYS as readonly string[]).includes(key)) {
+    if (!["true", "false"].includes(value)) {
+      return { error: `${key} must be true or false` };
+    }
+    return { value };
+  }
+
+  switch (key) {
+    case "sentiment_cebuano_mode":
+      if (value === "local") return { value: "gemini" };
+      if (!["gemini", "disabled"].includes(value)) {
+        return {
+          error: "sentiment_cebuano_mode must be gemini or disabled",
+        };
+      }
+      return { value };
+    case "ai_model_name":
+    case "ai_model_version": {
+      const model = normalizeModelName(value);
+      if (!model) {
+        return {
+          error: `Invalid model "${value}". Allowed: ${ALLOWED_AI_MODELS.join(", ")}`,
+        };
+      }
+      return { value: model };
+    }
+    case "ai_high_threshold":
+    case "ai_medium_threshold": {
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
+        return { error: `${key} must be an integer between 0 and 100` };
+      }
+      return { value: String(parsed) };
+    }
+    case "ai_temperature": {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+        return { error: "ai_temperature must be a number between 0 and 1" };
+      }
+      return { value: String(parsed) };
+    }
+    case "ai_timeout": {
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < 1000 || parsed > 120000) {
+        return {
+          error: "ai_timeout must be an integer between 1000 and 120000",
+        };
+      }
+      return { value: String(parsed) };
+    }
+    case "map_default_zoom": {
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
+        return { error: "map_default_zoom must be an integer between 1 and 20" };
+      }
+      return { value: String(parsed) };
+    }
+    case "map_center": {
+      if (!value || value.length > 200) {
+        return { error: "map_center must be 1 to 200 characters" };
+      }
+      return { value };
+    }
+    case "ai_api_endpoint": {
+      if (value) {
+        let url: URL;
+        try {
+          url = new URL(value);
+        } catch {
+          return { error: "ai_api_endpoint must be a valid URL" };
+        }
+        if (url.protocol !== "https:" && url.protocol !== "http:") {
+          return { error: "ai_api_endpoint must use http or https" };
+        }
+      }
+      return { value };
+    }
+    default:
+      return { value };
+  }
 };
 
 export const getSettings = async (req: AuthRequest, res: Response) => {
@@ -54,16 +164,34 @@ export const getSettings = async (req: AuthRequest, res: Response) => {
 
     if (error) return res.status(500).json({ error: error.message });
 
-    const merged = { ...DEFAULT_SETTINGS };
+    const merged: Record<string, string> = { ...DEFAULT_SETTINGS };
     (data || []).forEach((row) => {
       if (row.key in merged) merged[row.key] = row.value;
     });
 
-    if (merged.ai_model_name) {
-      const isValid = ALLOWED_AI_MODELS.some(
-        (m) => merged.ai_model_name === m || merged.ai_model_name.startsWith(m + "-")
-      );
-      if (!isValid) merged.ai_model_name = DEFAULT_SETTINGS.ai_model_name;
+    const modelName = merged.ai_model_name;
+    if (modelName) {
+      const normalized = normalizeModelName(modelName);
+      merged.ai_model_name = normalized ?? DEFAULT_SETTINGS.ai_model_name ?? "gemini-3.6-flash";
+    }
+    const modelVersion = merged.ai_model_version;
+    if (modelVersion) {
+      const normalized = normalizeModelName(modelVersion);
+      merged.ai_model_version = normalized ?? DEFAULT_SETTINGS.ai_model_version ?? "gemini-3.6-flash";
+    }
+
+    for (const key of BOOLEAN_KEYS) {
+      const current = merged[key];
+      if (!current || !["true", "false"].includes(current)) {
+        merged[key] = DEFAULT_SETTINGS[key] ?? "true";
+      }
+    }
+
+    const cebuanoMode = merged.sentiment_cebuano_mode;
+    if (!cebuanoMode || !["gemini", "local", "disabled"].includes(cebuanoMode)) {
+      merged.sentiment_cebuano_mode = DEFAULT_SETTINGS.sentiment_cebuano_mode ?? "gemini";
+    } else if (cebuanoMode === "local") {
+      merged.sentiment_cebuano_mode = "gemini";
     }
 
     res.json({ settings: merged });
@@ -93,26 +221,51 @@ export const updateSettings = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: "No valid settings provided" });
     }
 
-    for (const [key, value] of entries) {
-      if (key === "ai_model_name") {
-        const v = String(value);
-        const isValid = ALLOWED_AI_MODELS.some((m) => v === m || v.startsWith(m + "-"));
-        if (!isValid) {
-          return res.status(400).json({
-            error: `Invalid model "${v}". Allowed: ${ALLOWED_AI_MODELS.join(", ")}`,
-          });
-        }
+    const normalizedRows: Array<{ key: string; value: string }> = [];
+    for (const [key, rawValue] of entries) {
+      const result = validateSetting(key, rawValue);
+      if ("error" in result) {
+        return res.status(400).json({ error: result.error });
       }
-
-      const { error } = await supabaseAdmin
-        .from("system_settings")
-        .upsert(
-          { key, value: String(value) },
-          { onConflict: "key" }
-        );
-
-      if (error) return res.status(500).json({ error: error.message });
+      normalizedRows.push({ key, value: result.value });
     }
+
+    const touchesThresholds = normalizedRows.some(
+      (row) =>
+        row.key === "ai_high_threshold" || row.key === "ai_medium_threshold"
+    );
+    if (touchesThresholds) {
+      const { data: existing, error: readError } = await supabaseAdmin
+        .from("system_settings")
+        .select("key, value")
+        .in("key", ["ai_high_threshold", "ai_medium_threshold"]);
+      if (readError) {
+        return res.status(500).json({ error: readError.message });
+      }
+      const current: Record<string, string> = {
+        ai_high_threshold: DEFAULT_SETTINGS.ai_high_threshold ?? "85",
+        ai_medium_threshold: DEFAULT_SETTINGS.ai_medium_threshold ?? "60",
+      };
+      for (const row of existing || []) {
+        if (row.key in current) current[row.key] = row.value;
+      }
+      for (const row of normalizedRows) {
+        current[row.key] = row.value;
+      }
+      const high = Number(current.ai_high_threshold);
+      const medium = Number(current.ai_medium_threshold);
+      if (!Number.isFinite(high) || !Number.isFinite(medium) || high <= medium) {
+        return res.status(400).json({
+          error: "ai_high_threshold must be greater than ai_medium_threshold",
+        });
+      }
+    }
+
+    const { error } = await supabaseAdmin
+      .from("system_settings")
+      .upsert(normalizedRows, { onConflict: "key" });
+
+    if (error) return res.status(500).json({ error: error.message });
 
     res.json({ message: "System settings updated successfully" });
   } catch {
