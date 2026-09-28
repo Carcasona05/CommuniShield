@@ -13,6 +13,7 @@ export type SentimentLabel =
   | "unclear";
 
 export type SentimentLanguage = "english" | "filipino" | "cebuano" | "unknown";
+export type LocalModelLanguage = "english" | "filipino" | "cebuano";
 export type SentimentSubjectType = "report" | "comment";
 export type SentimentProvider = "local" | "gemini" | "ensemble" | "none";
 export type SentimentStatus =
@@ -190,11 +191,11 @@ export const detectSentimentLanguage = (text: string): SentimentLanguage => {
 export const sentimentInputHash = (text: string): string =>
   createHash("sha256").update(normalizeText(text), "utf8").digest("hex");
 
-const localModelPath = (language: "english" | "filipino"): string =>
+const localModelPath = (language: LocalModelLanguage): string =>
   join(modelDirectory, `sentiment_${language}.onnx`);
 
 const loadLocalSession = (
-  language: "english" | "filipino"
+  language: LocalModelLanguage
 ): Promise<LocalSession> => {
   const existing = localSessions.get(language);
   if (existing) return existing;
@@ -212,7 +213,7 @@ const loadLocalSession = (
 };
 
 const runLocalPrediction = async (
-  language: "english" | "filipino",
+  language: LocalModelLanguage,
   text: string
 ): Promise<SentimentPrediction> => {
   const { session, labels } = await loadLocalSession(language);
@@ -482,7 +483,9 @@ const predict = async (
   const geminiEnabled = parseBooleanSetting(config.sentiment_gemini_enabled, true);
   const cebuanoMode = config.sentiment_cebuano_mode || "gemini";
   const localLanguage =
-    detectedLanguage === "english" || detectedLanguage === "filipino";
+    detectedLanguage === "english" ||
+    detectedLanguage === "filipino" ||
+    (detectedLanguage === "cebuano" && cebuanoMode === "local");
   const shouldUseLocal = localEnabled && localLanguage;
   let shouldUseGemini = geminiEnabled && geminiConfigured();
 

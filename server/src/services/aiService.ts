@@ -4,6 +4,9 @@ const DEFAULT_GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const DEFAULT_MODEL = "gemini-3.6-flash";
 const DEFAULT_TEMPERATURE = 0.1;
 const DEFAULT_TIMEOUT_MS = 30000;
+// Gemini 3.x models think before answering; thinking tokens count against
+// maxOutputTokens, so a small budget truncates the visible JSON.
+const MAX_OUTPUT_TOKENS = 4096;
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
 interface AIAnalysisResult {
@@ -42,56 +45,54 @@ function isValidGeminiModel(name: string): boolean {
 }
 
 let cachedAvailableModel: string | null = null;
+let cachedModelNames: { names: string[]; fetchedAt: number } | null = null;
+const MODEL_LIST_TTL_MS = 10 * 60 * 1000;
 
-async function discoverModel(apiKey: string, baseEndpoint: string): Promise<string> {
-  if (cachedAvailableModel) return cachedAvailableModel;
+function stripModelPrefix(name: string): string {
+  return name.replace(/^models\//, "");
+}
 
-  const listUrl = `${baseEndpoint}?key=${apiKey}`;
-  console.log(`[AI Discovery] Querying available models: ${listUrl.replace(/key=.*/, "key=***")}`);
+async function fetchModelNames(apiKey: string, baseEndpoint: string): Promise<string[] | null> {
+  if (cachedModelNames && Date.now() - cachedModelNames.fetchedAt < MODEL_LIST_TTL_MS) {
+    return cachedModelNames.names;
+  }
 
   try {
-    const res = await fetch(listUrl, { signal: AbortSignal.timeout(10000) });
+    const res = await fetch(`${baseEndpoint}?key=${apiKey}`, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) {
       const body = await res.text();
-      console.error(`[AI Discovery] List models failed ${res.status}:`, body);
-      return DEFAULT_MODEL;
+      console.error(`[AI Discovery] List models failed ${res.status}:`, body.slice(0, 300));
+      return cachedModelNames?.names ?? null;
     }
 
     const data = await res.json();
     const models: Array<{ name: string; supportedGenerationMethods?: string[] }> = data.models || [];
+    const names = models
+      .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+      .map((m) => stripModelPrefix(m.name));
 
-    console.log(`[AI Discovery] Found ${models.length} models:`);
-    models.forEach((m) => {
-      const methods = m.supportedGenerationMethods?.join(", ") || "unknown";
-      console.log(`  - ${m.name} [${methods}]`);
-    });
-
-    const generateCapable = models.filter((m) =>
-      m.supportedGenerationMethods?.includes("generateContent")
-    );
-
-    for (const preferred of GEMINI_MODELS) {
-      const found = generateCapable.find((m) => m.name.includes(preferred));
-      if (found) {
-        cachedAvailableModel = found.name;
-        console.log(`[AI Discovery] Selected model: ${found.name}`);
-        return found.name;
-      }
-    }
-
-    const firstGenerateCapable = generateCapable[0];
-    if (firstGenerateCapable) {
-      cachedAvailableModel = firstGenerateCapable.name;
-      console.log(`[AI Discovery] Using first available model: ${firstGenerateCapable.name}`);
-      return firstGenerateCapable.name;
-    }
-
-    console.warn("[AI Discovery] No models support generateContent, using default");
-    return DEFAULT_MODEL;
+    cachedModelNames = { names, fetchedAt: Date.now() };
+    console.log(`[AI Discovery] ${names.length} generate-capable models available`);
+    return names;
   } catch (err) {
     console.error("[AI Discovery] Failed to query models:", err instanceof Error ? err.message : err);
+    return cachedModelNames?.names ?? null;
+  }
+}
+
+async function discoverModel(apiKey: string, baseEndpoint: string): Promise<string> {
+  if (cachedAvailableModel) return cachedAvailableModel;
+
+  const names = await fetchModelNames(apiKey, baseEndpoint);
+  if (!names || names.length === 0) {
+    console.warn("[AI Discovery] No model list available, using default");
     return DEFAULT_MODEL;
   }
+
+  const selected = GEMINI_MODELS.find((m) => names.includes(m)) || names[0] || DEFAULT_MODEL;
+  cachedAvailableModel = selected;
+  console.log(`[AI Discovery] Selected model: ${selected}`);
+  return selected;
 }
 
 async function loadAIConfig(): Promise<AIConfig> {
@@ -112,9 +113,15 @@ async function loadAIConfig(): Promise<AIConfig> {
   const apiEndpoint = map.get("ai_api_endpoint") || GEMINI_BASE_URL;
 
   let dbModel = map.get("ai_model_name") || "";
-  if (!isValidGeminiModel(dbModel)) {
-    console.warn(`[AI Config] Invalid model "${dbModel}" in DB, discovering available model...`);
-    dbModel = "";
+  if (dbModel) {
+    const liveNames = apiKey ? await fetchModelNames(apiKey, apiEndpoint) : null;
+    if (liveNames && !liveNames.includes(dbModel)) {
+      console.warn(`[AI Config] Model "${dbModel}" is not offered by the API anymore, discovering an available model...`);
+      dbModel = "";
+    } else if (!liveNames && !isValidGeminiModel(dbModel)) {
+      console.warn(`[AI Config] Invalid model "${dbModel}" in DB, discovering available model...`);
+      dbModel = "";
+    }
   }
 
   let model_name: string;
@@ -189,16 +196,19 @@ async function callGemini(
   }
 
   let lastError: unknown;
+  let activeConfig = config;
+  let modelRefreshed = false;
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.timeout_ms);
+    const timeoutId = setTimeout(() => controller.abort(), activeConfig.timeout_ms);
 
     try {
-      const baseEndpoint = (config.api_endpoint && config.api_endpoint.trim() !== "") 
-        ? config.api_endpoint 
+      const baseEndpoint = (activeConfig.api_endpoint && activeConfig.api_endpoint.trim() !== "") 
+        ? activeConfig.api_endpoint 
         : GEMINI_BASE_URL;
-      const url = `${baseEndpoint}/${config.model_name}:generateContent?key=${config.api_key}`;
+      const modelPath = stripModelPrefix(activeConfig.model_name);
+      const url = `${baseEndpoint}/${modelPath}:generateContent?key=${activeConfig.api_key}`;
       const maskedUrl = url.replace(/key=.*/, "key=***");
 
       console.log(`[Gemini] Attempt ${attempt}/${retries} — POST ${maskedUrl}`);
@@ -218,9 +228,9 @@ async function callGemini(
             },
           ],
           generationConfig: {
-            temperature: config.temperature,
+            temperature: activeConfig.temperature,
             topP: 0.9,
-            maxOutputTokens: 300,
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
           },
         }),
         signal: controller.signal,
@@ -234,7 +244,16 @@ async function callGemini(
 
       console.log(`[Gemini] SUCCESS — ${response.status}`);
       const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+      const candidate = data.candidates?.[0];
+      const finishReason = candidate?.finishReason || "UNKNOWN";
+      const thoughtTokens = data.usageMetadata?.thoughtsTokenCount ?? 0;
+      console.log(
+        `[Gemini] finishReason=${finishReason} outputTokens=${data.usageMetadata?.candidatesTokenCount ?? "?"} thinkingTokens=${thoughtTokens}`
+      );
+      const text = candidate?.content?.parts?.[0]?.text?.trim() || "";
+      if (finishReason === "MAX_TOKENS") {
+        console.warn(`[Gemini] Response hit the ${MAX_OUTPUT_TOKENS} token cap — attempting truncated JSON recovery`);
+      }
       if (text) {
         return text;
       }
@@ -242,15 +261,35 @@ async function callGemini(
     } catch (err) {
       lastError = err;
       const msg = err instanceof Error ? err.message : "";
-      const isClientError = /Gemini API error: [4]\d{2}/.test(msg);
+
+      if (!modelRefreshed && /404|NOT_FOUND|no longer available/i.test(msg)) {
+        modelRefreshed = true;
+        console.warn(`[Gemini] Model "${activeConfig.model_name}" rejected by API — refreshing model discovery`);
+        cachedAvailableModel = null;
+        cachedModelNames = null;
+        try {
+          activeConfig = await loadAIConfig();
+          attempt--;
+          continue;
+        } catch (reloadErr) {
+          console.error("[Gemini] Failed to reload AI config:", reloadErr);
+        }
+      }
+
+      const statusMatch = msg.match(/Gemini API error: (\d{3})/);
+      const status = statusMatch ? Number(statusMatch[1]) : 0;
+      // 429 (quota) and 5xx are transient; every other 4xx fails on retry too.
+      const isPermanentClientError = status >= 400 && status < 500 && status !== 429;
+      const isRateLimited = status === 429;
       console.warn(
         `Gemini attempt ${attempt}/${retries} failed:`,
         msg || err
       );
-      if (attempt < retries && !isClientError) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (attempt < retries && !isPermanentClientError) {
+        const backoffMs = isRateLimited ? 2000 * attempt : 1000 * attempt;
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
       }
-      if (isClientError) break;
+      if (isPermanentClientError) break;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -260,34 +299,139 @@ async function callGemini(
 }
 
 /**
+ * Best-effort repair of JSON that was cut off mid-generation.
+ * Returns a parseable JSON string, or null when repair is not possible.
+ */
+function repairTruncatedJson(raw: string): string | null {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  let stringStart = -1;
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+        continue;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      stringStart = i;
+      continue;
+    }
+    if (ch === "{" || ch === "[") stack.push(ch);
+    else if (ch === "}" || ch === "]") stack.pop();
+  }
+
+  if (stack.length === 0 && !inString) return null;
+
+  const closeAll = (value: string) => {
+    let out = value;
+    for (let i = stack.length - 1; i >= 0; i--) out += stack[i] === "{" ? "}" : "]";
+    return out;
+  };
+  const tryParse = (value: string): string | null => {
+    try {
+      JSON.parse(value);
+      return value;
+    } catch {
+      return null;
+    }
+  };
+
+  // Strategy A: keep the partial string content and close it.
+  if (inString) {
+    const kept = tryParse(closeAll(raw.trimEnd() + '"'));
+    if (kept) return kept;
+  }
+
+  // Strategy B: drop the incomplete tail (partial value, dangling key or comma).
+  let truncated = inString && stringStart >= 0 ? raw.slice(0, stringStart) : raw;
+  truncated = truncated
+    .replace(/[\s]*"[^"]*"[\s]*:[\s]*$/, "") // key with no value
+    .replace(/[\s]*,[\s]*$/, "")             // trailing comma
+    .replace(/[\s]*:[\s]*$/, "")             // trailing colon
+    .trimEnd();
+  if (!truncated) return null;
+
+  return tryParse(closeAll(truncated));
+}
+
+/**
  * Parses AI response and validates structure
  */
 function parseAIResponse(response: string): AIAnalysisResult {
-  try {
-    // Extract JSON from response (Gemini sometimes wraps in markdown code fences)
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    const jsonStr = jsonMatch ? jsonMatch[0] : response;
-    const parsed = JSON.parse(jsonStr);
+  const cleaned = response.replace(/```[a-zA-Z]*/g, "").trim();
+  const objectStart = cleaned.indexOf("{");
+  const candidates: string[] = [];
+  if (objectStart >= 0) {
+    const lastBrace = cleaned.lastIndexOf("}");
+    if (lastBrace > objectStart) candidates.push(cleaned.slice(objectStart, lastBrace + 1));
+    candidates.push(cleaned.slice(objectStart));
+  } else {
+    candidates.push(cleaned);
+  }
 
-    // Validate and clamp values
-    const ai_score = Math.max(0, Math.min(100, Number(parsed.ai_score) || 50));
-    const severity = ["Low", "Medium", "High", "Critical"].includes(parsed.severity)
-      ? parsed.severity
-      : "Medium";
-    const credibility_review = String(parsed.credibility_review || "AI analysis completed").slice(
-      0,
-      500
+  let parsed: Record<string, unknown> | null = null;
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      parsed = JSON.parse(candidate) as Record<string, unknown>;
+      break;
+    } catch {
+      const repaired = repairTruncatedJson(candidate);
+      if (repaired) {
+        try {
+          parsed = JSON.parse(repaired) as Record<string, unknown>;
+          console.warn("[AI Parse] Recovered truncated JSON response");
+          break;
+        } catch {
+          // keep trying
+        }
+      }
+    }
+  }
+
+  if (!parsed) {
+    console.error(
+      "[AI Parse] Model response was not valid JSON:",
+      JSON.stringify(response).slice(0, 800)
     );
-
-    return { ai_score, severity, credibility_review };
-  } catch {
-    // Fallback on parse failure
     return {
-        ai_score: 50,
-        severity: "Medium",
-        credibility_review: "Unable to generate AI review. Manual verification recommended.",
+      ai_score: 50,
+      severity: "Medium",
+      credibility_review: "Unable to generate AI review. Manual verification recommended.",
     };
   }
+
+  // Validate and clamp values
+  const rawScore = Number(parsed.ai_score);
+  const ai_score = Number.isFinite(rawScore)
+    ? Math.max(0, Math.min(100, Math.round(rawScore)))
+    : 50;
+
+  const severities = ["Low", "Medium", "High", "Critical"] as const;
+  const severity =
+    severities.find((s) => s.toLowerCase() === String(parsed.severity || "").toLowerCase()) ||
+    "Medium";
+
+  const credibility_review = String(parsed.credibility_review || "AI analysis completed").slice(
+    0,
+    500
+  );
+
+  return { ai_score, severity, credibility_review };
 }
 
 /**
@@ -555,4 +699,11 @@ export const aiService = {
   async getConfig(): Promise<AIConfig> {
     return loadAIConfig();
   },
+};
+
+export const __testing = {
+  parseAIResponse,
+  repairTruncatedJson,
+  stripModelPrefix,
+  MAX_OUTPUT_TOKENS,
 };

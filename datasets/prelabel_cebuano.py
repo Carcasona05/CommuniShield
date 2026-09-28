@@ -19,13 +19,18 @@ RANDOM_STATE = 42
 LABELS = ("positive", "neutral", "negative", "mixed", "unclear")
 RAW_PATH = Path(__file__).resolve().parent / "raw" / "cebuano_sentences_train.csv"
 OUTPUT_PATH = Path(__file__).resolve().parent / "processed" / "cebuano_prelabel_review.csv"
-GEMINI_MODEL = "gemini-2.5-flash"
-GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{GEMINI_MODEL}:generateContent"
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
+# Tried in order when the preferred model is retired (404) or out of quota (429/503).
+GEMINI_FALLBACK_MODELS = (
+    "gemini-3.1-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
 )
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
 DEFAULT_SAMPLE = 500
 DEFAULT_LIMIT = 1000
+RETRYABLE_STATUSES = (429, 500, 503)
+MAX_CALL_ATTEMPTS = 4
 
 
 class PrelabelResult(TypedDict):
@@ -138,32 +143,57 @@ def gemini_prelabel(api_key: str, text: str, timeout: float = 20.0) -> PrelabelR
         },
         ensure_ascii=False,
     ).encode("utf-8")
-    req = urllib.request.Request(
-        f"{GEMINI_URL}?key={urllib.parse.quote(api_key)}",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        payload: object = json.loads(resp.read().decode("utf-8"))
-    raw = _candidate_text(payload)
-    if not raw:
-        return {"label": "", "confidence": 0.0, "error": "empty_response"}
-    try:
-        parsed: object = json.loads(raw)
-    except json.JSONDecodeError:
-        return {"label": "", "confidence": 0.0, "error": "invalid_json"}
-    if not isinstance(parsed, dict):
-        return {"label": "", "confidence": 0.0, "error": "invalid_json"}
-    label = normalize_label(parsed.get("label"))
-    if not label:
-        return {"label": "", "confidence": 0.0, "error": "invalid_label"}
-    try:
-        conf = float(parsed.get("confidence", 0) or 0)
-    except (TypeError, ValueError):
-        conf = 0.0
-    conf = max(0.0, min(1.0, conf))
-    return {"label": label, "confidence": conf, "error": ""}
+
+    models = [GEMINI_MODEL, *[m for m in GEMINI_FALLBACK_MODELS if m != GEMINI_MODEL]]
+    last_error = "unknown_error"
+
+    for model in models:
+        for attempt in range(1, MAX_CALL_ATTEMPTS + 1):
+            req = urllib.request.Request(
+                f"{GEMINI_URL}{model}:generateContent?key={urllib.parse.quote(api_key)}",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    payload: object = json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", "replace")[:200]
+                last_error = f"{model} HTTP {exc.code}: {detail}"
+                if exc.code in RETRYABLE_STATUSES:
+                    time.sleep(min(8.0, 1.5 * (2 ** (attempt - 1))))
+                    continue
+                break  # retired model (404) or bad key (401/403): try the next model
+            except (urllib.error.URLError, TimeoutError) as exc:
+                last_error = f"{model}: {exc}"
+                time.sleep(1.5 * attempt)
+                continue
+            except json.JSONDecodeError as exc:
+                last_error = f"{model}: invalid payload {exc}"
+                time.sleep(1.5 * attempt)
+                continue
+
+            raw = _candidate_text(payload)
+            if not raw:
+                return {"label": "", "confidence": 0.0, "error": "empty_response"}
+            try:
+                parsed: object = json.loads(raw)
+            except json.JSONDecodeError:
+                return {"label": "", "confidence": 0.0, "error": "invalid_json"}
+            if not isinstance(parsed, dict):
+                return {"label": "", "confidence": 0.0, "error": "invalid_json"}
+            label = normalize_label(parsed.get("label"))
+            if not label:
+                return {"label": "", "confidence": 0.0, "error": "invalid_label"}
+            try:
+                conf = float(parsed.get("confidence", 0) or 0)
+            except (TypeError, ValueError):
+                conf = 0.0
+            conf = max(0.0, min(1.0, conf))
+            return {"label": label, "confidence": conf, "error": ""}
+
+    return {"label": "", "confidence": 0.0, "error": last_error}
 
 
 def load_existing(path: Path) -> dict[str, dict[str, str]]:

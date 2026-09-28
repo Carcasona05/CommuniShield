@@ -12,15 +12,15 @@ test("validateSetting accepts booleans and rejects other values", () => {
   assert.ok("error" in validateSetting("ai_scoring_enabled", "yes"));
 });
 
-test("validateSetting restricts cebuano mode and normalizes legacy local", () => {
+test("validateSetting restricts cebuano mode to gemini, local, or disabled", () => {
   assert.deepEqual(validateSetting("sentiment_cebuano_mode", "gemini"), {
     value: "gemini",
   });
+  assert.deepEqual(validateSetting("sentiment_cebuano_mode", "local"), {
+    value: "local",
+  });
   assert.deepEqual(validateSetting("sentiment_cebuano_mode", "disabled"), {
     value: "disabled",
-  });
-  assert.deepEqual(validateSetting("sentiment_cebuano_mode", "local"), {
-    value: "gemini",
   });
   assert.ok("error" in validateSetting("sentiment_cebuano_mode", "transformer"));
 });

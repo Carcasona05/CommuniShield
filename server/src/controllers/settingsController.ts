@@ -75,10 +75,9 @@ export const validateSetting = (
 
   switch (key) {
     case "sentiment_cebuano_mode":
-      if (value === "local") return { value: "gemini" };
-      if (!["gemini", "disabled"].includes(value)) {
+      if (!["gemini", "local", "disabled"].includes(value)) {
         return {
-          error: "sentiment_cebuano_mode must be gemini or disabled",
+          error: "sentiment_cebuano_mode must be gemini, local, or disabled",
         };
       }
       return { value };
@@ -190,8 +189,6 @@ export const getSettings = async (req: AuthRequest, res: Response) => {
     const cebuanoMode = merged.sentiment_cebuano_mode;
     if (!cebuanoMode || !["gemini", "local", "disabled"].includes(cebuanoMode)) {
       merged.sentiment_cebuano_mode = DEFAULT_SETTINGS.sentiment_cebuano_mode ?? "gemini";
-    } else if (cebuanoMode === "local") {
-      merged.sentiment_cebuano_mode = "gemini";
     }
 
     res.json({ settings: merged });

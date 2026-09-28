@@ -21,7 +21,6 @@ from sklearn.pipeline import FeatureUnion, Pipeline
 
 RANDOM_STATE = 42
 LABELS = ("negative", "neutral", "positive")
-LANGUAGES = ("english", "filipino")
 CANDIDATES = (0.5, 1.0, 2.0, 4.0)
 DATASET_DIR = Path(__file__).resolve().parent / "processed"
 MODEL_DIR = Path(__file__).resolve().parent / "models"
@@ -303,9 +302,18 @@ def train_language(
     return metadata
 
 
+def discover_languages(frames: dict[str, pd.DataFrame]) -> tuple[str, ...]:
+    languages = set()
+    for frame in frames.values():
+        languages.update(str(value) for value in frame["language"].unique())
+    return tuple(sorted(languages))
+
+
 def main() -> None:
     args = parse_args()
     frames = load_splits(args.data_dir.resolve())
+    languages = discover_languages(frames)
+    print(f"languages: {', '.join(languages)}")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     results = [
         train_language(
@@ -315,7 +323,7 @@ def main() -> None:
             frames["test"],
             args.output_dir.resolve(),
         )
-        for language in LANGUAGES
+        for language in languages
     ]
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),

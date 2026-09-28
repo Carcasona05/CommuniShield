@@ -883,7 +883,9 @@ function SAdmin_SettingsContent() {
                   description={
                     cebuanoMode === "disabled"
                       ? "Cebuano text is marked unavailable instead of analyzed."
-                      : "Cebuano text is sent to Gemini only; the local model is never used."
+                      : cebuanoMode === "local"
+                        ? "Cebuano text uses the local Cebuano model, with Gemini as assist."
+                        : "Cebuano text is sent to Gemini only; the local model is never used."
                   }
                   isLast
                   rightContent={
@@ -892,13 +894,21 @@ function SAdmin_SettingsContent() {
                       activeOpacity={0.85}
                       onPress={() => {
                         const next =
-                          cebuanoMode === "disabled" ? "gemini" : "disabled";
+                          cebuanoMode === "gemini"
+                            ? "local"
+                            : cebuanoMode === "local"
+                              ? "disabled"
+                              : "gemini";
                         setCebuanoMode(next);
                         saveSetting("sentiment_cebuano_mode", next);
                       }}
                     >
                       <Text style={styles.secondaryButtonText}>
-                        {cebuanoMode === "disabled" ? "Disabled" : "Gemini"}
+                        {cebuanoMode === "disabled"
+                          ? "Disabled"
+                          : cebuanoMode === "local"
+                            ? "Local"
+                            : "Gemini"}
                       </Text>
                     </TouchableOpacity>
                   }
