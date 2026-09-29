@@ -22,6 +22,8 @@ export default function Admin_ViewSimilarReportsModal({
   onMapAndVerify,
   onMarkAsFake,
   onArchiveReport,
+  onReanalyze,
+  reanalyzingReportId = null,
   validating = false,
 }) {
   const [openMenuReportId, setOpenMenuReportId] = useState(null);
@@ -342,6 +344,7 @@ export default function Admin_ViewSimilarReportsModal({
                   const statusStyle = getStatusStyle(report.status);
                   const severityStyle = getSeverityStyle(report.severity);
                   const reportImages = getReportImages(report);
+                  const isReanalyzing = reanalyzingReportId === report.id;
 
                   return (
                     <View key={report.id} style={styles.reportCard}>
@@ -511,6 +514,15 @@ export default function Admin_ViewSimilarReportsModal({
                             </Text>
                           </View>
                         </View>
+
+                        <View style={styles.reportInfoItem}>
+                          <Text style={styles.infoLabel}>Sentiment</Text>
+                          <Text style={styles.infoValue}>
+                            {report.sentiment ||
+                              report.sentiment_status ||
+                              "unavailable"}
+                          </Text>
+                        </View>
                       </View>
 
                       <View style={styles.aiBox}>
@@ -530,6 +542,32 @@ export default function Admin_ViewSimilarReportsModal({
                             "No AI credibility review available."}
                         </Text>
                       </View>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.reanalyzeButton,
+                          isReanalyzing && styles.reanalyzeButtonDisabled,
+                        ]}
+                        onPress={() => onReanalyze?.(report)}
+                        disabled={isReanalyzing || !onReanalyze}
+                        activeOpacity={0.8}
+                      >
+                        {isReanalyzing ? (
+                          <ActivityIndicator
+                            size="small"
+                            color={COMMUNISHIELD_BLUE}
+                          />
+                        ) : (
+                          <Ionicons
+                            name="refresh-outline"
+                            size={15}
+                            color={COMMUNISHIELD_BLUE}
+                          />
+                        )}
+                        <Text style={styles.reanalyzeText}>
+                          {isReanalyzing ? "Re-Analyzing..." : "Re-Analyze AI"}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   );
                 })}
@@ -1268,6 +1306,29 @@ const styles = StyleSheet.create({
     fontFamily: "PoppinsRegular",
     color: "#5D6F92",
     lineHeight: 20,
+  },
+
+  reanalyzeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COMMUNISHIELD_BLUE,
+    backgroundColor: "#EAF2FF",
+  },
+
+  reanalyzeButtonDisabled: {
+    opacity: 0.7,
+  },
+
+  reanalyzeText: {
+    fontSize: 13,
+    fontFamily: "PoppinsSemiBold",
+    color: COMMUNISHIELD_BLUE,
   },
 
   sentimentBox: {

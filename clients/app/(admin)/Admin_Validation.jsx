@@ -91,6 +91,7 @@ function Admin_Validation() {
   const [viewVisible, setViewVisible] = useState(false);
   const [addReportVisible, setAddReportVisible] = useState(false);
   const [validating, setValidating] = useState(false);
+  const [reanalyzingReportId, setReanalyzingReportId] = useState(null);
 
   const [addAnnouncementVisible, setAddAnnouncementVisible] = useState(false);
 
@@ -500,6 +501,74 @@ const handleAddAnnouncement = () => {
 
   const handleMarkAsFake = (report, group) => {
     applyValidation(group || report, "Marked Fake");
+  };
+
+  const handleReanalyze = async (report) => {
+    if (!report?.id || reanalyzingReportId) return;
+    setReanalyzingReportId(report.id);
+
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+
+      const missingCommentIds = (report.comments || [])
+        .map((comment) =>
+          comment?.sentiment_status !== "succeeded" ? comment?.id : null
+        )
+        .filter(Boolean);
+
+      const calls = [
+        apiClient.post(
+          `/ai/analyze/${report.id}`,
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        ),
+        apiClient.post(
+          `/ai/sentiment/reanalyze/report/${report.id}`,
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        ),
+      ];
+
+      if (missingCommentIds.length > 0) {
+        calls.push(
+          apiClient.post(
+            "/ai/sentiment/reanalyze",
+            { subject_type: "comment", ids: missingCommentIds },
+            { headers: { Authorization: `Bearer ${token}` } }
+          )
+        );
+      }
+
+      const results = await Promise.allSettled(calls);
+      const succeeded = results.filter(
+        (result) => result.status === "fulfilled"
+      ).length;
+
+      loadValidation();
+
+      if (succeeded === 0) {
+        const failure = results.find(
+          (result) => result.status === "rejected"
+        );
+        toast.error(
+          failure?.reason?.response?.data?.error ||
+            "Could not re-run AI analysis."
+        );
+      } else if (succeeded < results.length) {
+        toast.success("AI re-analysis completed with partial results.");
+      } else {
+        toast.success("AI re-analysis completed.");
+      }
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.error ||
+          error?.message ||
+          "Could not re-run AI analysis."
+      );
+    } finally {
+      setReanalyzingReportId(null);
+    }
   };
 
   const handleAnnouncementSubmit = async (announcement) => {
@@ -923,6 +992,8 @@ const handleAddAnnouncement = () => {
         onReject={handleReject}
         onMapAndVerify={handleMapAndVerify}
         onMarkAsFake={handleMarkAsFake}
+        onReanalyze={handleReanalyze}
+        reanalyzingReportId={reanalyzingReportId}
         validating={validating}
     />
 
