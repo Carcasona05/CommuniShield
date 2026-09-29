@@ -134,3 +134,27 @@ test("analyze returns unavailable without persisting when subject is missing", a
   assert.equal(result.label, "unclear");
   assert.equal(result.confidence, 0);
 });
+
+test("gemini prompt carries sarcasm rules and the JSON contract", () => {
+  const prompt = __testing.buildGeminiSentimentPrompt(
+    "Salamat kaayo sa atong security",
+    "cebuano"
+  );
+  assert.ok(prompt.includes("Sarcasm rules"));
+  assert.ok(prompt.includes('"label":"positive|neutral|negative|mixed|unclear"'));
+  assert.ok(prompt.includes("Do not infer credibility or severity"));
+  assert.ok(prompt.includes('Text: "Salamat kaayo sa atong security"'));
+  assert.ok(!prompt.includes("Surrounding post"));
+});
+
+test("gemini prompt includes parent context only when provided", () => {
+  const without = __testing.buildGeminiSentimentPrompt("Safe kaayo.", "cebuano");
+  const withContext = __testing.buildGeminiSentimentPrompt(
+    "Safe kaayo.",
+    "cebuano",
+    "Nahadlok mi kay gisulod mi balik."
+  );
+  assert.ok(!without.includes("Surrounding post"));
+  assert.ok(withContext.includes("Surrounding post"));
+  assert.ok(withContext.includes("Nahadlok mi kay gisulod mi balik."));
+});

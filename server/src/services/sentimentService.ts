@@ -315,16 +315,29 @@ const configuredModelName = (config: Record<string, string>): string => {
 
 const geminiConfigured = (): boolean => Boolean(process.env.GEMINI_API_KEY?.trim());
 
+const buildGeminiSentimentPrompt = (
+  text: string,
+  language: SentimentLanguage,
+  context?: string
+): string => {
+  const contextLine = context
+    ? `\nSurrounding post that this text replies to (use it to judge sarcasm): ${JSON.stringify(context)}\n`
+    : "";
+  return `Classify the sentiment of this community safety text. Respond with JSON only: {"label":"positive|neutral|negative|mixed|unclear","confidence":0,"language":"english|filipino|cebuano|unknown"}. The detected language is ${language}. Do not infer credibility or severity.
+Sarcasm rules: label the writer's actual attitude toward the situation, not the literal words. Treat praise as sarcastic (so negative) only when mocking cues are present: praise in quotation marks; exaggerated reassurance such as grabe ka solid, safe kaayo, peace of mind, salamat kaayo used while or right after describing a problem, or matching a bad situation in the surrounding post; laughter (hahaha, lol, emoji) mocking the situation rather than expressing joy. Example: a reply saying Hahahaha safe kaayo bitaw on a post about recurring crime is negative. Standalone praise, thanks, or relief with no mocking cues (Solid kaayo!, Salamat kaayo boss) is genuinely positive.${contextLine}Text: ${JSON.stringify(text)}`;
+};
+
 const callGeminiSentiment = async (
   text: string,
   language: SentimentLanguage,
-  config: Record<string, string>
+  config: Record<string, string>,
+  context?: string
 ): Promise<SentimentPrediction> => {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new Error("Gemini API key is not configured");
   const primaryModel = configuredModelName(config);
   const timeoutMs = parseIntSetting(config.ai_timeout, 15000, 1000, 120000);
-  const prompt = `Classify the sentiment of this community safety text. Respond with JSON only: {"label":"positive|neutral|negative|mixed|unclear","confidence":0,"language":"english|filipino|cebuano|unknown"}. The detected language is ${language}. Do not infer credibility or severity. Text: ${JSON.stringify(text)}`;
+  const prompt = buildGeminiSentimentPrompt(text, language, context);
   const maxPasses = 2;
   let lastError: unknown;
 
@@ -477,7 +490,8 @@ const attempt = async <T>(fn: () => Promise<T>): Promise<AssistAttempt<T>> => {
 };
 
 const predict = async (
-  textValue: string
+  textValue: string,
+  context?: string
 ): Promise<{ prediction: SentimentPrediction; errorCode: string }> => {
   const text = normalizeText(textValue);
   if (!text) {
@@ -511,7 +525,7 @@ const predict = async (
     const [localResult, geminiResult] = await Promise.all([
       attempt(() => runLocalPrediction(detectedLanguage, text)),
       shouldUseGemini
-        ? attempt(() => callGeminiSentiment(text, detectedLanguage, config))
+        ? attempt(() => callGeminiSentiment(text, detectedLanguage, config, context))
         : Promise.resolve(null),
     ]);
 
@@ -561,7 +575,7 @@ const predict = async (
   if (shouldUseGemini) {
     try {
       return {
-        prediction: await callGeminiSentiment(text, detectedLanguage, config),
+        prediction: await callGeminiSentiment(text, detectedLanguage, config, context),
         errorCode: "",
       };
     } catch (error) {
@@ -590,6 +604,7 @@ const predict = async (
 export const __testing = {
   fuseLocalWithGeminiAssist,
   LOW_LOCAL_CONFIDENCE,
+  buildGeminiSentimentPrompt,
 };
 
 type SentimentRequest = {
@@ -903,17 +918,30 @@ const persistPrediction = async (
 const loadSubjectText = async (
   subjectType: SentimentSubjectType,
   subjectId: string
-): Promise<{ text: string; language?: SentimentLanguage } | null> => {
-  const table = subjectType === "report" ? "reports" : "report_comments";
-  const textColumn = subjectType === "report" ? "details" : "content";
+): Promise<{ text: string; context?: string } | null> => {
+  if (subjectType === "comment") {
+    const { data, error } = await supabaseAdmin
+      .from("report_comments")
+      .select("id, content, reports(id, details)")
+      .eq("id", subjectId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const row = data as {
+      content?: string | null;
+      reports?: { details?: string | null } | null;
+    };
+    const text = normalizeText(String(row.content ?? ""));
+    const context = normalizeText(String(row.reports?.details ?? "")).slice(0, 600);
+    return context ? { text, context } : { text };
+  }
   const { data, error } = await supabaseAdmin
-    .from(table)
-    .select(`id, ${textColumn}`)
+    .from("reports")
+    .select("id, details")
     .eq("id", subjectId)
     .maybeSingle();
   if (error || !data) return null;
-  const row = data as { id: string; content?: string | null; details?: string | null };
-  const text = normalizeText(String(row[textColumn] ?? ""));
+  const row = data as { details?: string | null };
+  const text = normalizeText(String(row.details ?? ""));
   return { text };
 };
 
@@ -1019,7 +1047,7 @@ export const sentimentService = {
         continue;
       }
 
-      const { prediction, errorCode } = await predict(subject.text);
+      const { prediction, errorCode } = await predict(subject.text, subject.context);
       const status: SentimentStatus = errorCode
         ? prediction.provider === "none"
           ? "unavailable"

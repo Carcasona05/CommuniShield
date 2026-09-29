@@ -184,6 +184,15 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
 };
 
 export const createReport = async (req: AuthRequest, res: Response) => {
+  try {
+    return await createReportImpl(req, res);
+  } catch (error) {
+    console.error("Create report failed:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+const createReportImpl = async (req: AuthRequest, res: Response) => {
   const user = req.user;
   if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
 
@@ -260,7 +269,7 @@ export const createReport = async (req: AuthRequest, res: Response) => {
     message: "Report submitted successfully",
     report_id: reportId,
     analysis: {
-      credibility: credibility ? "succeeded" : "unavailable",
+      credibility: credibility?.status ?? "unavailable",
       ...sentimentResponse(sentiment),
     },
   });
