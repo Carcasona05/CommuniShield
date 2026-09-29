@@ -91,7 +91,7 @@ function Admin_Validation() {
   const [viewVisible, setViewVisible] = useState(false);
   const [addReportVisible, setAddReportVisible] = useState(false);
   const [validating, setValidating] = useState(false);
-  const [reanalyzingReportId, setReanalyzingReportId] = useState(null);
+  const [reanalyzing, setReanalyzing] = useState(false);
 
   const [addAnnouncementVisible, setAddAnnouncementVisible] = useState(false);
 
@@ -503,39 +503,42 @@ const handleAddAnnouncement = () => {
     applyValidation(group || report, "Marked Fake");
   };
 
-  const handleReanalyze = async (report) => {
-    if (!report?.id || reanalyzingReportId) return;
-    setReanalyzingReportId(report.id);
+  const handleReanalyze = async (group) => {
+    const targetReports = group?.reports || [];
+    if (!targetReports.length || reanalyzing) return;
+    setReanalyzing(true);
 
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
+      const headers = { Authorization: `Bearer ${token}` };
 
-      const missingCommentIds = (report.comments || [])
-        .map((comment) =>
-          comment?.sentiment_status !== "succeeded" ? comment?.id : null
+      const missingCommentIds = targetReports
+        .flatMap((item) => item.comments || [])
+        .filter(
+          (comment) =>
+            comment?.id && comment.sentiment_status !== "succeeded"
         )
-        .filter(Boolean);
+        .map((comment) => comment.id);
 
-      const calls = [
-        apiClient.post(
-          `/ai/analyze/${report.id}`,
-          {},
-          { headers: { Authorization: `Bearer ${token}` } }
-        ),
-        apiClient.post(
-          `/ai/sentiment/reanalyze/report/${report.id}`,
-          {},
-          { headers: { Authorization: `Bearer ${token}` } }
-        ),
-      ];
+      const calls = [];
+      for (const item of targetReports) {
+        calls.push(apiClient.post(`/ai/analyze/${item.id}`, {}, { headers }));
+        calls.push(
+          apiClient.post(
+            `/ai/sentiment/reanalyze/report/${item.id}`,
+            {},
+            { headers }
+          )
+        );
+      }
 
       if (missingCommentIds.length > 0) {
         calls.push(
           apiClient.post(
             "/ai/sentiment/reanalyze",
             { subject_type: "comment", ids: missingCommentIds },
-            { headers: { Authorization: `Bearer ${token}` } }
+            { headers }
           )
         );
       }
@@ -558,7 +561,9 @@ const handleAddAnnouncement = () => {
       } else if (succeeded < results.length) {
         toast.success("AI re-analysis completed with partial results.");
       } else {
-        toast.success("AI re-analysis completed.");
+        toast.success(
+          `AI re-analysis completed for ${targetReports.length} post(s).`
+        );
       }
     } catch (error) {
       toast.error(
@@ -567,7 +572,7 @@ const handleAddAnnouncement = () => {
           "Could not re-run AI analysis."
       );
     } finally {
-      setReanalyzingReportId(null);
+      setReanalyzing(false);
     }
   };
 
@@ -993,7 +998,7 @@ const handleAddAnnouncement = () => {
         onMapAndVerify={handleMapAndVerify}
         onMarkAsFake={handleMarkAsFake}
         onReanalyze={handleReanalyze}
-        reanalyzingReportId={reanalyzingReportId}
+        reanalyzing={reanalyzing}
         validating={validating}
     />
 

@@ -23,7 +23,7 @@ export default function Admin_ViewSimilarReportsModal({
   onMarkAsFake,
   onArchiveReport,
   onReanalyze,
-  reanalyzingReportId = null,
+  reanalyzing = false,
   validating = false,
 }) {
   const [openMenuReportId, setOpenMenuReportId] = useState(null);
@@ -344,7 +344,6 @@ export default function Admin_ViewSimilarReportsModal({
                   const statusStyle = getStatusStyle(report.status);
                   const severityStyle = getSeverityStyle(report.severity);
                   const reportImages = getReportImages(report);
-                  const isReanalyzing = reanalyzingReportId === report.id;
 
                   return (
                     <View key={report.id} style={styles.reportCard}>
@@ -542,32 +541,6 @@ export default function Admin_ViewSimilarReportsModal({
                             "No AI credibility review available."}
                         </Text>
                       </View>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.reanalyzeButton,
-                          isReanalyzing && styles.reanalyzeButtonDisabled,
-                        ]}
-                        onPress={() => onReanalyze?.(report)}
-                        disabled={isReanalyzing || !onReanalyze}
-                        activeOpacity={0.8}
-                      >
-                        {isReanalyzing ? (
-                          <ActivityIndicator
-                            size="small"
-                            color={COMMUNISHIELD_BLUE}
-                          />
-                        ) : (
-                          <Ionicons
-                            name="refresh-outline"
-                            size={15}
-                            color={COMMUNISHIELD_BLUE}
-                          />
-                        )}
-                        <Text style={styles.reanalyzeText}>
-                          {isReanalyzing ? "Re-Analyzing..." : "Re-Analyze AI"}
-                        </Text>
-                      </TouchableOpacity>
                     </View>
                   );
                 })}
@@ -798,6 +771,22 @@ export default function Admin_ViewSimilarReportsModal({
           </View>
 
           <View style={styles.footerActions}>
+            <TouchableOpacity
+              style={[styles.reanalyzeButton, reanalyzing && styles.buttonDisabled]}
+              onPress={() => onReanalyze?.(compiledGroup)}
+              activeOpacity={0.85}
+              disabled={reanalyzing || !onReanalyze}
+            >
+              {reanalyzing ? (
+                <ActivityIndicator size="small" color={COMMUNISHIELD_BLUE} />
+              ) : (
+                <Ionicons name="refresh-outline" size={17} color={COMMUNISHIELD_BLUE} />
+              )}
+              <Text style={styles.reanalyzeText}>
+                {reanalyzing ? "Re-Analyzing..." : "Re-Analyze post"}
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.underVerificationButton, validating && styles.buttonDisabled]}
               onPress={() => onVerify(compiledGroup)}
@@ -1309,20 +1298,15 @@ const styles = StyleSheet.create({
   },
 
   reanalyzeButton: {
+    height: 42,
+    paddingHorizontal: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#B9C9E6",
+    backgroundColor: "#EAF2FF",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    marginTop: 10,
-    paddingVertical: 9,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COMMUNISHIELD_BLUE,
-    backgroundColor: "#EAF2FF",
-  },
-
-  reanalyzeButtonDisabled: {
-    opacity: 0.7,
+    gap: 7,
   },
 
   reanalyzeText: {

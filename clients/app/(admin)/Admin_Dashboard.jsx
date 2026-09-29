@@ -28,6 +28,22 @@ const formatFeedTime = (iso) => {
     : date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
 
+const sentimentColor = (label) => {
+  switch (String(label || "").toLowerCase()) {
+    case "positive":
+      return "#22A06B";
+    case "negative":
+      return "#E45757";
+    case "mixed":
+      return "#7C3AED";
+    case "unclear":
+    case "unavailable":
+      return "#6B7280";
+    default:
+      return "#C98A2E";
+  }
+};
+
 export default function Admin_Dashboard() {
   const router = useRouter();
 
@@ -168,6 +184,7 @@ export default function Admin_Dashboard() {
       score: r.ai_score != null ? `${r.ai_score}%` : "—",
       sentiment: r.sentiment ?? null,
       sentimentStatus: r.sentiment_status ?? "unavailable",
+      sentimentColor: sentimentColor(r.sentiment || r.sentiment_status),
       status: r.is_verified ? "Verified" : r.status || "Pending",
       source: r.source || "User",
       time: formatFeedTime(r.created_at),
@@ -462,7 +479,12 @@ export default function Admin_Dashboard() {
 
                       <Text style={styles.feedMeta}>
                         Sentiment:{" "}
-                        <Text style={styles.feedSentiment}>
+                        <Text
+                          style={[
+                            styles.feedSentiment,
+                            { color: item.sentimentColor },
+                          ]}
+                        >
                           {item.sentiment || item.sentimentStatus}
                         </Text>
                       </Text>
