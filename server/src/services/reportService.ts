@@ -28,6 +28,9 @@ type SentimentRow = {
   analyzed_at: string | null;
 };
 
+const asTrimmedString = (value: unknown): string =>
+  typeof value === "string" ? value.trim() : "";
+
 const VALID_STATUSES = [
   "Pending Review",
   "Under Verification",
@@ -141,8 +144,8 @@ async function resolveIncidentType(
 
 export const reportService = {
   async createReport(userId: string, input: ReportInput) {
-    const category = (input.incident_category || "").trim();
-    const type = (input.incident_type || "").trim();
+    const category = asTrimmedString(input.incident_category);
+    const type = asTrimmedString(input.incident_type);
 
     if (!category || !type) {
       return { error: "Incident category and type are required" };
@@ -169,7 +172,7 @@ export const reportService = {
         longitude: input.longitude ? Number(input.longitude) : null,
         poster_name: input.poster_name ?? "",
         display_name_type: input.display_name_type ?? "Fullname",
-        details: (input.details || "").trim(),
+        details: asTrimmedString(input.details),
         status,
         is_verified: input.is_verified ?? false,
         role: input.role ?? "user",
@@ -435,9 +438,9 @@ export const reportService = {
     if (!own) return { error: "Report not found" };
 
     const updates: Record<string, unknown> = {};
-    if (input.details !== undefined) updates.details = (input.details || "").trim();
-    if (input.location !== undefined) updates.location = input.location;
-    if (input.poster_name !== undefined) updates.poster_name = input.poster_name;
+    if (typeof input.details === "string") updates.details = input.details.trim();
+    if (typeof input.location === "string") updates.location = input.location;
+    if (typeof input.poster_name === "string") updates.poster_name = input.poster_name;
 
     const coordPattern = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?/;
     const latNum = input.latitude ? Number(input.latitude) : null;
@@ -452,8 +455,8 @@ export const reportService = {
       if (resolved) updates.location = resolved;
     }
 
-    const category = (input.incident_category || "").trim();
-    const type = (input.incident_type || "").trim();
+    const category = asTrimmedString(input.incident_category);
+    const type = asTrimmedString(input.incident_type);
 
     if (category && type) {
       const { id: incidentTypeId, error: resolveError } = await resolveIncidentType(

@@ -1,4 +1,9 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import {
+  candidateModels,
+  clearModelExhaustion,
+  markModelExhausted,
+} from "./geminiRotation.js";
 
 const DEFAULT_GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const DEFAULT_MODEL = "gemini-3.6-flash";
@@ -14,6 +19,7 @@ interface AIAnalysisResult {
   severity: "Low" | "Medium" | "High" | "Critical";
   credibility_review: string;
   analysis_duration_ms?: number;
+  status: "succeeded" | "failed" | "skipped";
 }
 
 interface AIConfig {
@@ -190,7 +196,7 @@ async function callGemini(
   prompt: string,
   config: AIConfig,
   retries = 3
-): Promise<string> {
+): Promise<{ text: string; model: string }> {
   if (!config.api_key) {
     throw new Error("GEMINI_API_KEY is not set. Add it to your environment variables.");
   }
@@ -200,98 +206,116 @@ async function callGemini(
   let modelRefreshed = false;
 
   for (let attempt = 1; attempt <= retries; attempt++) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), activeConfig.timeout_ms);
+    let configRefreshed = false;
+    const candidates = candidateModels(stripModelPrefix(activeConfig.model_name));
 
-    try {
-      const baseEndpoint = (activeConfig.api_endpoint && activeConfig.api_endpoint.trim() !== "") 
-        ? activeConfig.api_endpoint 
-        : GEMINI_BASE_URL;
-      const modelPath = stripModelPrefix(activeConfig.model_name);
-      const url = `${baseEndpoint}/${modelPath}:generateContent?key=${activeConfig.api_key}`;
-      const maskedUrl = url.replace(/key=.*/, "key=***");
+    for (const modelName of candidates) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), activeConfig.timeout_ms);
 
-      console.log(`[Gemini] Attempt ${attempt}/${retries} — POST ${maskedUrl}`);
-      console.log(`[Gemini] Prompt length: ${prompt.length} chars`);
+      try {
+        const baseEndpoint = (activeConfig.api_endpoint && activeConfig.api_endpoint.trim() !== "") 
+          ? activeConfig.api_endpoint 
+          : GEMINI_BASE_URL;
+        const url = `${baseEndpoint}/${modelName}:generateContent?key=${activeConfig.api_key}`;
+        const maskedUrl = url.replace(/key=.*/, "key=***");
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: `${SYSTEM_PROMPT}\n\nReport:\n${prompt}\n\nReturn ONLY valid JSON, nothing else:`,
-                },
-              ],
+        console.log(`[Gemini] Attempt ${attempt}/${retries} — POST ${maskedUrl} (model: ${modelName})`);
+        console.log(`[Gemini] Prompt length: ${prompt.length} chars`);
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: `${SYSTEM_PROMPT}\n\nReport:\n${prompt}\n\nReturn ONLY valid JSON, nothing else:`,
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: activeConfig.temperature,
+              topP: 0.9,
+              maxOutputTokens: MAX_OUTPUT_TOKENS,
             },
-          ],
-          generationConfig: {
-            temperature: activeConfig.temperature,
-            topP: 0.9,
-            maxOutputTokens: MAX_OUTPUT_TOKENS,
-          },
-        }),
-        signal: controller.signal,
-      });
+          }),
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[Gemini] ERROR ${response.status} — ${errorText}`);
-        throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
-      }
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`[Gemini] ERROR ${response.status} — ${errorText}`);
 
-      console.log(`[Gemini] SUCCESS — ${response.status}`);
-      const data = await response.json();
-      const candidate = data.candidates?.[0];
-      const finishReason = candidate?.finishReason || "UNKNOWN";
-      const thoughtTokens = data.usageMetadata?.thoughtsTokenCount ?? 0;
-      console.log(
-        `[Gemini] finishReason=${finishReason} outputTokens=${data.usageMetadata?.candidatesTokenCount ?? "?"} thinkingTokens=${thoughtTokens}`
-      );
-      const text = candidate?.content?.parts?.[0]?.text?.trim() || "";
-      if (finishReason === "MAX_TOKENS") {
-        console.warn(`[Gemini] Response hit the ${MAX_OUTPUT_TOKENS} token cap — attempting truncated JSON recovery`);
-      }
-      if (text) {
-        return text;
-      }
-      throw new Error("Empty response from Gemini API");
-    } catch (err) {
-      lastError = err;
-      const msg = err instanceof Error ? err.message : "";
+          if (response.status === 404 && !modelRefreshed) {
+            modelRefreshed = true;
+            console.warn(`[Gemini] Model "${modelName}" rejected by API — refreshing model discovery`);
+            cachedAvailableModel = null;
+            cachedModelNames = null;
+            try {
+              activeConfig = await loadAIConfig();
+              configRefreshed = true;
+            } catch (reloadErr) {
+              console.error("[Gemini] Failed to reload AI config:", reloadErr);
+            }
+            clearTimeout(timeoutId);
+            break;
+          }
 
-      if (!modelRefreshed && /404|NOT_FOUND|no longer available/i.test(msg)) {
-        modelRefreshed = true;
-        console.warn(`[Gemini] Model "${activeConfig.model_name}" rejected by API — refreshing model discovery`);
-        cachedAvailableModel = null;
-        cachedModelNames = null;
-        try {
-          activeConfig = await loadAIConfig();
-          attempt--;
-          continue;
-        } catch (reloadErr) {
-          console.error("[Gemini] Failed to reload AI config:", reloadErr);
+          if (response.status === 429) {
+            markModelExhausted(modelName);
+          }
+          throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
         }
-      }
 
-      const statusMatch = msg.match(/Gemini API error: (\d{3})/);
-      const status = statusMatch ? Number(statusMatch[1]) : 0;
-      // 429 (quota) and 5xx are transient; every other 4xx fails on retry too.
-      const isPermanentClientError = status >= 400 && status < 500 && status !== 429;
-      const isRateLimited = status === 429;
-      console.warn(
-        `Gemini attempt ${attempt}/${retries} failed:`,
-        msg || err
-      );
-      if (attempt < retries && !isPermanentClientError) {
-        const backoffMs = isRateLimited ? 2000 * attempt : 1000 * attempt;
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        console.log(`[Gemini] SUCCESS — ${response.status}`);
+        const data = await response.json();
+        const candidate = data.candidates?.[0];
+        const finishReason = candidate?.finishReason || "UNKNOWN";
+        const thoughtTokens = data.usageMetadata?.thoughtsTokenCount ?? 0;
+        console.log(
+          `[Gemini] finishReason=${finishReason} outputTokens=${data.usageMetadata?.candidatesTokenCount ?? "?"} thinkingTokens=${thoughtTokens}`
+        );
+        const text = candidate?.content?.parts?.[0]?.text?.trim() || "";
+        if (finishReason === "MAX_TOKENS") {
+          console.warn(`[Gemini] Response hit the ${MAX_OUTPUT_TOKENS} token cap — attempting truncated JSON recovery`);
+        }
+        if (text) {
+          clearModelExhaustion(modelName);
+          clearTimeout(timeoutId);
+          return { text, model: modelName };
+        }
+        throw new Error("Empty response from Gemini API");
+      } catch (err) {
+        lastError = err;
+        const msg = err instanceof Error ? err.message : "";
+
+        const statusMatch = msg.match(/Gemini API error: (\d{3})/);
+        const status = statusMatch ? Number(statusMatch[1]) : 0;
+        const isPermanentClientError = status >= 400 && status < 500 && status !== 429;
+        console.warn(
+          `Gemini attempt ${attempt}/${retries} failed for ${modelName}:`,
+          msg || err
+        );
+        if (isPermanentClientError) {
+          throw err;
+        }
+      } finally {
+        clearTimeout(timeoutId);
       }
-      if (isPermanentClientError) break;
-    } finally {
-      clearTimeout(timeoutId);
+    }
+
+    if (configRefreshed) {
+      attempt--;
+      continue;
+    }
+
+    if (attempt < retries) {
+      const lastMsg = lastError instanceof Error ? lastError.message : "";
+      const backoffMs = /Gemini API error: 429/.test(lastMsg) ? 2000 * attempt : 1000 * attempt;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
   }
 
@@ -412,6 +436,7 @@ function parseAIResponse(response: string): AIAnalysisResult {
       ai_score: 50,
       severity: "Medium",
       credibility_review: "Unable to generate AI review. Manual verification recommended.",
+      status: "failed",
     };
   }
 
@@ -431,7 +456,7 @@ function parseAIResponse(response: string): AIAnalysisResult {
     500
   );
 
-  return { ai_score, severity, credibility_review };
+  return { ai_score, severity, credibility_review, status: "succeeded" };
 }
 
 /**
@@ -500,6 +525,7 @@ export const aiService = {
         ai_score: 50,
         severity: "Medium",
         credibility_review: "AI analysis disabled",
+        status: "skipped",
       };
     }
 
@@ -537,10 +563,13 @@ export const aiService = {
       similar_post_count: similarCount,
     });
     let aiResponse: string;
+    let usedModel = "";
     const startTime = Date.now();
 
     try {
-      aiResponse = await callGemini(prompt, config);
+      const geminiResult = await callGemini(prompt, config);
+      aiResponse = geminiResult.text;
+      usedModel = geminiResult.model;
     } catch (error) {
       console.error("Gemini analysis failed:", error);
       return {
@@ -548,11 +577,12 @@ export const aiService = {
         severity: "Medium",
         credibility_review: `AI analysis unavailable: ${error instanceof Error ? error.message : "Unknown error"}`,
         analysis_duration_ms: Date.now() - startTime,
+        status: "failed",
       };
     }
 
     const result = parseAIResponse(aiResponse);
-    const modelVersion = await this.getModelVersion();
+    const modelVersion = usedModel;
     const durationMs = Date.now() - startTime;
 
     // Store analysis in database
@@ -570,9 +600,10 @@ export const aiService = {
 
     if (error) {
       console.error("Failed to store AI analysis:", error);
+      return { ...result, analysis_duration_ms: durationMs, status: "failed" };
     }
 
-    return { ...result, analysis_duration_ms: durationMs };
+    return { ...result, analysis_duration_ms: durationMs, status: "succeeded" };
   },
 
   /**
@@ -606,6 +637,7 @@ export const aiService = {
             ai_score: 0,
             severity: "Low",
             credibility_review: "Report not found",
+            status: "failed",
           };
           continue;
         }
@@ -631,6 +663,7 @@ export const aiService = {
           ai_score: 50,
           severity: "Medium",
           credibility_review: "Analysis failed",
+          status: "failed",
         };
       }
     }

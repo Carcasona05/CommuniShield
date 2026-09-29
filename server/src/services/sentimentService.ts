@@ -4,6 +4,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { InferenceSession, Tensor } from "onnxruntime-node";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import {
+  GeminiClientError,
+  candidateModels,
+  clearModelExhaustion,
+  markModelExhausted,
+} from "./geminiRotation.js";
 
 export type SentimentLabel =
   | "positive"
@@ -316,79 +322,83 @@ const callGeminiSentiment = async (
 ): Promise<SentimentPrediction> => {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new Error("Gemini API key is not configured");
-  const model = configuredModelName(config);
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    model
-  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const primaryModel = configuredModelName(config);
   const timeoutMs = parseIntSetting(config.ai_timeout, 15000, 1000, 120000);
   const prompt = `Classify the sentiment of this community safety text. Respond with JSON only: {"label":"positive|neutral|negative|mixed|unclear","confidence":0,"language":"english|filipino|cebuano|unknown"}. The detected language is ${language}. Do not infer credibility or severity. Text: ${JSON.stringify(text)}`;
-  const maxAttempts = 3;
+  const maxPasses = 2;
   let lastError: unknown;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: parseFloatSetting(config.ai_temperature, 0.1, 0, 1),
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: "OBJECT",
-              properties: {
-                label: { type: "STRING", enum: ["positive", "neutral", "negative", "mixed", "unclear"] },
-                confidence: { type: "NUMBER" },
-                language: { type: "STRING", enum: ["english", "filipino", "cebuano", "unknown"] },
+  for (let pass = 1; pass <= maxPasses; pass++) {
+    for (const model of candidateModels(primaryModel)) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        model
+      )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: parseFloatSetting(config.ai_temperature, 0.1, 0, 1),
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: "OBJECT",
+                properties: {
+                  label: { type: "STRING", enum: ["positive", "neutral", "negative", "mixed", "unclear"] },
+                  confidence: { type: "NUMBER" },
+                  language: { type: "STRING", enum: ["english", "filipino", "cebuano", "unknown"] },
+                },
+                required: ["label", "confidence", "language"],
               },
-              required: ["label", "confidence", "language"],
             },
-          },
-        }),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        const detail = await response.text().catch(() => "");
-        throw new Error(
-          `Gemini sentiment request failed with ${response.status}${
+          }),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const detail = await response.text().catch(() => "");
+          const message = `Gemini sentiment request failed with ${response.status} on ${model}${
             detail ? `: ${detail.slice(0, 300)}` : ""
-          }`
-        );
+          }`;
+          if (response.status === 429 || response.status >= 500) {
+            if (response.status === 429) markModelExhausted(model);
+            throw new Error(message);
+          }
+          throw new GeminiClientError(message);
+        }
+        const payload = (await response.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        };
+        const raw = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!raw) throw new Error("Gemini sentiment response was empty");
+        const parsed = JSON.parse(raw) as {
+          label?: unknown;
+          confidence?: unknown;
+          language?: unknown;
+        };
+        const label = normalizeSentimentLabel(parsed.label);
+        if (!label) throw new Error("Gemini returned an unsupported sentiment label");
+        clearModelExhaustion(model);
+        return {
+          label,
+          confidence: safeConfidence(parsed.confidence),
+          language,
+          provider: "gemini",
+          model,
+          input_hash: sentimentInputHash(text),
+          source_text: text,
+        };
+      } catch (err) {
+        if (err instanceof GeminiClientError) throw err;
+        lastError = err;
+      } finally {
+        clearTimeout(timeoutId);
       }
-      const payload = (await response.json()) as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      };
-      const raw = payload.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!raw) throw new Error("Gemini sentiment response was empty");
-      const parsed = JSON.parse(raw) as {
-        label?: unknown;
-        confidence?: unknown;
-        language?: unknown;
-      };
-      const label = normalizeSentimentLabel(parsed.label);
-      if (!label) throw new Error("Gemini returned an unsupported sentiment label");
-      return {
-        label,
-        confidence: safeConfidence(parsed.confidence),
-        language,
-        provider: "gemini",
-        model,
-        input_hash: sentimentInputHash(text),
-        source_text: text,
-      };
-    } catch (err) {
-      lastError = err;
-      const msg = err instanceof Error ? err.message : "";
-      const isClientError = /failed with 4\d{2}/.test(msg);
-      if (isClientError) break;
-      if (attempt < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
-      }
-    } finally {
-      clearTimeout(timeoutId);
+    }
+    if (pass < maxPasses) {
+      await new Promise((resolve) => setTimeout(resolve, pass * 1000));
     }
   }
   if (lastError instanceof Error) throw lastError;

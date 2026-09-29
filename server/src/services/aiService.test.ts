@@ -11,6 +11,7 @@ test("parses plain JSON response", () => {
   assert.equal(result.ai_score, 82);
   assert.equal(result.severity, "High");
   assert.equal(result.credibility_review, "Corroborated by 3 similar reports.");
+  assert.equal(result.status, "succeeded");
 });
 
 test("parses JSON wrapped in markdown code fences", () => {
@@ -51,6 +52,7 @@ test("falls back on non-JSON response", () => {
     result.credibility_review,
     "Unable to generate AI review. Manual verification recommended."
   );
+  assert.equal(result.status, "failed");
 });
 
 test("normalizes lowercase severity and out-of-range scores", () => {
