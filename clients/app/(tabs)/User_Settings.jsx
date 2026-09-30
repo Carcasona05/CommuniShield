@@ -86,7 +86,7 @@ const UserSettings = () => {
     }
   }, []);
 
-  useAutoRefresh(loadProfile, 30000);
+  useAutoRefresh(loadProfile, 60000);
 
   useEffect(() => {
     loadProfile();

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useLocalSearchParams } from "expo-router";
 
 import SAdmin_Layout from "../../components/SAdmin_Compo/SAdmin_Layout";
 import { ListSkeleton } from "../../components/PageSkeletons";
@@ -86,7 +87,7 @@ export default function SAdmin_Validation() {
   const [validating, setValidating] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
 
-  const [addAnnouncementVisible, setAddAnnouncementVisible] = useState(false); //notused
+  const [addAnnouncementVisible, setAddAnnouncementVisible] = useState(false);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -134,7 +135,7 @@ export default function SAdmin_Validation() {
     }
   }, []);
 
-  useAutoRefresh(loadValidation, 30000);
+  useAutoRefresh(loadValidation, 60000);
 
   const statusFilters = [
     "All",
@@ -272,6 +273,35 @@ export default function SAdmin_Validation() {
   const groupedReports = useMemo(() => {
     return getGroupedReports(reports);
   }, [reports]);
+
+  const searchParams = useLocalSearchParams();
+  const openReportParam = searchParams?.openReport;
+  const openReportNonce = searchParams?.notifNonce;
+  const consumedOpenReport = useRef(null);
+
+  useEffect(() => {
+    const target = Array.isArray(openReportParam)
+      ? openReportParam[0]
+      : openReportParam;
+    const nonce = Array.isArray(openReportNonce)
+      ? openReportNonce[0]
+      : openReportNonce;
+
+    if (!target || loading) return;
+
+    const consumeKey = nonce ? `${target}:${nonce}` : target;
+    if (consumedOpenReport.current === consumeKey) return;
+
+    const group = groupedReports.find((g) =>
+      g.reports.some((report) => report.id === target)
+    );
+
+    if (!group) return;
+
+    consumedOpenReport.current = consumeKey;
+    setSelectedCompiledGroup(group);
+    setViewVisible(true);
+  }, [openReportParam, openReportNonce, groupedReports, loading]);
 
   const parseSubmittedDate = (submittedAt) => {
     const datePart = submittedAt.split("•")[0]?.trim();
@@ -580,7 +610,9 @@ export default function SAdmin_Validation() {
   const handleAnnouncementSubmit = async (announcement) => {
     try {
       const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
+      if (!token) {
+        throw new Error("Please sign in before posting an announcement.");
+      }
 
       let picUrl = null;
       if (announcement.image?.uri) {
@@ -595,6 +627,7 @@ export default function SAdmin_Validation() {
         "/admin/announcements",
         {
           type: announcement.type,
+          title: announcement.title,
           location: announcement.location,
           details: announcement.details,
           pic_url: picUrl,
@@ -602,11 +635,13 @@ export default function SAdmin_Validation() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setAddReportVisible(false);
+      setAddAnnouncementVisible(false);
       toast.success("The announcement has been posted.");
     } catch (error) {
-      toast.error(
-        error?.response?.data?.error || "Could not publish the announcement."
+      throw new Error(
+        error?.response?.data?.error ||
+          error?.message ||
+          "Could not publish the announcement."
       );
     }
   };

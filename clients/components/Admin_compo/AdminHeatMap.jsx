@@ -14,6 +14,20 @@ const MAP_HTML = `
 <style>
   html,body,#map{margin:0;padding:0;height:100%;width:100%;}
   body{background:#DCE7F3;}
+  .leaflet-popup-content-wrapper{border-radius:12px;border:1px solid #E3EAF6;box-shadow:0 6px 20px rgba(15,30,60,0.18);padding:0;overflow:hidden;}
+  .leaflet-popup-content{margin:0;}
+  .cs-dot{filter:drop-shadow(0 1px 2px rgba(15,30,60,0.35));transition:stroke-width 0.15s ease;}
+  .cs-dot:hover{stroke-width:4;}
+  .cs-pop{min-width:214px;font-family:Arial,Helvetica,sans-serif;color:#1E2B45;padding:10px 12px;}
+  .cs-pop-top{display:flex;align-items:center;gap:8px;margin-bottom:5px;}
+  .cs-pop-badge{font-size:9.5px;font-weight:700;letter-spacing:0.5px;color:#FFFFFF;border-radius:999px;padding:2px 8px;text-transform:uppercase;white-space:nowrap;}
+  .cs-pop-title{font-size:13.5px;font-weight:700;}
+  .cs-pop-loc{font-size:12px;color:#5D6F92;margin-bottom:7px;word-break:break-word;}
+  .cs-pop-meta{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;color:#4B5D7A;padding-top:7px;border-top:1px solid #EEF2F8;}
+  .cs-pop-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid #EEF2F8;}
+  .cs-nav-btn{flex:1;border:1px solid #CCD6E8;background:#F9FBFF;color:#294880;font-size:12px;font-weight:700;padding:5px 0;border-radius:8px;cursor:pointer;}
+  .cs-nav-btn:hover{background:#E8EFFB;}
+  .cs-nav-count{font-size:11.5px;color:#6B7A99;font-weight:700;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -51,6 +65,8 @@ const MAP_HTML = `
     };
 
     var SEVERITY_INTENSITY = { Low: 0.3, Medium: 0.5, High: 0.75, Critical: 1 };
+    var SEVERITY_RANK = { Low: 1, Medium: 2, High: 3, Critical: 4 };
+    var DOT_RADIUS = { Low: 7, Medium: 8, High: 9, Critical: 9.5 };
 
     var HEAT_GRADIENT = {
       0.3: "#22c55e",
@@ -63,8 +79,90 @@ const MAP_HTML = `
       return SEVERITY_INTENSITY[r.severity] != null ? r.severity : "Medium";
     }
 
+    function esc(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function worstSeverity(list) {
+      var best = "Medium";
+      var bestRank = 0;
+      (list || []).forEach(function (r) {
+        var sev = severityOf(r);
+        var rank = SEVERITY_RANK[sev] || 0;
+        if (rank > bestRank) {
+          bestRank = rank;
+          best = sev;
+        }
+      });
+      return best;
+    }
+
     var markerLayer = L.layerGroup().addTo(map);
     var heatLayer = null;
+    var groups = {};
+
+    function popupHtml(key) {
+      var group = groups[key];
+      if (!group) return "";
+      var report = group.list[group.idx];
+      var sev = severityOf(report);
+      var color = SEVERITY_COLOR[sev] || "#294880";
+      var score = report.ai_score != null ? report.ai_score + "%" : "\u2014";
+      var html =
+        '<div class="cs-pop">' +
+          '<div class="cs-pop-top">' +
+            '<span class="cs-pop-badge" style="background:' + color + ';">' +
+              sev +
+            "</span>" +
+            '<span class="cs-pop-title">' +
+              esc(report.incident_type || "Incident") +
+            "</span>" +
+          "</div>" +
+          '<div class="cs-pop-loc">' + esc(report.location || "") + "</div>" +
+          '<div class="cs-pop-meta">' +
+            "<span>Status: " + esc(report.status || "Pending Review") + "</span>" +
+            "<span>AI Score: " + score + "</span>" +
+          "</div>";
+      if (group.list.length > 1) {
+        html +=
+          '<div class="cs-pop-nav">' +
+            '<button class="cs-nav-btn" type="button" data-key="' +
+            esc(key) +
+            '" data-dir="-1">\u2039 Prev</button>' +
+            '<span class="cs-nav-count">' +
+            (group.idx + 1) +
+            " / " +
+            group.list.length +
+            "</span>" +
+            '<button class="cs-nav-btn" type="button" data-key="' +
+            esc(key) +
+            '" data-dir="1">Next \u203A</button>' +
+          "</div>";
+      }
+      return html + "</div>";
+    }
+
+    window.__csShift = function (key, dir) {
+      var group = groups[key];
+      if (!group || group.list.length < 2) return;
+      group.idx = (group.idx + dir + group.list.length) % group.list.length;
+      group.marker.setPopupContent(popupHtml(key));
+      if (!group.marker.isPopupOpen()) group.marker.openPopup();
+    };
+
+    document.getElementById("map").addEventListener("click", function (e) {
+      var btn =
+        e.target && e.target.closest ? e.target.closest(".cs-nav-btn") : null;
+      if (!btn) return;
+      window.__csShift(
+        btn.getAttribute("data-key"),
+        Number(btn.getAttribute("data-dir"))
+      );
+    });
 
     function render(list) {
       markerLayer.clearLayers();
@@ -72,6 +170,7 @@ const MAP_HTML = `
         map.removeLayer(heatLayer);
         heatLayer = null;
       }
+      groups = {};
 
       var points = [];
 
@@ -84,23 +183,28 @@ const MAP_HTML = `
         var sev = severityOf(r);
         points.push([lat, lng, SEVERITY_INTENSITY[sev]]);
 
-        var marker = L.circleMarker([lat, lng], {
-          radius: 8,
-          color: "#FFFFFF",
-          weight: 2,
-          fillColor: SEVERITY_COLOR[sev] || "#294880",
-          fillOpacity: 0.9,
-        });
+        var key = lat.toFixed(4) + "," + lng.toFixed(4);
+        if (!groups[key]) groups[key] = { list: [], idx: 0, marker: null };
+        groups[key].list.push(r);
+      });
 
-        var score = r.ai_score != null ? r.ai_score + "%" : "\u2014";
-        marker.bindPopup(
-          "<b>" + (r.incident_type || "Incident") + "</b><br/>" +
-            (r.location || "") +
-            "<br/>Status: " + (r.status || "Pending Review") +
-            "<br/>Severity: " + (r.severity || "Medium") +
-            "<br/>AI Score: " + score
+      Object.keys(groups).forEach(function (key) {
+        var group = groups[key];
+        var first = group.list[0];
+        var sev = worstSeverity(group.list);
+        var marker = L.circleMarker(
+          [Number(first.latitude), Number(first.longitude)],
+          {
+            radius: DOT_RADIUS[sev] || 8,
+            color: "#FFFFFF",
+            weight: 2.5,
+            fillColor: SEVERITY_COLOR[sev] || "#294880",
+            fillOpacity: 0.95,
+            className: "cs-dot",
+          }
         );
-
+        marker.bindPopup(popupHtml(key));
+        group.marker = marker;
         markerLayer.addLayer(marker);
       });
 

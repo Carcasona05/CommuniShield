@@ -8,9 +8,11 @@ import {
   TextInput,
   Platform,
   ScrollView,
-  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useToast } from "../Toast";
+import { digitsOnly, isValidEmail, isValidPhone } from "../../services/validation";
 
 const COLORS = {
   primary: "#294880",
@@ -56,6 +58,7 @@ export default function Admin_EditAdminReq({
   onClose,
   onSave,
 }) {
+  const toast = useToast();
   const [formData, setFormData] = useState({
     id: "",
     name: "",
@@ -81,15 +84,25 @@ export default function Admin_EditAdminReq({
   }, [admin]);
 
   const showMessage = (title, message) => {
-    if (Platform.OS === "web") {
-      window.alert(`${title}\n\n${message}`);
-      return;
+    const fullMessage = `${title}. ${message}`;
+    const lowerTitle = title.toLowerCase();
+    if (
+      lowerTitle.includes("fail") ||
+      lowerTitle.includes("missing") ||
+      lowerTitle.includes("mismatch") ||
+      lowerTitle.includes("invalid") ||
+      lowerTitle.includes("error") ||
+      lowerTitle.includes("required")
+    ) {
+      toast.error(fullMessage);
+    } else {
+      toast.success(fullMessage);
     }
-
-    Alert.alert(title, message);
   };
 
-  const handleSave = () => {
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
     if (
       !formData.name ||
       !formData.email ||
@@ -101,7 +114,25 @@ export default function Admin_EditAdminReq({
       return;
     }
 
-    onSave(formData);
+    if (!isValidEmail(formData.email)) {
+      showMessage("Invalid Email", "Please enter a valid email address.");
+      return;
+    }
+
+    if (!isValidPhone(formData.phone)) {
+      showMessage(
+        "Invalid Phone Number",
+        "Phone number must be exactly 11 digits."
+      );
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await onSave(formData);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!admin) {
@@ -241,10 +272,10 @@ export default function Admin_EditAdminReq({
                   onChangeText={(text) =>
                     setFormData({
                       ...formData,
-                      phone: text,
+                      phone: digitsOnly(text),
                     })
                   }
-                  placeholder="Enter phone number"
+                  placeholder="Enter 11-digit phone number"
                   icon="call-outline"
                   keyboardType="phone-pad"
                 />
@@ -253,13 +284,27 @@ export default function Admin_EditAdminReq({
           </ScrollView>
 
           <View style={styles.footerActions}>
-            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+            <TouchableOpacity
+              style={[styles.cancelButton, saving && styles.buttonDisabled]}
+              onPress={onClose}
+              disabled={saving}
+            >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-              <Ionicons name="save-outline" size={18} color={COLORS.white} />
-              <Text style={styles.saveButtonText}>Save Edit Request</Text>
+            <TouchableOpacity
+              style={[styles.saveButton, saving && styles.buttonDisabled]}
+              onPress={handleSave}
+              disabled={saving}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <Ionicons name="save-outline" size={18} color={COLORS.white} />
+              )}
+              <Text style={styles.saveButtonText}>
+                {saving ? "Saving..." : "Save Edit Request"}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -528,6 +573,10 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 14,
     fontWeight: "800",
+  },
+
+  buttonDisabled: {
+    opacity: 0.45,
   },
 
   SaveIcon: {

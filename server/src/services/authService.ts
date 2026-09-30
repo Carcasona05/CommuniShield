@@ -154,20 +154,32 @@ export const profileService = {
     return { accepted: !!data, error: null };
   },
 
-  async createAdmin(email: string, password: string, name: string, role?: string, department?: string, phone?: string) {
+  async createAdmin(
+    email: string,
+    password: string,
+    names: { firstName?: string; middleName?: string; lastName?: string; fallbackName?: string },
+    role?: string,
+    department?: string,
+    phone?: string
+  ) {
+    const firstName = (names.firstName || names.fallbackName || "").trim();
+    const middleName = (names.middleName || "").trim();
+    const lastName = (names.lastName || "").trim();
+    const displayName = [firstName, middleName, lastName].filter(Boolean).join(" ");
+
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: { name },
+      user_metadata: { name: displayName, firstName, middleName, lastName },
     });
 
     if (error) return { error };
 
     const updates: Record<string, unknown> = {
-      first_name: name,
-      middle_name: "",
-      last_name: "",
+      first_name: firstName,
+      middle_name: middleName,
+      last_name: lastName,
       role: normalizeRole(role),
     };
     if (department) updates.department = department;

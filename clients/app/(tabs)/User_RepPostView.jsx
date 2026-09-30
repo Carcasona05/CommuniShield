@@ -3,8 +3,9 @@ import { useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
 import User_RepPostView_Layout from "../../components/User_compo/User_RepPostView_Layout";
+import ToastProvider from "../../components/Toast";
 
-const User_RepPostView = () => {
+const User_RepPostViewInner = () => {
   const { post } = useLocalSearchParams();
 
   let parsedPost = null;
@@ -38,5 +39,11 @@ const User_RepPostView = () => {
 
   return <User_RepPostView_Layout post={freshPost} />;
 };
+
+const User_RepPostView = () => (
+  <ToastProvider>
+    <User_RepPostViewInner />
+  </ToastProvider>
+);
 
 export default User_RepPostView;

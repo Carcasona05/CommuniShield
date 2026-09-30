@@ -121,11 +121,20 @@ export default function ToastProvider({ children }) {
               },
             ]}
           >
-            <View style={styles.iconCircle}>
-              <Ionicons name={config.icon} size={18} color={config.iconColor} />
+            <View
+              style={[styles.iconCircle, isDesktop && styles.iconCircleDesktop]}
+            >
+              <Ionicons
+                name={config.icon}
+                size={isDesktop ? 22 : 18}
+                color={config.iconColor}
+              />
             </View>
 
-            <Text style={styles.toastText} numberOfLines={3}>
+            <Text
+              style={[styles.toastText, isDesktop && styles.toastTextDesktop]}
+              numberOfLines={3}
+            >
               {toast.message}
             </Text>
           </Animated.View>
@@ -169,13 +178,13 @@ const styles = StyleSheet.create({
   },
 
   toastDesktop: {
-    width: 380,
-    maxWidth: 380,
-    borderRadius: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
+    width: 460,
+    maxWidth: 460,
+    borderRadius: 12,
+    paddingHorizontal: 22,
+    paddingVertical: 16,
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
   },
 
   iconCircle: {
@@ -188,11 +197,23 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
 
+  iconCircleDesktop: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    marginRight: 14,
+  },
+
   toastText: {
     flex: 1,
     fontSize: 13,
     fontFamily: "PoppinsMedium",
     color: "#FFFFFF",
     lineHeight: 19,
+  },
+
+  toastTextDesktop: {
+    fontSize: 16,
+    lineHeight: 24,
   },
 });

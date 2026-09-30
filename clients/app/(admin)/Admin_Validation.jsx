@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
+import { useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import { ListSkeleton } from "../../components/PageSkeletons";
@@ -141,7 +142,7 @@ const handleAddAnnouncement = () => {
     }
   }, []);
 
-  useAutoRefresh(loadValidation, 30000);
+  useAutoRefresh(loadValidation, 60000);
 
   const statusFilters = [
     "All",
@@ -335,6 +336,35 @@ const handleAddAnnouncement = () => {
       return matchesStatus && matchesWeek;
     });
   }, [groupedReports, selectedStatus, selectedWeekRange]);
+
+  const searchParams = useLocalSearchParams();
+  const openReportParam = searchParams?.openReport;
+  const openReportNonce = searchParams?.notifNonce;
+  const consumedOpenReport = useRef(null);
+
+  useEffect(() => {
+    const target = Array.isArray(openReportParam)
+      ? openReportParam[0]
+      : openReportParam;
+    const nonce = Array.isArray(openReportNonce)
+      ? openReportNonce[0]
+      : openReportNonce;
+
+    if (!target || loading) return;
+
+    const consumeKey = nonce ? `${target}:${nonce}` : target;
+    if (consumedOpenReport.current === consumeKey) return;
+
+    const group = groupedReports.find((g) =>
+      g.reports.some((report) => report.id === target)
+    );
+
+    if (!group) return;
+
+    consumedOpenReport.current = consumeKey;
+    setSelectedCompiledGroup(group);
+    setViewVisible(true);
+  }, [openReportParam, openReportNonce, groupedReports, loading]);
 
   if (!fontsLoaded) {
     return null;
@@ -579,7 +609,9 @@ const handleAddAnnouncement = () => {
   const handleAnnouncementSubmit = async (announcement) => {
     try {
       const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
+      if (!token) {
+        throw new Error("Please sign in before posting an announcement.");
+      }
 
       let picUrl = null;
       if (announcement.image?.uri) {
@@ -594,6 +626,7 @@ const handleAddAnnouncement = () => {
         "/admin/announcements",
         {
           type: announcement.type,
+          title: announcement.title,
           location: announcement.location,
           details: announcement.details,
           pic_url: picUrl,
@@ -604,8 +637,10 @@ const handleAddAnnouncement = () => {
       setAddAnnouncementVisible(false);
       toast.success("The announcement has been posted.");
     } catch (error) {
-      toast.error(
-        error?.response?.data?.error || "Could not publish the announcement."
+      throw new Error(
+        error?.response?.data?.error ||
+          error?.message ||
+          "Could not publish the announcement."
       );
     }
   };

@@ -175,7 +175,7 @@ function SAdmin_AdminAccounts() {
     }
   }, []);
 
-  useAutoRefresh(fetchAccounts, 30000);
+  useAutoRefresh(fetchAccounts, 60000);
 
   useEffect(() => {
     fetchAccounts();
@@ -244,6 +244,9 @@ function SAdmin_AdminAccounts() {
         "/admin/register",
         {
           name: newAdmin.name,
+          first_name: newAdmin.firstName,
+          middle_name: newAdmin.middleName,
+          last_name: newAdmin.lastName,
           email: newAdmin.email,
           password: newAdmin.password,
           role: newAdmin.role,
@@ -256,8 +259,10 @@ function SAdmin_AdminAccounts() {
       setIsAddAdminVisible(false);
       showMessage("Admin Added", "New admin account has been added successfully.");
       fetchAccounts();
+      return true;
     } catch (error) {
       showMessage("Error", error.response?.data?.error || "Failed to add admin");
+      return false;
     }
   };
 
@@ -273,7 +278,7 @@ function SAdmin_AdminAccounts() {
   const handleSaveEdit = async (updatedAdmin) => {
     if ((updatedAdmin.email || "").toLowerCase() === currentAdminEmail) {
       showMessage("Restricted", "You cannot edit your own account here. Use Settings instead.");
-      return;
+      return false;
     }
     try {
       const config = await getTokenHeaders();
@@ -283,8 +288,10 @@ function SAdmin_AdminAccounts() {
       setIsEditRequestVisible(false);
       showMessage("Edit Request Saved", "The admin account was updated successfully.");
       fetchAccounts();
+      return true;
     } catch (error) {
       showMessage("Error", error.response?.data?.error || "Failed to update admin");
+      return false;
     }
   };
 

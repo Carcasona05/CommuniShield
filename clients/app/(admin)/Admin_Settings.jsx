@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   TextInput,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
@@ -15,6 +16,13 @@ import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import { SettingsSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
+import {
+  digitsOnly,
+  isValidEmail,
+  isValidPhone,
+  joinFullName,
+  passwordPolicyError,
+} from "../../services/validation";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import ToastProvider, { useToast } from "../../components/Toast";
 
@@ -33,12 +41,7 @@ const COLORS = {
 
 const validateNewPassword = (value) => {
   if (!value) return "Password is required.";
-  if (value.length < 6) return "Password must be at least 6 characters.";
-  if (!/[A-Z]/.test(value))
-    return "Password must contain at least one capital letter.";
-  if (!/[\d\W_]/.test(value))
-    return "Password must contain at least one number or symbol.";
-  return "";
+  return passwordPolicyError(value);
 };
 
 const validateConfirmPassword = (value, newPasswordValue) => {
@@ -82,6 +85,7 @@ function InputField({
   keyboardType,
   icon,
   error,
+  editable = true,
 }) {
   const [showPassword, setShowPassword] = useState(false);
 
@@ -89,7 +93,13 @@ function InputField({
     <View style={styles.inputGroup}>
       <Text style={styles.inputLabel}>{label}</Text>
 
-      <View style={[styles.inputWrap, error && styles.inputWrapError]}>
+      <View
+        style={[
+          styles.inputWrap,
+          error && styles.inputWrapError,
+          !editable && styles.inputWrapDisabled,
+        ]}
+      >
         <Ionicons name={icon} size={18} color={COLORS.textMuted} />
         <TextInput
           value={value}
@@ -98,6 +108,7 @@ function InputField({
           placeholderTextColor={COLORS.textMuted}
           secureTextEntry={secureTextEntry && !showPassword}
           keyboardType={keyboardType}
+          editable={editable}
           style={styles.textInput}
         />
         {secureTextEntry ? (
@@ -134,13 +145,18 @@ function Admin_Settings() {
 
   const [profile, setProfile] = useState(() => {
     const cached = getCache("api:/profile");
+    const legacyName = cached?.name || cached?.fullname || "";
     return {
-      fullName: cached?.name || cached?.fullname || "",
+      firstName: cached?.first_name || legacyName,
+      middleName: cached?.middle_name || "",
+      lastName: cached?.last_name || "",
       username: cached?.user_name || "",
       phone: cached?.phone || "",
       department: cached?.department || "",
     };
   });
+
+  const initialProfileRef = useRef(profile);
 
   const [emailData, setEmailData] = useState(() => ({
     currentEmail: getCache("api:/profile")?.email || "",
@@ -158,6 +174,9 @@ function Admin_Settings() {
   const [currentPasswordError, setCurrentPasswordError] = useState("");
   const [newPasswordError, setNewPasswordError] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
 
   const updatePasswordField = (key, value) => {
     setPasswordData((prev) => {
@@ -188,12 +207,17 @@ function Admin_Settings() {
 
       const cached = getCache("api:/profile");
       if (cached) {
-        setProfile({
-          fullName: cached.name || cached.fullname || "",
+        const legacyName = cached.name || cached.fullname || "";
+        const cachedProfile = {
+          firstName: cached.first_name || legacyName,
+          middleName: cached.middle_name || "",
+          lastName: cached.last_name || "",
           username: cached.user_name || "",
           phone: cached.phone || "",
           department: cached.department || "",
-        });
+        };
+        setProfile(cachedProfile);
+        initialProfileRef.current = cachedProfile;
         setEmailData((prev) => ({ ...prev, currentEmail: cached.email || "" }));
       }
 
@@ -204,12 +228,17 @@ function Admin_Settings() {
       const data = res.data ?? {};
       setCache("api:/profile", data);
 
-      setProfile({
-        fullName: data.name || data.fullname || "",
+      const legacyName = data.name || data.fullname || "";
+      const serverProfile = {
+        firstName: data.first_name || legacyName,
+        middleName: data.middle_name || "",
+        lastName: data.last_name || "",
         username: data.user_name || "",
         phone: data.phone || "",
         department: data.department || "",
-      });
+      };
+      setProfile(serverProfile);
+      initialProfileRef.current = serverProfile;
 
       setEmailData((prev) => ({ ...prev, currentEmail: data.email || "" }));
     } catch {
@@ -219,7 +248,7 @@ function Admin_Settings() {
     }
   }, []);
 
-  useAutoRefresh(loadProfile, 30000);
+  useAutoRefresh(loadProfile, 60000);
 
   useEffect(() => {
     loadProfile();
@@ -239,16 +268,45 @@ function Admin_Settings() {
 
   const showMessage = (title, message) => {
     const fullMessage = `${title}. ${message}`;
-    if (title.toLowerCase().includes("fail") || title.toLowerCase().includes("missing") || title.toLowerCase().includes("mismatch")) {
+    const lowerTitle = title.toLowerCase();
+    if (
+      lowerTitle.includes("fail") ||
+      lowerTitle.includes("missing") ||
+      lowerTitle.includes("mismatch") ||
+      lowerTitle.includes("invalid") ||
+      lowerTitle.includes("error") ||
+      lowerTitle.includes("required")
+    ) {
       toast.error(fullMessage);
     } else {
       toast.success(fullMessage);
     }
   };
 
+  const profileDirty =
+    profile.firstName !== initialProfileRef.current.firstName ||
+    profile.middleName !== initialProfileRef.current.middleName ||
+    profile.lastName !== initialProfileRef.current.lastName ||
+    profile.username !== initialProfileRef.current.username ||
+    profile.phone !== initialProfileRef.current.phone ||
+    profile.department !== initialProfileRef.current.department;
+
+  const fullName = joinFullName(profile);
+
+  const emailReady = Boolean(
+    emailData.currentEmail && emailData.newEmail && emailData.confirmEmail
+  );
+
+  const passwordReady = Boolean(
+    passwordData.currentPassword &&
+      passwordData.newPassword &&
+      passwordData.confirmPassword
+  );
+
   const handleProfileSave = async () => {
     if (
-      !profile.fullName ||
+      !profile.firstName ||
+      !profile.lastName ||
       !profile.username ||
       !profile.phone ||
       !profile.department
@@ -257,6 +315,12 @@ function Admin_Settings() {
       return;
     }
 
+    if (!isValidPhone(profile.phone)) {
+      showMessage("Invalid Phone Number", "Phone number must be exactly 11 digits.");
+      return;
+    }
+
+    setSavingProfile(true);
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
@@ -264,7 +328,9 @@ function Admin_Settings() {
       await apiClient.put(
         "/profile",
         {
-          first_name: profile.fullName,
+          first_name: profile.firstName.trim(),
+          middle_name: profile.middleName.trim(),
+          last_name: profile.lastName.trim(),
           user_name: profile.username,
           phone: profile.phone,
           department: profile.department,
@@ -275,8 +341,11 @@ function Admin_Settings() {
       const cached = getCache("api:/profile");
       setCache("api:/profile", {
         ...(cached || {}),
-        name: profile.fullName,
-        fullname: profile.fullName,
+        name: fullName,
+        fullname: fullName,
+        first_name: profile.firstName.trim(),
+        middle_name: profile.middleName.trim(),
+        last_name: profile.lastName.trim(),
         user_name: profile.username,
         phone: profile.phone,
         department: profile.department,
@@ -286,11 +355,14 @@ function Admin_Settings() {
         "Profile Updated",
         "Your profile details have been updated successfully."
       );
+      initialProfileRef.current = { ...profile };
     } catch (error) {
       showMessage(
         "Update Failed",
         error.response?.data?.error || "Could not update your profile."
       );
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -308,6 +380,12 @@ function Admin_Settings() {
       return;
     }
 
+    if (!isValidEmail(emailData.newEmail)) {
+      showMessage("Invalid Email", "Please enter a valid email address.");
+      return;
+    }
+
+    setSavingEmail(true);
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
@@ -336,6 +414,8 @@ function Admin_Settings() {
         "Update Failed",
         error.response?.data?.error || "Could not update your email."
       );
+    } finally {
+      setSavingEmail(false);
     }
   };
 
@@ -355,6 +435,7 @@ function Admin_Settings() {
 
     if (currentError || newError || confirmError) return;
 
+    setSavingPassword(true);
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
@@ -388,6 +469,8 @@ function Admin_Settings() {
         "Update Failed",
         error.response?.data?.error || "Could not update your password."
       );
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -406,13 +489,41 @@ function Admin_Settings() {
           >
             <View style={styles.inputGrid}>
               <InputField
-                label="Full Name"
-                value={profile.fullName}
+                label="First Name"
+                value={profile.firstName}
                 onChangeText={(text) =>
-                  setProfile({ ...profile, fullName: text })
+                  setProfile({ ...profile, firstName: text })
                 }
-                placeholder="Enter full name"
+                placeholder="Enter first name"
                 icon="person-outline"
+              />
+
+              <InputField
+                label="Middle Name"
+                value={profile.middleName}
+                onChangeText={(text) =>
+                  setProfile({ ...profile, middleName: text })
+                }
+                placeholder="Enter middle name"
+                icon="person-outline"
+              />
+
+              <InputField
+                label="Last Name"
+                value={profile.lastName}
+                onChangeText={(text) =>
+                  setProfile({ ...profile, lastName: text })
+                }
+                placeholder="Enter last name"
+                icon="person-outline"
+              />
+
+              <InputField
+                label="Full Name"
+                value={fullName}
+                placeholder="Auto-generated from name parts"
+                icon="badge-outline"
+                editable={false}
               />
 
               <InputField
@@ -428,8 +539,10 @@ function Admin_Settings() {
               <InputField
                 label="Phone Number"
                 value={profile.phone}
-                onChangeText={(text) => setProfile({ ...profile, phone: text })}
-                placeholder="Enter phone number"
+                onChangeText={(text) =>
+                  setProfile({ ...profile, phone: digitsOnly(text) })
+                }
+                placeholder="Enter 11-digit phone number"
                 keyboardType="phone-pad"
                 icon="call-outline"
               />
@@ -447,11 +560,21 @@ function Admin_Settings() {
 
             <View style={styles.actionRow}>
               <TouchableOpacity
-                style={styles.saveButton}
+                style={[
+                  styles.saveButton,
+                  (!profileDirty || savingProfile) && styles.saveButtonDisabled,
+                ]}
                 onPress={handleProfileSave}
+                disabled={!profileDirty || savingProfile}
               >
-                <Ionicons name="save-outline" size={18} color={COLORS.white} />
-                <Text style={styles.saveButtonText}>Save Profile</Text>
+                {savingProfile ? (
+                  <ActivityIndicator size="small" color={COLORS.white} />
+                ) : (
+                  <Ionicons name="save-outline" size={18} color={COLORS.white} />
+                )}
+                <Text style={styles.saveButtonText}>
+                  {savingProfile ? "Saving..." : "Save Profile"}
+                </Text>
               </TouchableOpacity>
             </View>
           </FormSection>
@@ -498,11 +621,21 @@ function Admin_Settings() {
 
             <View style={styles.actionRow}>
               <TouchableOpacity
-                style={styles.saveButton}
+                style={[
+                  styles.saveButton,
+                  (!emailReady || savingEmail) && styles.saveButtonDisabled,
+                ]}
                 onPress={handleEmailSave}
+                disabled={!emailReady || savingEmail}
               >
-                <Ionicons name="mail-outline" size={18} color={COLORS.white} />
-                <Text style={styles.saveButtonText}>Update Email</Text>
+                {savingEmail ? (
+                  <ActivityIndicator size="small" color={COLORS.white} />
+                ) : (
+                  <Ionicons name="mail-outline" size={18} color={COLORS.white} />
+                )}
+                <Text style={styles.saveButtonText}>
+                  {savingEmail ? "Updating..." : "Update Email"}
+                </Text>
               </TouchableOpacity>
             </View>
           </FormSection>
@@ -555,22 +688,32 @@ function Admin_Settings() {
                 color={COLORS.primary}
               />
               <Text style={styles.passwordNoteText}>
-                Password must be at least 6 characters with a capital letter,
-                and a number or symbol.
+                Password must be 8 to 16 characters with at least one uppercase
+                letter, one number, and one special character.
               </Text>
             </View>
 
             <View style={styles.actionRow}>
               <TouchableOpacity
-                style={styles.saveButton}
+                style={[
+                  styles.saveButton,
+                  (!passwordReady || savingPassword) && styles.saveButtonDisabled,
+                ]}
                 onPress={handlePasswordSave}
+                disabled={!passwordReady || savingPassword}
               >
-                <Ionicons
-                  name="lock-closed-outline"
-                  size={18}
-                  color={COLORS.white}
-                />
-                <Text style={styles.saveButtonText}>Update Password</Text>
+                {savingPassword ? (
+                  <ActivityIndicator size="small" color={COLORS.white} />
+                ) : (
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={18}
+                    color={COLORS.white}
+                  />
+                )}
+                <Text style={styles.saveButtonText}>
+                  {savingPassword ? "Updating..." : "Update Password"}
+                </Text>
               </TouchableOpacity>
             </View>
           </FormSection>
@@ -766,6 +909,10 @@ const styles = StyleSheet.create({
     borderColor: "#C0392B",
   },
 
+  inputWrapDisabled: {
+    backgroundColor: "#EDF1F8",
+  },
+
   fieldErrorText: {
     width: "100%",
     color: "#C0392B",
@@ -809,6 +956,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+  },
+
+  saveButtonDisabled: {
+    opacity: 0.45,
   },
 
   saveButtonText: {

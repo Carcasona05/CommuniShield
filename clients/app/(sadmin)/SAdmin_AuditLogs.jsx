@@ -38,6 +38,58 @@ const formatLogTime = (iso) => {
   );
 };
 
+const formatLogValue = (value) => {
+  if (typeof value !== "string" || value === "") return "";
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      if (parsed.length === 0) return "";
+      if (parsed.length === 1) {
+        const entry = parsed[0] || {};
+        const status = entry.status || "";
+        const label = entry.label || "";
+        if (status && status !== "succeeded") return status;
+        if (label) {
+          let pct = null;
+          if (
+            typeof entry.confidence === "number" &&
+            Number.isFinite(entry.confidence)
+          ) {
+            pct =
+              entry.confidence <= 1
+                ? Math.round(entry.confidence * 100)
+                : Math.round(entry.confidence);
+          }
+          return pct === null ? label : `${label} (${pct}%)`;
+        }
+        return status;
+      }
+      const counts = {};
+      parsed.forEach((entry) => {
+        const key =
+          entry && entry.status && entry.status !== "succeeded"
+            ? entry.status
+            : (entry && (entry.label || entry.status)) || "unknown";
+        counts[key] = (counts[key] || 0) + 1;
+      });
+      const parts = Object.keys(counts)
+        .sort((a, b) => counts[b] - counts[a])
+        .map((key) => `${key} \u00d7 ${counts[key]}`);
+      return `${parsed.length} records \u00b7 ${parts.join(", ")}`;
+    }
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.count === "number"
+    ) {
+      return `${parsed.count} records`;
+    }
+    return value;
+  } catch {
+    return value;
+  }
+};
+
 const mapAuditLogs = (list) =>
   (list || []).map((log) => ({
     id: log.id,
@@ -175,12 +227,16 @@ function AuditLogRow({ log, isLast }) {
 
           <View style={styles.logInfoItem}>
             <Text style={styles.logInfoLabel}>Old Value</Text>
-            <Text style={styles.logInfoValue}>{log.oldValue || "N/A"}</Text>
+            <Text style={styles.logInfoValue}>
+              {formatLogValue(log.oldValue) || "N/A"}
+            </Text>
           </View>
 
           <View style={styles.logInfoItem}>
             <Text style={styles.logInfoLabel}>New Value</Text>
-            <Text style={styles.logInfoValue}>{log.newValue || "N/A"}</Text>
+            <Text style={styles.logInfoValue}>
+              {formatLogValue(log.newValue) || "N/A"}
+            </Text>
           </View>
         </View>
       </View>
@@ -229,7 +285,7 @@ export default function SAdmin_AuditLogs() {
     }
   }, []);
 
-  useAutoRefresh(loadLogs, 30000);
+  useAutoRefresh(loadLogs, 60000);
 
   const auditLogs = logs;
 

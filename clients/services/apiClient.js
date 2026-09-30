@@ -5,7 +5,7 @@ import { Platform } from "react-native";
 const BASE_URL =
   Platform.OS === "web"
     ? process.env.EXPO_PUBLIC_API_URL
-    : "https://communishield-server.vercel.app/api";
+    : "https://communishield-server-iota.vercel.app/api";
 
 const DISABLED_KEY = "disabled_reason";
 const MAX_RETRIES = 3;

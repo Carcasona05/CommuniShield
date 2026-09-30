@@ -269,7 +269,7 @@ const User_Home = () => {
     }
   }, []);
 
-  useAutoRefresh(loadReports, 30000);
+  useAutoRefresh(loadReports, 60000);
 
   useEffect(() => subscribeRefresh(loadReports), [loadReports]);
 

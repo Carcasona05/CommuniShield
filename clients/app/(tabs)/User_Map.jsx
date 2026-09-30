@@ -141,7 +141,7 @@ const UserMap = () => {
     }
   }, [userPosition]);
 
-  useAutoRefresh(loadFacilities, 30000);
+  useAutoRefresh(loadFacilities, 60000);
 
   useEffect(() => {
     if (userPosition) loadFacilities();

@@ -7,10 +7,10 @@ import {
   TextInput,
   TouchableOpacity,
   Image,
-  Alert,
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useToast } from "../Toast";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -68,6 +68,7 @@ export default function MyUser_RepPostView_Edit_Layout({
   onCancel,
   onSave,
 }) {
+  const toast = useToast();
   const [incidentCategory, setIncidentCategory] = useState(
     post?.incidentCategory || post?.category || "Public Safety Incidents"
   );
@@ -100,8 +101,7 @@ export default function MyUser_RepPostView_Edit_Layout({
 
   const handleSave = () => {
     if (!incidentCategory || !incidentType || !details.trim()) {
-      Alert.alert(
-        "Missing information",
+      toast.error(
         "Please complete the incident category, incident type, and details."
       );
       return;

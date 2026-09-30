@@ -10,6 +10,18 @@ type NotifType =
   | "system"
   | "log";
 
+const ADMIN_TYPE_NAMES = [
+  "report_submitted",
+  "ai_validation",
+  "report_approved",
+  "admin_account",
+  "system",
+  "log",
+];
+
+const NOTIFICATION_SIGNAL_CHANNEL = "cs-admin-notifications";
+const NOTIFICATION_SIGNAL_EVENT = "admin-notifications-changed";
+
 export const notificationService = {
   async getTypeId(name: string) {
     const { data, error } = await supabaseAdmin
@@ -60,18 +72,6 @@ export const notificationService = {
 
     if (error || !inserted) return { error: error?.message ?? "Insert failed" };
 
-    if (input.type === "report_status") {
-      const { error: childError } = await supabaseAdmin
-        .from("notification_report_status")
-        .insert({
-          notification_id: inserted.id,
-          report_id: input.reportId ?? null,
-          location: input.location ?? null,
-          is_verified: input.isVerified ?? false,
-        });
-      if (childError) return { error: childError.message };
-    }
-
     if (input.type === "nearby_incident") {
       const { error: childError } = await supabaseAdmin
         .from("notification_nearby_incident")
@@ -80,6 +80,16 @@ export const notificationService = {
           report_id: input.reportId ?? null,
           distance_meters: input.distanceMeters ?? null,
           level: input.level ?? "Moderate",
+        });
+      if (childError) return { error: childError.message };
+    } else if (input.reportId) {
+      const { error: childError } = await supabaseAdmin
+        .from("notification_report_status")
+        .insert({
+          notification_id: inserted.id,
+          report_id: input.reportId,
+          location: input.location ?? null,
+          is_verified: input.isVerified ?? false,
         });
       if (childError) return { error: childError.message };
     }
@@ -179,13 +189,21 @@ export const notificationService = {
   },
 
   async notifyAllAdmins(input: {
-    reportId: string;
+    reportId?: string;
     title: string;
     message: string;
     priority?: "Low" | "Medium" | "High";
     excludeUserId?: string;
+    type?: NotifType;
   }) {
-    const { reportId, title, message, priority = "High", excludeUserId } = input;
+    const {
+      reportId,
+      title,
+      message,
+      priority = "High",
+      excludeUserId,
+      type = "report_submitted",
+    } = input;
 
     const { data: admins, error: adminError } = await supabaseAdmin
       .from("profiles")
@@ -200,16 +218,61 @@ export const notificationService = {
 
       const { error } = await this.createNotification({
         userId: admin.id,
-        type: "report_submitted",
+        type,
         title,
         message,
         priority,
-        reportId,
+        ...(reportId ? { reportId } : {}),
       });
       if (!error) notified += 1;
     }
 
+    if (notified > 0) {
+      await this.publishNotificationsChanged();
+    }
+
     return { data: notified, error: null };
+  },
+
+  async publishNotificationsChanged() {
+    const channel = supabaseAdmin.channel(NOTIFICATION_SIGNAL_CHANNEL);
+
+    try {
+      const joined = await Promise.race([
+        new Promise<boolean>((resolve) => {
+          channel.subscribe((status) => {
+            if (status === "SUBSCRIBED") {
+              resolve(true);
+              return;
+            }
+            if (
+              status === "CHANNEL_ERROR" ||
+              status === "TIMED_OUT" ||
+              status === "CLOSED"
+            ) {
+              resolve(false);
+            }
+          });
+        }),
+        new Promise<boolean>((resolve) => {
+          setTimeout(() => resolve(false), 2500);
+        }),
+      ]);
+
+      if (joined) {
+        await channel.send({
+          type: "broadcast",
+          event: NOTIFICATION_SIGNAL_EVENT,
+          payload: {},
+        });
+      }
+    } catch {
+    } finally {
+      try {
+        await supabaseAdmin.removeChannel(channel);
+      } catch {
+      }
+    }
   },
 
   async createLoginActivity(input: {
@@ -338,7 +401,7 @@ export const notificationService = {
     return { data: activities, error: null };
   },
 
-  async listAdminNotifications(userId?: string) {
+  async listAdminNotifications(userId?: string, limit = 10, offset = 0) {
     const { data: types, error: typesError } = await supabaseAdmin
       .from("notification_types")
       .select("id, name");
@@ -352,36 +415,55 @@ export const notificationService = {
       typeIdByName.set(t.name, t.id);
     });
 
-    const adminTypeNames = [
-      "report_submitted",
-      "ai_validation",
-      "report_approved",
-      "admin_account",
-      "system",
-      "log",
-    ];
-    const adminTypeIds = adminTypeNames
-      .map((name) => typeIdByName.get(name))
-      .filter((id): id is string => !!id);
+    const adminTypeIds = ADMIN_TYPE_NAMES.map((name) =>
+      typeIdByName.get(name)
+    ).filter((id): id is string => !!id);
 
-    let query = supabaseAdmin
+    let countQuery = supabaseAdmin
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("is_read", false);
+
+    if (adminTypeIds.length > 0) {
+      countQuery = countQuery.in("type_id", adminTypeIds);
+    }
+    if (userId) {
+      countQuery = countQuery.eq("user_id", userId);
+    }
+    const { count: unreadCount } = await countQuery;
+
+    let pageQuery = supabaseAdmin
       .from("notifications")
       .select("id, type_id, title, message, priority, is_read, created_at")
       .order("created_at", { ascending: false });
 
     if (adminTypeIds.length > 0) {
-      query = query.in("type_id", adminTypeIds);
+      pageQuery = pageQuery.in("type_id", adminTypeIds);
     }
-
     if (userId) {
-      query = query.eq("user_id", userId);
+      pageQuery = pageQuery.eq("user_id", userId);
     }
 
-    const { data, error } = await query.limit(50);
+    const { data, error } = await pageQuery.range(offset, offset + limit - 1);
 
     if (error) return { data: null, error: error.message };
 
-    const notifications = (data || []).map((n) => {
+    const page = data || [];
+    const pageIds = page.map((n) => n.id);
+    const { data: linkRows } = pageIds.length
+      ? await supabaseAdmin
+          .from("notification_report_status")
+          .select("notification_id, report_id")
+          .in("notification_id", pageIds)
+      : { data: [] };
+    const reportByNotification = new Map<string, string>();
+    (linkRows || []).forEach(
+      (r: { notification_id: string; report_id: string | null }) => {
+        if (r.report_id) reportByNotification.set(r.notification_id, r.report_id);
+      }
+    );
+
+    const notifications = page.map((n) => {
       const rawType = nameByTypeId.get(String(n.type_id)) || "system";
       let type = "system";
       if (rawType === "report_submitted") type = "report";
@@ -401,6 +483,7 @@ export const notificationService = {
         time: n.created_at,
         priority: n.priority ?? "Low",
         unread: !n.is_read,
+        reportId: reportByNotification.get(String(n.id)) ?? null,
         route:
           type === "report" || type === "ai"
             ? "/(admin)/Admin_Validation"
@@ -408,7 +491,14 @@ export const notificationService = {
       };
     });
 
-    return { data: notifications, error: null };
+    return {
+      data: {
+        notifications,
+        unreadCount: unreadCount ?? 0,
+        hasMore: page.length === limit,
+      },
+      error: null,
+    };
   },
 
   async markRead(userId: string, notificationId: string) {
@@ -438,6 +528,31 @@ export const notificationService = {
       .from("notifications")
       .update({ is_read: true })
       .eq("id", notificationId);
+
+    if (error) return { error: error.message };
+    return { data: true };
+  },
+
+  async markAdminAllRead(userId?: string) {
+    const { data: types, error: typesError } = await supabaseAdmin
+      .from("notification_types")
+      .select("id, name");
+
+    if (typesError) return { error: typesError.message };
+
+    const adminTypeIds = (types || [])
+      .filter((t: { name: string }) => ADMIN_TYPE_NAMES.includes(t.name))
+      .map((t: { id: string }) => t.id);
+
+    let query = supabaseAdmin
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("is_read", false);
+
+    if (adminTypeIds.length > 0) query = query.in("type_id", adminTypeIds);
+    if (userId) query = query.eq("user_id", userId);
+
+    const { error } = await query;
 
     if (error) return { error: error.message };
     return { data: true };

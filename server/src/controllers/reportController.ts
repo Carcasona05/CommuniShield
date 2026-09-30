@@ -97,6 +97,22 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
       newValue: verified ? "Verified" : newStatus,
     }).catch(() => {});
 
+    const reportSeverity = await reportService.getReportSeverity(result.data.id);
+    const statusPriority = severityToPriority(reportSeverity);
+
+    await notificationService
+      .notifyAllAdmins({
+        type: "log",
+        reportId: result.data.id,
+        title: verified
+          ? `Report verified: ${toReportCode(result.data.id)}`
+          : `Report status changed to "${newStatus}"`,
+        message: `${profile?.fullname || "Admin"} updated ${toReportCode(result.data.id)} to "${verified ? "Verified" : newStatus}".`,
+        priority: statusPriority,
+        excludeUserId: user.id,
+      })
+      .catch(() => {});
+
     if (verified || newStatus === "Resolved") {
       const { data: coords } = await reportService.getReportCoords(
         result.data.id
@@ -192,6 +208,14 @@ export const createReport = async (req: AuthRequest, res: Response) => {
   }
 };
 
+const severityToPriority = (
+  severity: string | null | undefined
+): "Low" | "Medium" | "High" => {
+  if (severity === "Critical" || severity === "High") return "High";
+  if (severity === "Low") return "Low";
+  return "Medium";
+};
+
 const createReportImpl = async (req: AuthRequest, res: Response) => {
   const user = req.user;
   if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
@@ -235,16 +259,6 @@ const createReportImpl = async (req: AuthRequest, res: Response) => {
     })
     .catch(() => {});
 
-  await notificationService
-    .notifyAllAdmins({
-      reportId,
-      title: req.body?.incident_type || "New Incident Report",
-      message: `A new "${req.body?.incident_type || "incident"}" report was filed at ${req.body?.location || "an unspecified location"}.`,
-      priority: "High",
-      excludeUserId: user.id,
-    })
-    .catch(() => {});
-
   const reportLocation = createdReport.location || req.body?.location || "";
   const analysisInput = {
     incident_category: req.body?.incident_category || "",
@@ -264,6 +278,18 @@ const createReportImpl = async (req: AuthRequest, res: Response) => {
       return null;
     }),
   ]);
+
+  const reportPriority = severityToPriority(credibility?.severity);
+
+  await notificationService
+    .notifyAllAdmins({
+      reportId,
+      title: req.body?.incident_type || "New Incident Report",
+      message: `A new "${req.body?.incident_type || "incident"}" report was filed at ${req.body?.location || "an unspecified location"}.`,
+      priority: reportPriority,
+      excludeUserId: user.id,
+    })
+    .catch(() => {});
 
   res.status(201).json({
     message: "Report submitted successfully",
@@ -473,10 +499,11 @@ export const createAdminAnnouncement = async (req: AuthRequest, res: Response) =
     return res.status(403).json({ error: "Admin access only" });
   }
 
-  const { type, location, details, pic_url } = req.body ?? {};
+  const { type, title, location, details, pic_url } = req.body ?? {};
 
   const result = await reportService.createAnnouncement(user.id, {
     type,
+    title,
     location,
     details,
     pic_url,

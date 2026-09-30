@@ -459,6 +459,42 @@ describe("API", () => {
     }
   });
 
+  describe("POST /api/register enforces input validation before creating an account", () => {
+    test("rejects an invalid email address", async () => {
+      const res = await postJson("/api/register", {
+        userName: "TestUser",
+        email: "not-an-email",
+        password: "Str0ng!pass1",
+        termsVersion: "1.0",
+      });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as { error?: string };
+      assert.equal(body.error, "Please enter a valid email address");
+    });
+
+    const weakPasswordCases: Array<{ password: string; error: string }> = [
+      { password: "Sh0rt!a", error: "Password must be 8 to 16 characters." },
+      { password: "lowercase1!x", error: "Password must contain at least one uppercase letter." },
+      { password: "NoDigits!Long", error: "Password must contain at least one number." },
+      { password: "NoSpecial12345", error: "Password must contain at least one special character." },
+      { password: "TooLongPassword1234!x", error: "Password must be 8 to 16 characters." },
+    ];
+
+    for (const weak of weakPasswordCases) {
+      test(`rejects weak password "${weak.password}"`, async () => {
+        const res = await postJson("/api/register", {
+          userName: "TestUser",
+          email: "user@example.com",
+          password: weak.password,
+          termsVersion: "1.0",
+        });
+        assert.equal(res.status, 400);
+        const body = (await res.json()) as { error?: string };
+        assert.equal(body.error, weak.error);
+      });
+    }
+  });
+
   describe("protected routes reject requests without a token", () => {
     const protectedRoutes: Array<{ method: string; path: string }> = [
       { method: "GET", path: "/api/profile" },
@@ -495,6 +531,7 @@ describe("API", () => {
       { method: "PATCH", path: "/api/notifications/read-all" },
       { method: "PATCH", path: `/api/notifications/${UUID}/read` },
       { method: "GET", path: "/api/admin/notifications" },
+      { method: "PATCH", path: "/api/admin/notifications/read-all" },
       { method: "PATCH", path: `/api/admin/notifications/${UUID}/read` },
 
       { method: "GET", path: "/api/facilities/nearby" },

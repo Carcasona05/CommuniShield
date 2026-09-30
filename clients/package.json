@@ -14,6 +14,7 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-native-picker/picker": "2.11.1",
+    "@supabase/supabase-js": "^2.117.2",
     "axios": "^1.18.1",
     "expo": "~54.0.36",
     "expo-constants": "~18.0.13",

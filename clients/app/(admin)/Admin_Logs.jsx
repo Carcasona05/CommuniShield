@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -7,9 +7,11 @@ import {
   TextInput,
   StyleSheet,
   Platform,
+  Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
+import { useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
@@ -38,9 +40,62 @@ const formatLogTime = (iso) => {
   );
 };
 
+const formatLogValue = (value) => {
+  if (typeof value !== "string" || value === "") return "";
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      if (parsed.length === 0) return "";
+      if (parsed.length === 1) {
+        const entry = parsed[0] || {};
+        const status = entry.status || "";
+        const label = entry.label || "";
+        if (status && status !== "succeeded") return status;
+        if (label) {
+          let pct = null;
+          if (
+            typeof entry.confidence === "number" &&
+            Number.isFinite(entry.confidence)
+          ) {
+            pct =
+              entry.confidence <= 1
+                ? Math.round(entry.confidence * 100)
+                : Math.round(entry.confidence);
+          }
+          return pct === null ? label : `${label} (${pct}%)`;
+        }
+        return status;
+      }
+      const counts = {};
+      parsed.forEach((entry) => {
+        const key =
+          entry && entry.status && entry.status !== "succeeded"
+            ? entry.status
+            : (entry && (entry.label || entry.status)) || "unknown";
+        counts[key] = (counts[key] || 0) + 1;
+      });
+      const parts = Object.keys(counts)
+        .sort((a, b) => counts[b] - counts[a])
+        .map((key) => `${key} \u00d7 ${counts[key]}`);
+      return `${parsed.length} records \u00b7 ${parts.join(", ")}`;
+    }
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.count === "number"
+    ) {
+      return `${parsed.count} records`;
+    }
+    return value;
+  } catch {
+    return value;
+  }
+};
+
 const mapLogs = (list) =>
   (list || []).map((log) => ({
     ...log,
+    rawReportId: log.reportId || "",
     reportId: toReportCode(log.reportId || log.id),
     details: hashReportIdsInText(log.details || ""),
     dateTime: formatLogTime(log.dateTime),
@@ -61,6 +116,17 @@ export default function Admin_Logs() {
     const cached = getCache("api:/admin/logs");
     return Array.isArray(cached?.logs) ? mapLogs(cached.logs) : [];
   });
+
+  const searchParams = useLocalSearchParams();
+  const highlightParam = Array.isArray(searchParams?.highlightReport)
+    ? searchParams.highlightReport[0]
+    : searchParams?.highlightReport;
+
+  const [highlightId, setHighlightId] = useState(null);
+  const highlightConsumedRef = useRef(null);
+  const scrollRef = useRef(null);
+  const logsCardTopRef = useRef(null);
+  const rowOffsetsRef = useRef({});
 
   const loadLogs = useCallback(async () => {
     try {
@@ -87,7 +153,7 @@ export default function Admin_Logs() {
     }
   }, []);
 
-  useAutoRefresh(loadLogs, 30000);
+  useAutoRefresh(loadLogs, 60000);
 
   const filters = [
     "All",
@@ -124,6 +190,56 @@ export default function Admin_Logs() {
       return matchesFilter && matchesSearch;
     });
   }, [searchText, selectedFilter, logs]);
+
+  useEffect(() => {
+    if (!highlightParam || highlightConsumedRef.current === highlightParam) {
+      return;
+    }
+    if (loading) return;
+
+    const target = logs.find(
+      (log) => log.rawReportId && log.rawReportId === highlightParam
+    );
+    if (!target) return;
+
+    highlightConsumedRef.current = highlightParam;
+    setHighlightId(target.id);
+  }, [highlightParam, logs, loading]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+
+    const timer = setTimeout(() => setHighlightId(null), 3000);
+    return () => clearTimeout(timer);
+  }, [highlightId]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+
+    let tries = 0;
+    let timer = null;
+
+    const attempt = () => {
+      const cardTop = logsCardTopRef.current;
+      const rowTop = rowOffsetsRef.current[highlightId];
+
+      if (cardTop != null && rowTop != null) {
+        scrollRef.current?.scrollTo({
+          y: Math.max(cardTop + rowTop - 90, 0),
+          animated: true,
+        });
+        return;
+      }
+
+      if (tries < 15) {
+        tries += 1;
+        timer = setTimeout(attempt, 100);
+      }
+    };
+
+    timer = setTimeout(attempt, 200);
+    return () => clearTimeout(timer);
+  }, [highlightId]);
 
   if (!fontsLoaded) {
     return null;
@@ -261,8 +377,9 @@ export default function Admin_Logs() {
 
   return (
     <Admin_Layout>
-      <View style={styles.wrapper}>
+      <Pressable style={styles.wrapper} onPress={() => setHighlightId(null)}>
         <ScrollView
+          ref={scrollRef}
           style={styles.container}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -346,7 +463,12 @@ export default function Admin_Logs() {
             </ScrollView>
           </View>
 
-          <View style={styles.logsCard}>
+          <View
+            style={styles.logsCard}
+            onLayout={(e) => {
+              logsCardTopRef.current = e.nativeEvent.layout.y;
+            }}
+          >
             <View style={styles.listHeader}>
               <View>
                 <Text style={styles.sectionTitle}>Recent Admin Activity</Text>
@@ -378,7 +500,15 @@ export default function Admin_Logs() {
                 return (
                   <View
                     key={log.id}
-                    style={[styles.logRow, index !== 0 && styles.logRowBorder]}
+                    onLayout={(e) => {
+                      rowOffsetsRef.current[log.id] =
+                        e.nativeEvent.layout.y;
+                    }}
+                    style={[
+                      styles.logRow,
+                      index !== 0 && styles.logRowBorder,
+                      highlightId === log.id && styles.logRowHighlight,
+                    ]}
                   >
                     <View
                       style={[
@@ -430,7 +560,7 @@ export default function Admin_Logs() {
                         <View style={styles.statusItem}>
                           <Text style={styles.statusLabel}>Old Status</Text>
                           <Text style={styles.statusValue}>
-                            {log.oldStatus}
+                            {formatLogValue(log.oldStatus) || "\u2014"}
                           </Text>
                         </View>
 
@@ -445,7 +575,7 @@ export default function Admin_Logs() {
                         <View style={styles.statusItem}>
                           <Text style={styles.statusLabel}>New Status</Text>
                           <Text style={styles.statusValue}>
-                            {log.newStatus}
+                            {formatLogValue(log.newStatus) || "\u2014"}
                           </Text>
                         </View>
                       </View>
@@ -456,7 +586,7 @@ export default function Admin_Logs() {
             )}
           </View>
         </ScrollView>
-      </View>
+      </Pressable>
     </Admin_Layout>
   );
 }
@@ -662,6 +792,19 @@ const styles = StyleSheet.create({
   logRowBorder: {
     borderTopWidth: 1,
     borderTopColor: "#E4EAF3",
+  },
+
+  logRowHighlight: {
+    backgroundColor: "#EEF4FF",
+    borderColor: "#294880",
+    borderRadius: 10,
+    borderTopWidth: 2.5,
+    borderBottomWidth: 2.5,
+    borderLeftWidth: 2.5,
+    borderRightWidth: 2.5,
+    marginTop: 5,
+    marginBottom: 5,
+    marginHorizontal: 6,
   },
 
   logIconBox: {

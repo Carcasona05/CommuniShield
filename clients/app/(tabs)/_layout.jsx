@@ -71,7 +71,7 @@ export default function TabLayout() {
     }
   }, []);
 
-  useAutoRefresh(loadNotifications, 30000);
+  useAutoRefresh(loadNotifications, 120000);
 
   useEffect(() => {
     if (!isChildScreen) {

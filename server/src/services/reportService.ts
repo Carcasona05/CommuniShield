@@ -695,13 +695,20 @@ export const reportService = {
 
   async createAnnouncement(
     adminId: string,
-    input: { type?: string; location?: string; details?: string; pic_url?: string }
+    input: {
+      type?: string;
+      title?: string;
+      location?: string;
+      details?: string;
+      pic_url?: string;
+    }
   ) {
     const type = (input.type || "").trim();
+    const title = (input.title || "").trim();
     const details = (input.details || "").trim();
 
-    if (!type || !details) {
-      return { error: "Announcement type and details are required" };
+    if (!title || !type || !details) {
+      return { error: "Announcement title, type and details are required" };
     }
 
     const { data: announcement, error } = await supabaseAdmin
@@ -709,6 +716,7 @@ export const reportService = {
       .insert({
         admin_id: adminId,
         type,
+        title,
         location: input.location ?? "",
         details,
         pic_url: input.pic_url ?? null,
@@ -1384,6 +1392,16 @@ export const reportService = {
       },
       error: null,
     };
+  },
+
+  async getReportSeverity(reportId: string): Promise<string | null> {
+    const { data } = await supabaseAdmin
+      .from("report_credibility_analysis")
+      .select("severity")
+      .eq("report_id", reportId)
+      .maybeSingle();
+
+    return data?.severity ?? null;
   },
 
   async insertAuditLog(input: {

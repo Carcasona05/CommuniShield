@@ -25,6 +25,11 @@ import ThemedHeader from "../../components/ThemedHeader";
 import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
 import ToastProvider, { useToast } from "../../components/Toast";
+import {
+  digitsOnly,
+  isValidPhone,
+  passwordPolicyError,
+} from "../../services/validation";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -46,12 +51,7 @@ const moderateScale = (size, factor = 0.5) => {
 
 const validateNewPassword = (value) => {
   if (!value) return "Password is required.";
-  if (value.length < 6) return "Password must be at least 6 characters.";
-  if (!/[A-Z]/.test(value))
-    return "Password must contain at least one capital letter.";
-  if (!/[\d\W_]/.test(value))
-    return "Password must contain at least one number or symbol.";
-  return "";
+  return passwordPolicyError(value);
 };
 
 const validateConfirmPassword = (value, newPasswordValue) => {
@@ -407,6 +407,16 @@ const UserProfileSettings = () => {
   };
 
   const handleSave = async () => {
+    if (!tempDetails.firstName?.trim() || !tempDetails.lastName?.trim()) {
+      toast.error("First name and last name are required.");
+      return;
+    }
+
+    if (tempDetails.contactNumber && !isValidPhone(tempDetails.contactNumber)) {
+      toast.error("Phone number must be exactly 11 digits.");
+      return;
+    }
+
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) {
@@ -551,7 +561,7 @@ const UserProfileSettings = () => {
   const updateTempDetail = useCallback((key, value) => {
     setTempDetails((prev) => ({
       ...prev,
-      [key]: value,
+      [key]: key === "contactNumber" ? digitsOnly(value) : value,
     }));
   }, []);
 

@@ -198,7 +198,7 @@ export default function SAdmin_Dashboard() {
     setLoading(false);
   }, [fetchDashboard, fetchAccounts, fetchLogs]);
 
-  useAutoRefresh(loadDashboard, 30000);
+  useAutoRefresh(loadDashboard, 60000);
 
   if (!fontsLoaded) {
     return null;

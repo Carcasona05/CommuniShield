@@ -9,7 +9,6 @@ import {
   Dimensions,
   SafeAreaView,
   Platform,
-  Alert,
   ScrollView,
   ActivityIndicator,
 } from "react-native";
@@ -17,17 +16,14 @@ import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { saveAdminInfo } from "../../services/auth";
 import { IMAGES } from "../../constants/assets";
+import { isValidEmail, passwordPolicyError } from "../../services/validation";
+import ToastProvider, { useToast } from "../../components/Toast";
 
 const { width, height } = Dimensions.get("window");
 
 const validatePassword = (value) => {
   if (!value) return "Password is required.";
-  if (value.length < 6) return "Password must be at least 6 characters.";
-  if (!/[A-Z]/.test(value))
-    return "Password must contain at least one capital letter.";
-  if (!/[\d\W_]/.test(value))
-    return "Password must contain at least one number or symbol.";
-  return "";
+  return passwordPolicyError(value);
 };
 
 const validateConfirmPassword = (value, passwordValue) => {
@@ -36,7 +32,8 @@ const validateConfirmPassword = (value, passwordValue) => {
   return "";
 };
 
-export default function Admin_Register() {
+function Admin_RegisterInner() {
+  const toast = useToast();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -66,7 +63,7 @@ export default function Admin_Register() {
 
   const handleRegister = async () => {
     if (Platform.OS !== "web") {
-      Alert.alert("Restricted", "Admin register is available on web only.");
+      toast.error("Admin register is available on web only.");
       return;
     }
 
@@ -83,14 +80,12 @@ export default function Admin_Register() {
     if (pwError || confirmError) return;
 
     if (!cleanName || !cleanEmail) {
-      Alert.alert("Error", "Please fill in all fields.");
+      toast.error("Please fill in all fields.");
       return;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!emailRegex.test(cleanEmail)) {
-      Alert.alert("Error", "Please enter a valid email address.");
+    if (!isValidEmail(cleanEmail)) {
+      toast.error("Please enter a valid email address.");
       return;
     }
 
@@ -102,16 +97,10 @@ export default function Admin_Register() {
     });
     setLoading(false);
 
-    Alert.alert(
-      "Success",
-      `Admin account created successfully!\n\nEmail: ${cleanEmail}`,
-      [
-        {
-          text: "OK",
-          onPress: () => router.replace("/(admin)/Admin_Dashboard"),
-        },
-      ],
-    );
+    toast.success(`Admin account created successfully! Email: ${cleanEmail}`);
+    setTimeout(() => {
+      router.replace("/(admin)/Admin_Dashboard");
+    }, 1000);
   };
 
   if (Platform.OS !== "web") {
@@ -345,6 +334,14 @@ export default function Admin_Register() {
         </ScrollView>
       </View>
     </SafeAreaView>
+  );
+}
+
+export default function Admin_Register() {
+  return (
+    <ToastProvider>
+      <Admin_RegisterInner />
+    </ToastProvider>
   );
 }
 

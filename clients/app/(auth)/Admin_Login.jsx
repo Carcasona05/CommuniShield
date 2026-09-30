@@ -20,6 +20,7 @@ import { saveAuth, saveAdminInfo } from "../../services/auth";
 import { prefetchAllData } from "../../services/dataStore";
 import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
+import { isValidEmail } from "../../services/validation";
 
 const { width, height } = Dimensions.get("window");
 
@@ -124,6 +125,11 @@ function Admin_LoginInner() {
       return;
     }
 
+    if (!isValidEmail(cleanEmail)) {
+      toast.error("Please enter a valid email address.");
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await apiClient.post("/admin/login", {
@@ -203,6 +209,11 @@ function Admin_LoginInner() {
 
     if (!cleanEmail) {
       toast.error("Please enter your admin email address.");
+      return;
+    }
+
+    if (!isValidEmail(cleanEmail)) {
+      toast.error("Please enter a valid email address.");
       return;
     }
 

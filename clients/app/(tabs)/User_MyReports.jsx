@@ -4,7 +4,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   Modal,
   TextInput,
   Image,
@@ -22,6 +21,7 @@ import ThemedText from "../../components/ThemedText";
 import { ListSkeleton } from "../../components/PageSkeletons";
 import Dropdown from "../../components/Dropdown";
 import ToastProvider, { useToast } from "../../components/Toast";
+import ConfirmModal from "../../components/modals/ConfirmModal";
 import MyUser_RepPost_Layout from "../../components/User_compo/MyUser_RepPost_Layout";
 import apiClient from "../../services/apiClient";
 import { uploadImage } from "../../services/imageUpload";
@@ -556,6 +556,8 @@ const MyReportsInner = () => {
 
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
+  const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
 
   const loadMyReports = useCallback(async () => {
     try {
@@ -579,7 +581,7 @@ const MyReportsInner = () => {
     }
   }, []);
 
-  useAutoRefresh(loadMyReports, 30000);
+  useAutoRefresh(loadMyReports, 60000);
 
   useEffect(() => subscribeRefresh(loadMyReports), [loadMyReports]);
 
@@ -730,38 +732,34 @@ const MyReportsInner = () => {
   };
 
   const handleDeleteReport = (reportId) => {
-    Alert.alert("Delete Report", "Are you sure you want to delete this report?", [
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            const token = await AsyncStorage.getItem("access_token");
-            if (!token) return;
+    setPendingDeleteId(reportId);
+    setConfirmDeleteVisible(true);
+  };
 
-            await apiClient.delete(`/reports/${reportId}`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
+  const confirmDeleteReport = async () => {
+    const reportId = pendingDeleteId;
+    if (!reportId) return;
 
-            setMyReports((prevReports) =>
-              prevReports.filter((report) => report.id !== reportId)
-            );
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
 
-            removeCachedReport(reportId);
+      await apiClient.delete(`/reports/${reportId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-            toast.success("Report deleted successfully.");
-          } catch (error) {
-            toast.error(
-              error.response?.data?.error || "Could not delete the report."
-            );
-          }
-        },
-      },
-    ]);
+      setMyReports((prevReports) =>
+        prevReports.filter((report) => report.id !== reportId)
+      );
+
+      removeCachedReport(reportId);
+
+      toast.success("Report deleted successfully.");
+    } catch (error) {
+      toast.error(
+        error.response?.data?.error || "Could not delete the report."
+      );
+    }
   };
 
   if (!fontsLoaded) {
@@ -865,6 +863,15 @@ const MyReportsInner = () => {
         report={selectedReport}
         onClose={handleCloseEditModal}
         onSave={handleSaveEditedReport}
+      />
+
+      <ConfirmModal
+        visible={confirmDeleteVisible}
+        onClose={() => setConfirmDeleteVisible(false)}
+        onConfirm={confirmDeleteReport}
+        title="Delete Report"
+        message="Are you sure you want to delete this report?"
+        confirmLabel="Delete"
       />
     </ThemedView>
   );

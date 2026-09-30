@@ -8,12 +8,12 @@ import {
   TextInput,
   ScrollView,
   Image,
-  Alert,
 } from "react-native";
 
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
+import { useToast } from "../Toast";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -80,6 +80,7 @@ export default function Admin_AddAnnouncementModal({
   onClose,
   onSubmit,
 }) {
+  const toast = useToast();
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
     PoppinsMedium: require("../../assets/fonts/Poppins-Medium.ttf"),
@@ -87,6 +88,7 @@ export default function Admin_AddAnnouncementModal({
   });
 
   const [announcementType, setAnnouncementType] = useState("");
+  const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [locationSearch, setLocationSearch] = useState("");
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
@@ -95,6 +97,9 @@ export default function Admin_AddAnnouncementModal({
   const [image, setImage] = useState(null);
 
   const [showTypeList, setShowTypeList] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const filteredBarangays = useMemo(() => {
     const query = locationSearch.trim().toLowerCase();
@@ -108,15 +113,21 @@ export default function Admin_AddAnnouncementModal({
 
   const resetForm = () => {
     setAnnouncementType("");
+    setTitle("");
     setLocation("");
     setLocationSearch("");
     setShowLocationDropdown(false);
     setDetails("");
     setImage(null);
     setShowTypeList(false);
+    setSubmitting(false);
+    setSubmitted(false);
+    setFormError("");
   };
 
   const handleClose = () => {
+    if (submitting) return;
+
     resetForm();
     onClose();
   };
@@ -126,10 +137,7 @@ export default function Admin_AddAnnouncementModal({
       await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permission.granted) {
-      Alert.alert(
-        "Permission Required",
-        "Please allow photo access."
-      );
+      toast.error("Please allow photo access.");
       return;
     }
 
@@ -144,37 +152,48 @@ export default function Admin_AddAnnouncementModal({
     }
   };
 
-  const submit = () => {
-    if (!announcementType.trim()) {
-      Alert.alert("Required", "Please select announcement type.");
-      return;
+  const fieldErrors = {
+    title: title.trim() ? "" : "Please enter a title.",
+    announcementType: announcementType.trim()
+      ? ""
+      : "Please select announcement type.",
+    location: location.trim() ? "" : "Please enter location.",
+    details: details.trim() ? "" : "Please enter details.",
+  };
+
+  const submit = async () => {
+    setSubmitted(true);
+    setFormError("");
+
+    if (Object.values(fieldErrors).some(Boolean)) return;
+
+    try {
+      setSubmitting(true);
+
+      await onSubmit({
+        id: Date.now().toString(),
+
+        type: announcementType,
+
+        title: title.trim(),
+
+        location,
+
+        details,
+
+        image,
+
+        createdAt: new Date().toISOString(),
+      });
+
+      resetForm();
+    } catch (error) {
+      setFormError(
+        error?.message || "Could not publish the announcement."
+      );
+    } finally {
+      setSubmitting(false);
     }
-
-    if (!location.trim()) {
-      Alert.alert("Required", "Please enter location.");
-      return;
-    }
-
-    if (!details.trim()) {
-      Alert.alert("Required", "Please enter details.");
-      return;
-    }
-
-    onSubmit({
-      id: Date.now().toString(),
-
-      type: announcementType,
-
-      location,
-
-      details,
-
-      image,
-
-      createdAt: new Date().toISOString(),
-    });
-
-    resetForm();
   };
 
   return (
@@ -231,6 +250,28 @@ export default function Admin_AddAnnouncementModal({
             showsVerticalScrollIndicator={false}
           >
 
+            {/* TITLE */}
+
+            <Text style={styles.label}>
+              Title
+            </Text>
+
+            <TextInput
+              style={styles.input}
+              value={title}
+              onChangeText={setTitle}
+              placeholder="e.g. Road Closure in Poblacion"
+              placeholderTextColor="#8A94A6"
+              maxLength={120}
+              editable={!submitting}
+            />
+
+            {submitted && fieldErrors.title ? (
+              <Text style={styles.errorText}>
+                {fieldErrors.title}
+              </Text>
+            ) : null}
+
             {/* Announcement Type */}
 
             <Text style={styles.label}>
@@ -239,6 +280,7 @@ export default function Admin_AddAnnouncementModal({
 
             <TouchableOpacity
               style={styles.dropdown}
+              disabled={submitting}
               onPress={() =>
                 setShowTypeList(!showTypeList)
               }
@@ -292,6 +334,12 @@ export default function Admin_AddAnnouncementModal({
               </View>
             )}
 
+            {submitted && fieldErrors.announcementType ? (
+              <Text style={styles.errorText}>
+                {fieldErrors.announcementType}
+              </Text>
+            ) : null}
+
             {/* LOCATION */}
 
             <Text style={styles.label}>
@@ -316,6 +364,7 @@ export default function Admin_AddAnnouncementModal({
                 onFocus={() => setShowLocationDropdown(true)}
                 style={styles.locationInput}
                 placeholderTextColor="#999"
+                editable={!submitting}
               />
             </View>
 
@@ -379,6 +428,12 @@ export default function Admin_AddAnnouncementModal({
               </View>
             )}
 
+            {submitted && fieldErrors.location ? (
+              <Text style={styles.errorText}>
+                {fieldErrors.location}
+              </Text>
+            ) : null}
+
             {/* DETAILS */}
 
             <Text style={styles.label}>
@@ -393,7 +448,14 @@ export default function Admin_AddAnnouncementModal({
               onChangeText={setDetails}
               textAlignVertical="top"
               style={styles.textArea}
+              editable={!submitting}
             />
+
+            {submitted && fieldErrors.details ? (
+              <Text style={styles.errorText}>
+                {fieldErrors.details}
+              </Text>
+            ) : null}
 
             {/* PHOTO */}
 
@@ -446,6 +508,20 @@ export default function Admin_AddAnnouncementModal({
 
 </ScrollView>
 
+{formError ? (
+  <View style={styles.formErrorWrap}>
+    <Ionicons
+      name="alert-circle"
+      size={16}
+      color="#E45757"
+    />
+
+    <Text style={styles.formErrorText}>
+      {formError}
+    </Text>
+  </View>
+) : null}
+
 {/* FOOTER */}
 
           <View style={styles.footer}>
@@ -453,6 +529,7 @@ export default function Admin_AddAnnouncementModal({
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={handleClose}
+              disabled={submitting}
             >
               <Text style={styles.cancelButtonText}>
                 Cancel
@@ -460,17 +537,25 @@ export default function Admin_AddAnnouncementModal({
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.submitButton}
+              style={[
+                styles.submitButton,
+                submitting && styles.submitButtonDisabled,
+              ]}
               onPress={submit}
+              disabled={submitting}
             >
               <Ionicons
-                name="checkmark-circle-outline"
+                name={
+                  submitting
+                    ? "sync-outline"
+                    : "checkmark-circle-outline"
+                }
                 size={18}
                 color="#FFFFFF"
               />
 
               <Text style={styles.submitButtonText}>
-                Submit
+                {submitting ? "Submitting..." : "Submit"}
               </Text>
             </TouchableOpacity>
 
@@ -559,6 +644,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "PoppinsRegular",
     backgroundColor: "#FFFFFF",
+    color: "#111827",
+  },
+
+  errorText: {
+    marginTop: 6,
+    marginHorizontal: 20,
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: "PoppinsRegular",
+    color: "#E45757",
+  },
+
+  formErrorWrap: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+    backgroundColor: "#FDEBEC",
+    borderWidth: 1,
+    borderColor: "#F5C6C6",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  formErrorText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: "PoppinsRegular",
+    color: "#E45757",
   },
 
   locationInputWrap: {
@@ -742,6 +859,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  submitButtonDisabled: {
+    opacity: 0.65,
   },
 
   submitButtonText: {

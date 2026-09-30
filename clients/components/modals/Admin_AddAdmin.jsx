@@ -8,9 +8,17 @@ import {
   TextInput,
   Platform,
   ScrollView,
-  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useToast } from "../Toast";
+import {
+  digitsOnly,
+  isValidEmail,
+  isValidPhone,
+  joinFullName,
+  passwordPolicyError,
+} from "../../services/validation";
 
 const COLORS = {
   primary: "#294880",
@@ -26,12 +34,7 @@ const COLORS = {
 
 const validatePassword = (value) => {
   if (!value) return "Password is required.";
-  if (value.length < 6) return "Password must be at least 6 characters.";
-  if (!/[A-Z]/.test(value))
-    return "Password must contain at least one capital letter.";
-  if (!/[0-9\W_]/.test(value))
-    return "Password must contain at least one number or symbol.";
-  return "";
+  return passwordPolicyError(value);
 };
 
 function InputField({
@@ -84,8 +87,11 @@ function InputField({
 }
 
 export default function Admin_AddAdmin({ visible, onClose, onSubmit }) {
+  const toast = useToast();
   const [formData, setFormData] = useState({
-    name: "",
+    firstName: "",
+    middleName: "",
+    lastName: "",
     email: "",
     role: "",
     department: "",
@@ -95,19 +101,30 @@ export default function Admin_AddAdmin({ visible, onClose, onSubmit }) {
 
   const [passwordSubmitted, setPasswordSubmitted] = useState(false);
   const [passwordError, setPasswordError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const showMessage = (title, message) => {
-    if (Platform.OS === "web") {
-      window.alert(`${title}\n\n${message}`);
-      return;
+    const fullMessage = `${title}. ${message}`;
+    const lowerTitle = title.toLowerCase();
+    if (
+      lowerTitle.includes("fail") ||
+      lowerTitle.includes("missing") ||
+      lowerTitle.includes("mismatch") ||
+      lowerTitle.includes("invalid") ||
+      lowerTitle.includes("error") ||
+      lowerTitle.includes("required")
+    ) {
+      toast.error(fullMessage);
+    } else {
+      toast.success(fullMessage);
     }
-
-    Alert.alert(title, message);
   };
 
   const resetForm = () => {
     setFormData({
-      name: "",
+      firstName: "",
+      middleName: "",
+      lastName: "",
       email: "",
       role: "",
       department: "",
@@ -126,11 +143,12 @@ export default function Admin_AddAdmin({ visible, onClose, onSubmit }) {
   };
 
   const handleClose = () => {
+    if (submitting) return;
     resetForm();
     onClose();
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setPasswordSubmitted(true);
     const pwError = validatePassword(formData.password);
     setPasswordError(pwError);
@@ -138,7 +156,8 @@ export default function Admin_AddAdmin({ visible, onClose, onSubmit }) {
     if (pwError) return;
 
     if (
-      !formData.name ||
+      !formData.firstName.trim() ||
+      !formData.lastName.trim() ||
       !formData.email ||
       !formData.role ||
       !formData.department ||
@@ -148,21 +167,39 @@ export default function Admin_AddAdmin({ visible, onClose, onSubmit }) {
       return;
     }
 
-    if (!formData.email.includes("@")) {
+    if (!isValidEmail(formData.email)) {
       showMessage("Invalid Email", "Please enter a valid email address.");
       return;
     }
 
-    onSubmit({
-      name: formData.name,
-      email: formData.email,
-      role: formData.role,
-      department: formData.department,
-      phone: formData.phone,
-      password: formData.password,
-    });
+    if (!isValidPhone(formData.phone)) {
+      showMessage(
+        "Invalid Phone Number",
+        "Phone number must be exactly 11 digits."
+      );
+      return;
+    }
 
-    resetForm();
+    setSubmitting(true);
+    try {
+      const result = await onSubmit({
+        name: joinFullName(formData),
+        firstName: formData.firstName.trim(),
+        middleName: formData.middleName.trim(),
+        lastName: formData.lastName.trim(),
+        email: formData.email,
+        role: formData.role,
+        department: formData.department,
+        phone: formData.phone,
+        password: formData.password,
+      });
+
+      if (result !== false) {
+        resetForm();
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -213,15 +250,41 @@ export default function Admin_AddAdmin({ visible, onClose, onSubmit }) {
 
               <View style={styles.inputGrid}>
                 <InputField
-                  label="Full Name"
-                  value={formData.name}
+                  label="First Name"
+                  value={formData.firstName}
                   onChangeText={(text) =>
                     setFormData({
                       ...formData,
-                      name: text,
+                      firstName: text,
                     })
                   }
-                  placeholder="Enter full name"
+                  placeholder="Enter first name"
+                  icon="person-outline"
+                />
+
+                <InputField
+                  label="Middle Name"
+                  value={formData.middleName}
+                  onChangeText={(text) =>
+                    setFormData({
+                      ...formData,
+                      middleName: text,
+                    })
+                  }
+                  placeholder="Enter middle name"
+                  icon="person-outline"
+                />
+
+                <InputField
+                  label="Last Name"
+                  value={formData.lastName}
+                  onChangeText={(text) =>
+                    setFormData({
+                      ...formData,
+                      lastName: text,
+                    })
+                  }
+                  placeholder="Enter last name"
                   icon="person-outline"
                 />
 
@@ -271,10 +334,10 @@ export default function Admin_AddAdmin({ visible, onClose, onSubmit }) {
                   onChangeText={(text) =>
                     setFormData({
                       ...formData,
-                      phone: text,
+                      phone: digitsOnly(text),
                     })
                   }
-                  placeholder="Enter phone number"
+                  placeholder="Enter 11-digit phone number"
                   icon="call-outline"
                   keyboardType="phone-pad"
                 />
@@ -297,7 +360,10 @@ export default function Admin_AddAdmin({ visible, onClose, onSubmit }) {
                   color={COLORS.primary}
                 />
                 <Text style={styles.noteText}>
-                  The new admin can update their account details after logging in.
+                  The new admin can update their account details after logging
+                  in. Temporary password must be 8 to 16 characters with at
+                  least one uppercase letter, one number, and one special
+                  character.
                 </Text>
               </View>
             </View>
@@ -305,20 +371,28 @@ export default function Admin_AddAdmin({ visible, onClose, onSubmit }) {
 
           <View style={styles.footerActions}>
             <TouchableOpacity
-              style={styles.cancelButton}
+              style={[styles.cancelButton, submitting && styles.buttonDisabled]}
               onPress={handleClose}
+              disabled={submitting}
               activeOpacity={0.8}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.saveButton}
+              style={[styles.saveButton, submitting && styles.buttonDisabled]}
               onPress={handleSubmit}
+              disabled={submitting}
               activeOpacity={0.85}
             >
-              <Ionicons name="add" size={18} color={COLORS.white} />
-              <Text style={styles.saveButtonText}>Add Admin</Text>
+              {submitting ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <Ionicons name="add" size={18} color={COLORS.white} />
+              )}
+              <Text style={styles.saveButtonText}>
+                {submitting ? "Adding..." : "Add Admin"}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -553,5 +627,9 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 14,
     fontWeight: "800",
+  },
+
+  buttonDisabled: {
+    opacity: 0.45,
   },
 });

@@ -136,6 +136,63 @@ const sentimentIds = (value: unknown): string[] => {
   return typeof value === "string" && value.length > 0 ? [value] : [];
 };
 
+type SentimentSnapshot = {
+  label: string | null;
+  status: string | null;
+  confidence: number | null;
+};
+
+const confidencePct = (confidence: number | null): number | null => {
+  if (confidence == null || !Number.isFinite(confidence)) return null;
+  return confidence <= 1 ? Math.round(confidence * 100) : Math.round(confidence);
+};
+
+const summarizeSentiment = (entries: SentimentSnapshot[]): string => {
+  if (entries.length === 0) return "";
+  if (entries.length === 1) {
+    const entry = entries[0] ?? { label: null, status: null, confidence: null };
+    const status = entry.status || "";
+    const label = entry.label || "";
+    if (status && status !== "succeeded") return status;
+    if (label) {
+      const pct = confidencePct(entry.confidence);
+      return pct === null ? label : `${label} (${pct}%)`;
+    }
+    return status;
+  }
+  const counts = new Map<string, number>();
+  entries.forEach((entry) => {
+    const key =
+      entry.status && entry.status !== "succeeded"
+        ? entry.status
+        : entry.label || entry.status || "unknown";
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  const parts = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, count]) => `${key} \u00d7 ${count}`);
+  return `${entries.length} records \u00b7 ${parts.join(", ")}`;
+};
+
+const priorSentiment = async (
+  subjectType: SentimentSubjectType,
+  ids?: string[]
+): Promise<SentimentSnapshot[]> => {
+  try {
+    let query = supabaseAdmin
+      .from("sentiment_analysis")
+      .select("label, status, confidence")
+      .eq("subject_type", subjectType)
+      .limit(1000);
+    if (ids) query = query.in("subject_id", ids);
+    const { data, error } = await query;
+    if (error) return [];
+    return (data || []) as SentimentSnapshot[];
+  } catch {
+    return [];
+  }
+};
+
 export const reanalyzeSentiment = async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user;
@@ -156,6 +213,7 @@ export const reanalyzeSentiment = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: "id or ids array required" });
     }
 
+    const prior = await priorSentiment(subjectType, ids);
     const results = await sentimentService.analyzeMany(subjectType, ids, { force: true });
     const auditLog: {
       actorId: string;
@@ -163,6 +221,7 @@ export const reanalyzeSentiment = async (req: AuthRequest, res: Response) => {
       actionType: string;
       title: string;
       details: string;
+      oldValue: string;
       newValue: string;
       reportId?: string;
     } = {
@@ -171,11 +230,12 @@ export const reanalyzeSentiment = async (req: AuthRequest, res: Response) => {
       actionType: "AI Analysis Completed",
       title: `${subjectType} sentiment reanalysis`,
       details: `Reanalyzed ${ids.length} ${subjectType} record(s): ${toReportCode(ids[0])}.`,
-      newValue: JSON.stringify(
-        ids.slice(0, 10).map((id) => ({
-          id,
-          status: results[id]?.status,
-          label: results[id]?.label,
+      oldValue: summarizeSentiment(prior),
+      newValue: summarizeSentiment(
+        ids.map((id) => ({
+          label: results[id]?.label ?? null,
+          status: results[id]?.status ?? null,
+          confidence: results[id]?.confidence ?? null,
         }))
       ),
     };
@@ -212,6 +272,7 @@ export const reanalyzeAllSentiment = async (req: AuthRequest, res: Response) => 
     if (rowsError) return res.status(500).json({ error: rowsError.message });
 
     const ids = (rows || []).map((row) => String(row.id));
+    const prior = await priorSentiment(subjectType, ids);
     const results = await sentimentService.analyzeMany(subjectType, ids, { force: true });
     await reportService.insertAuditLog({
       actorId: user.id,
@@ -219,7 +280,14 @@ export const reanalyzeAllSentiment = async (req: AuthRequest, res: Response) => 
       actionType: "AI Analysis Completed",
       title: "Sentiment reanalysis completed",
       details: `Reanalyzed ${ids.length} ${subjectType} record(s).`,
-      newValue: JSON.stringify({ count: ids.length }),
+      oldValue: summarizeSentiment(prior),
+      newValue: summarizeSentiment(
+        ids.map((id) => ({
+          label: results[id]?.label ?? null,
+          status: results[id]?.status ?? null,
+          confidence: results[id]?.confidence ?? null,
+        }))
+      ),
     }).catch(() => {});
     res.json({ results, count: ids.length });
   } catch (error) {

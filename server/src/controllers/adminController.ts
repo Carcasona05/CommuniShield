@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import type { User } from "@supabase/supabase-js";
 import { profileService } from "../services/authService.js";
 import { reportService } from "../services/reportService.js";
+import { isValidEmail, isValidPhone } from "../services/validation.js";
 
 type AuthRequest = import("express").Request & { user?: User; token?: string };
 
@@ -58,6 +59,18 @@ export const updateAccount = async (req: AuthRequest, res: Response) => {
 
     const id = String(req.params.id);
     const { name, email, role, department, phone, status } = req.body;
+
+    if (phone !== undefined && phone !== null && String(phone).trim() !== "" && !isValidPhone(phone)) {
+      return res.status(400).json({ error: "Phone number must be exactly 11 digits" });
+    }
+
+    if (email !== undefined && !isValidEmail(email)) {
+      return res.status(400).json({ error: "Please enter a valid email address" });
+    }
+
+    if (name !== undefined && !String(name ?? "").trim()) {
+      return res.status(400).json({ error: "Name cannot be empty" });
+    }
 
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.first_name = name;

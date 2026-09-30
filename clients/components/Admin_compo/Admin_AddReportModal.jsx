@@ -158,6 +158,8 @@ export default function Admin_AddReportModal({
 
   const [photos, setPhotos] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const filteredBarangays = useMemo(() => {
     const query = locationSearch.trim().toLowerCase();
@@ -322,6 +324,8 @@ export default function Admin_AddReportModal({
     setDetails("");
     setPhotos([]);
     setSubmitting(false);
+    setSubmitted(false);
+    setFormError("");
   };
 
   const handleClose = () => {
@@ -331,31 +335,23 @@ export default function Admin_AddReportModal({
     onClose();
   };
 
+  const fieldErrors = {
+    adminName: adminName.trim()
+      ? ""
+      : "Admin profile name could not be loaded.",
+    location: location ? "" : "Please select a location.",
+    incidentCategory: incidentCategory
+      ? ""
+      : "Please select an incident category.",
+    incidentType: incidentType ? "" : "Please select an incident type.",
+    details: details.trim() ? "" : "Please enter the report details.",
+  };
+
   const handleSubmit = async () => {
-    if (!adminName.trim()) {
-      toast.error("Admin profile name could not be loaded.");
-      return;
-    }
+    setSubmitted(true);
+    setFormError("");
 
-    if (!location) {
-      toast.error("Please select a location.");
-      return;
-    }
-
-    if (!incidentCategory) {
-      toast.error("Please select an incident category.");
-      return;
-    }
-
-    if (!incidentType) {
-      toast.error("Please select an incident type.");
-      return;
-    }
-
-    if (!details.trim()) {
-      toast.error("Please enter the report details.");
-      return;
-    }
+    if (Object.values(fieldErrors).some(Boolean)) return;
 
     try {
       setSubmitting(true);
@@ -363,7 +359,7 @@ export default function Admin_AddReportModal({
       const token = await AsyncStorage.getItem("access_token");
 
       if (!token) {
-        toast.error("Please sign in before posting a report.");
+        setFormError("Please sign in before posting a report.");
         return;
       }
 
@@ -412,7 +408,7 @@ export default function Admin_AddReportModal({
       resetForm();
       onClose();
     } catch (error) {
-      toast.error(
+      setFormError(
         error.response?.data?.error ||
           "Could not submit the report. Please try again."
       );
@@ -501,6 +497,12 @@ export default function Admin_AddReportModal({
                   {adminName || "Loading admin name..."}
                 </Text>
               </View>
+
+              {submitted && fieldErrors.adminName ? (
+                <Text style={styles.errorText}>
+                  {fieldErrors.adminName}
+                </Text>
+              ) : null}
 
               <Text style={styles.helperText}>
                 This report will be recorded under the logged-in
@@ -597,6 +599,12 @@ export default function Admin_AddReportModal({
                 </View>
               )}
 
+              {submitted && fieldErrors.location ? (
+                <Text style={styles.errorText}>
+                  {fieldErrors.location}
+                </Text>
+              ) : null}
+
               <Text style={styles.helperText}>
                 Select a barangay within Argao, Cebu.
               </Text>
@@ -606,38 +614,54 @@ export default function Admin_AddReportModal({
                 Incident Category
               </Text>
 
-              <Dropdown
-                placeholder="Select Incident Category"
-                selectedValue={incidentCategory}
-                options={incidentOptions.map((option) => ({
-                  label: option.category,
-                  value: option.category,
-                }))}
-                onChange={setIncidentCategory}
-                disabled={submitting}
-              />
+              <View style={styles.dropdownField}>
+                <Dropdown
+                  placeholder="Select Incident Category"
+                  selectedValue={incidentCategory}
+                  options={incidentOptions.map((option) => ({
+                    label: option.category,
+                    value: option.category,
+                  }))}
+                  onChange={setIncidentCategory}
+                  disabled={submitting}
+                />
+              </View>
+
+              {submitted && fieldErrors.incidentCategory ? (
+                <Text style={styles.errorText}>
+                  {fieldErrors.incidentCategory}
+                </Text>
+              ) : null}
 
               {/* TYPE */}
               <Text style={styles.label}>
                 Incident Type
               </Text>
 
-              <Dropdown
-                placeholder={
-                  incidentCategory
-                    ? "Select Incident Type"
-                    : "Select category first"
-                }
-                selectedValue={incidentType}
-                options={incidentTypes.map((type) => ({
-                  label: type,
-                  value: type,
-                }))}
-                onChange={setIncidentType}
-                disabled={
-                  !incidentCategory || submitting
-                }
-              />
+              <View style={styles.dropdownField}>
+                <Dropdown
+                  placeholder={
+                    incidentCategory
+                      ? "Select Incident Type"
+                      : "Select category first"
+                  }
+                  selectedValue={incidentType}
+                  options={incidentTypes.map((type) => ({
+                    label: type,
+                    value: type,
+                  }))}
+                  onChange={setIncidentType}
+                  disabled={
+                    !incidentCategory || submitting
+                  }
+                />
+              </View>
+
+              {submitted && fieldErrors.incidentType ? (
+                <Text style={styles.errorText}>
+                  {fieldErrors.incidentType}
+                </Text>
+              ) : null}
 
               {/* DETAILS */}
               <Text style={styles.label}>
@@ -655,6 +679,12 @@ export default function Admin_AddReportModal({
                 textAlignVertical="top"
                 editable={!submitting}
               />
+
+              {submitted && fieldErrors.details ? (
+                <Text style={styles.errorText}>
+                  {fieldErrors.details}
+                </Text>
+              ) : null}
 
               {/* PHOTOS */}
               <View style={styles.photoHeaderRow}>
@@ -720,6 +750,20 @@ export default function Admin_AddReportModal({
               ) : null}
             </ScrollView>
           </KeyboardAvoidingView>
+
+          {formError ? (
+            <View style={styles.formErrorWrap}>
+              <Ionicons
+                name="alert-circle"
+                size={16}
+                color="#E45757"
+              />
+
+              <Text style={styles.formErrorText}>
+                {formError}
+              </Text>
+            </View>
+          ) : null}
 
           {/* FOOTER */}
           <View style={styles.footer}>
@@ -870,6 +914,41 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontFamily: "PoppinsRegular",
     color: "#68758A",
+  },
+
+  dropdownField: {
+    marginHorizontal: 20,
+  },
+
+  errorText: {
+    marginTop: 6,
+    marginHorizontal: 20,
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: "PoppinsRegular",
+    color: "#E45757",
+  },
+
+  formErrorWrap: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+    backgroundColor: "#FDEBEC",
+    borderWidth: 1,
+    borderColor: "#F5C6C6",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  formErrorText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: "PoppinsRegular",
+    color: "#E45757",
   },
 
   locationHeaderRow: {

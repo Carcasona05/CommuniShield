@@ -3,6 +3,7 @@ import { supabase } from "../config/supabase.js";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import type { User } from "@supabase/supabase-js";
 import { profileService } from "../services/authService.js";
+import { isValidEmail, isValidPhone, passwordPolicyError } from "../services/validation.js";
 import { notificationService } from "../services/notificationService.js";
 import { credibilityService } from "../services/credibilityService.js";
 import { reportService } from "../services/reportService.js";
@@ -31,6 +32,15 @@ export const register = async (req: Request, res: Response) => {
 
     if (!termsVersion) {
       return res.status(400).json({ error: "Terms and conditions acceptance is required" });
+    }
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: "Please enter a valid email address" });
+    }
+
+    const passwordError = passwordPolicyError(password);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
     }
 
     const { error } = await supabaseAdmin.auth.admin.createUser({
@@ -159,12 +169,37 @@ export const adminRegister = async (
       return res.status(403).json({ error: "Only super admin can create admins" });
     }
 
-    const { email, password, name, role, department, phone } = req.body;
-    if (!email || !password || !name) {
-      return res.status(400).json({ error: "Email, password, and name are required" });
+    const { email, password, name, first_name, middle_name, last_name, role, department, phone } = req.body;
+
+    const names = {
+      firstName: typeof first_name === "string" ? first_name.trim() : "",
+      middleName: typeof middle_name === "string" ? middle_name.trim() : "",
+      lastName: typeof last_name === "string" ? last_name.trim() : "",
+      fallbackName: typeof name === "string" ? name.trim() : "",
+    };
+
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
     }
 
-    const result = await profileService.createAdmin(email, password, name, role, department, phone);
+    if (!names.firstName && !names.lastName && !names.fallbackName) {
+      return res.status(400).json({ error: "Name is required" });
+    }
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: "Please enter a valid email address" });
+    }
+
+    const passwordError = passwordPolicyError(password);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
+    }
+
+    if (phone !== undefined && phone !== null && String(phone).trim() !== "" && !isValidPhone(phone)) {
+      return res.status(400).json({ error: "Phone number must be exactly 11 digits" });
+    }
+
+    const result = await profileService.createAdmin(email, password, names, role, department, phone);
     if (result.error) return res.status(400).json({ error: result.error.message });
 
     const { data: actorProfile } = await profileService.getProfile(user.id);
@@ -174,9 +209,20 @@ export const adminRegister = async (
       actorName: actorProfile?.fullname || "Super Admin",
       actionType: "Admin Added",
       title: "Admin account created",
-      details: `New admin account "${name}" (${email}) was created by ${actorProfile?.fullname || "super admin"}.`,
-      newValue: email,
+      details: "New account was made by system admin.",
+      oldValue: "New Recruit",
+      newValue: "New Recruit",
     }).catch(() => {});
+
+    await notificationService
+      .notifyAllAdmins({
+        type: "admin_account",
+        title: "New Account Deployed",
+        message: "A new admin account has been added to CommuniShield.",
+        priority: "Medium",
+        excludeUserId: user.id,
+      })
+      .catch(() => {});
 
     res.json({ message: "Admin created successfully" });
   } catch {
@@ -241,6 +287,11 @@ export const changePassword = async (
       return res.status(400).json({ error: "Current and new password are required" });
     }
 
+    const passwordError = passwordPolicyError(newPassword);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
+    }
+
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email: user.email ?? "",
       password: currentPassword,
@@ -276,6 +327,18 @@ export const updateProfile = async (
   const { first_name, middle_name, last_name, user_name, phone, birthdate, location, department } =
     req.body ?? {};
 
+  if (phone !== undefined && phone !== null && String(phone).trim() !== "" && !isValidPhone(phone)) {
+    return res.status(400).json({ error: "Phone number must be exactly 11 digits" });
+  }
+
+  if (first_name !== undefined && !String(first_name ?? "").trim()) {
+    return res.status(400).json({ error: "First name cannot be empty" });
+  }
+
+  if (last_name !== undefined && !String(last_name ?? "").trim()) {
+    return res.status(400).json({ error: "Last name cannot be empty" });
+  }
+
   const updates: Record<string, unknown> = {};
   if (first_name !== undefined) updates.first_name = first_name;
   if (middle_name !== undefined) updates.middle_name = middle_name;
@@ -304,6 +367,10 @@ export const changeEmail = async (req: AuthRequest, res: Response) => {
 
   if (!currentEmail || !newEmail) {
     return res.status(400).json({ error: "Current and new email are required" });
+  }
+
+  if (!isValidEmail(newEmail)) {
+    return res.status(400).json({ error: "Please enter a valid email address" });
   }
 
   if (String(currentEmail).toLowerCase() !== String(user.email).toLowerCase()) {

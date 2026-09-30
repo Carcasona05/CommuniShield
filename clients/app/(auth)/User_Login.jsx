@@ -13,7 +13,6 @@ import {
   ScrollView,
   useWindowDimensions,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
@@ -86,7 +85,7 @@ function UserLoginInner() {
         if (Platform.OS === "web") {
           router.push("/(auth)/Admin_Login");
         } else {
-          Alert.alert("Admin Access", "Admin login is available on web only.");
+          toast.error("Admin login is available on web only.");
         }
         return 0;
       }

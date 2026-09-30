@@ -7,7 +7,6 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +16,7 @@ import apiClient from "../../services/apiClient";
 import formatRelativeTime from "../../services/formatRelativeTime";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
 import censorText from "../../services/censorText";
+import { useToast } from "../Toast";
 
 const PRIMARY = "#294880";
 
@@ -27,6 +27,7 @@ const FONT = {
 };
 
 const User_RepPostView_Layout = ({ post }) => {
+  const toast = useToast();
   const [commentText, setCommentText] = useState("");
   const [comments, setComments] = useState([]);
 
@@ -128,7 +129,7 @@ const User_RepPostView_Layout = ({ post }) => {
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) {
-        Alert.alert("Not Signed In", "Please sign in to comment.");
+        toast.error("Please sign in to comment.");
         return;
       }
 
@@ -145,10 +146,7 @@ const User_RepPostView_Layout = ({ post }) => {
       setComments(res.data?.comments || []);
       setCommentText("");
     } catch (error) {
-      Alert.alert(
-        "Comment Failed",
-        error.response?.data?.error || "Could not add comment."
-      );
+      toast.error(error.response?.data?.error || "Could not add comment.");
     }
   };
 

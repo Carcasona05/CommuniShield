@@ -20,15 +20,11 @@ import apiClient from "../../services/apiClient";
 import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
 import { checkTermsAccepted } from "../../services/termsBus";
+import { isValidEmail, passwordPolicyError } from "../../services/validation";
 
 const validatePassword = (value) => {
   if (!value) return "Password is required.";
-  if (value.length < 6) return "Password must be at least 6 characters.";
-  if (!/[A-Z]/.test(value))
-    return "Password must contain at least one capital letter.";
-  if (!/[\d\W_]/.test(value))
-    return "Password must contain at least one number or symbol.";
-  return "";
+  return passwordPolicyError(value);
 };
 
 const validateConfirmPassword = (value, passwordValue) => {
@@ -132,9 +128,8 @@ function RegisterInner() {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (!emailRegex.test(cleanEmail)) {
+    if (!isValidEmail(cleanEmail)) {
       toast.error("Please enter a valid email address.");
       return;
     }

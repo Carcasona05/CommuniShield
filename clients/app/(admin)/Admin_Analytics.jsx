@@ -217,7 +217,7 @@ export default function Admin_Analytics() {
     }
   }, []);
 
-  useAutoRefresh(loadAnalytics, 30000);
+  useAutoRefresh(loadAnalytics, 60000);
 
   if (!fontsLoaded) {
     return null;
@@ -418,46 +418,26 @@ export default function Admin_Analytics() {
                       <AdminHeatMap reports={filteredMapReports} />
 
                       <View style={styles.legendCard}>
-                        <Text style={styles.legendTitle}>Severity:</Text>
-
-                        <View style={styles.legendItem}>
-                          <View
-                            style={[
-                              styles.legendDot,
-                              { backgroundColor: "#DC2626" },
-                            ]}
-                          />
-                          <Text style={styles.legendText}>Critical</Text>
-                        </View>
-
-                        <View style={styles.legendItem}>
-                          <View
-                            style={[
-                              styles.legendDot,
-                              { backgroundColor: "#F56B6B" },
-                            ]}
-                          />
-                          <Text style={styles.legendText}>High</Text>
-                        </View>
-
-                        <View style={styles.legendItem}>
-                          <View
-                            style={[
-                              styles.legendDot,
-                              { backgroundColor: "#F29A2E" },
-                            ]}
-                          />
-                          <Text style={styles.legendText}>Medium</Text>
-                        </View>
-
-                        <View style={styles.legendItem}>
-                          <View
-                            style={[
-                              styles.legendDot,
-                              { backgroundColor: "#3DBB74" },
-                            ]}
-                          />
-                          <Text style={styles.legendText}>Low</Text>
+                        <Text style={styles.legendTitle}>SEVERITY</Text>
+                        <View style={styles.legendRow}>
+                          {[
+                            { label: "Critical", color: "#E45757" },
+                            { label: "High", color: "#F29A2E" },
+                            { label: "Medium", color: "#F7C948" },
+                            { label: "Low", color: "#3DBB74" },
+                          ].map((item) => (
+                            <View key={item.label} style={styles.legendItem}>
+                              <View
+                                style={[
+                                  styles.legendDot,
+                                  { backgroundColor: item.color },
+                                ]}
+                              />
+                              <Text style={styles.legendText}>
+                                {item.label}
+                              </Text>
+                            </View>
+                          ))}
                         </View>
                       </View>
                     </View>
@@ -765,8 +745,13 @@ const styles = {
   mainCard: {
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#D9E2F0",
-    borderRadius: 14,
+    borderColor: "#E3EAF6",
+    borderRadius: 16,
+    shadowColor: "#0F1E3D",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    elevation: 4,
     overflow: "visible",
     marginBottom: 16,
   },
@@ -774,13 +759,13 @@ const styles = {
   cardHeaderTop: {
     minHeight: 50,
     borderBottomWidth: 1,
-    borderBottomColor: "#D9E2F0",
+    borderBottomColor: "#EEF2F8",
     paddingHorizontal: 20,
     paddingVertical: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#F7F9FD",
+    backgroundColor: "#FFFFFF",
     overflow: "visible",
     zIndex: 10,
   },
@@ -850,55 +835,67 @@ const styles = {
   },
 
   mapCardBody: {
-    padding: 12,
+    padding: 14,
     backgroundColor: "#FFFFFF",
   },
 
   mapArea: {
     height: 370,
-    borderRadius: 12,
+    borderRadius: 14,
     overflow: "hidden",
     position: "relative",
     borderWidth: 1,
-    borderColor: "#D9E2F0",
+    borderColor: "#E3EAF6",
   },
 
   legendCard: {
     position: "absolute",
     left: 12,
     bottom: 12,
-    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(255,255,255,0.96)",
     borderWidth: 1,
-    borderColor: "#D9E2F0",
-    borderRadius: 10,
+    borderColor: "#E3EAF6",
+    borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    minWidth: 118,
+    paddingVertical: 7,
     zIndex: 1000,
+    shadowColor: "#0F1E3D",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
 
   legendTitle: {
-    fontSize: 12,
+    fontSize: 10,
     fontFamily: "PoppinsSemiBold",
-    color: "#35507A",
-    marginBottom: 8,
+    color: "#8494AD",
+    letterSpacing: 0.6,
+  },
+
+  legendRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
 
   legendItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 5,
+    gap: 5,
   },
 
   legendDot: {
-    width: 10,
-    height: 10,
+    width: 9,
+    height: 9,
     borderRadius: 5,
-    marginRight: 7,
   },
 
   legendText: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#4B5D7A",
     fontFamily: "PoppinsMedium",
   },

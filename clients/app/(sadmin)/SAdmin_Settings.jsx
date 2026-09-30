@@ -1,14 +1,14 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   Platform,
   Switch,
   TextInput,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
@@ -19,18 +19,20 @@ import { SettingsSkeleton } from "../../components/PageSkeletons";
 import { saveAdminInfo } from "../../services/auth";
 import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
+import {
+  digitsOnly,
+  isValidEmail,
+  isValidPhone,
+  joinFullName,
+  passwordPolicyError,
+} from "../../services/validation";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { useToast } from "../../components/Toast";
 import ConfirmModal from "../../components/modals/ConfirmModal";
 
 const validateNewPassword = (value) => {
   if (!value) return "Password is required.";
-  if (value.length < 6) return "Password must be at least 6 characters.";
-  if (!/[A-Z]/.test(value))
-    return "Password must contain at least one capital letter.";
-  if (!/[\d\W_]/.test(value))
-    return "Password must contain at least one number or symbol.";
-  return "";
+  return passwordPolicyError(value);
 };
 
 const validateConfirmPassword = (value, newPasswordValue) => {
@@ -145,12 +147,15 @@ function SAdmin_SettingsContent() {
   const toast = useToast();
   const [loading, setLoading] = useState(() => getCache("api:/profile") === undefined);
 
-  const [fullName, setFullName] = useState(
-    () =>
-      getCache("api:/profile")?.name ||
-      getCache("api:/profile")?.fullname ||
-      "CommuniShield SuperAdmin"
-  );
+  const [nameParts, setNameParts] = useState(() => {
+    const cached = getCache("api:/profile");
+    const legacyName = cached?.name || cached?.fullname || "CommuniShield SuperAdmin";
+    return {
+      firstName: cached?.first_name || legacyName,
+      middleName: cached?.middle_name || "",
+      lastName: cached?.last_name || "",
+    };
+  });
   const [emailAddress, setEmailAddress] = useState(
     () => getCache("api:/profile")?.email || ""
   );
@@ -170,6 +175,8 @@ function SAdmin_SettingsContent() {
   const [currentPasswordError, setCurrentPasswordError] = useState("");
   const [newPasswordError, setNewPasswordError] = useState("");
   const [confirmNewPasswordError, setConfirmNewPasswordError] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
 
   const handleCurrentPasswordChange = (value) => {
     setCurrentPassword(value);
@@ -213,6 +220,18 @@ function SAdmin_SettingsContent() {
     () => getCache("api:/profile")?.email || ""
   );
 
+  const initialProfileRef = useRef({
+    firstName:
+      getCache("api:/profile")?.first_name ||
+      getCache("api:/profile")?.name ||
+      getCache("api:/profile")?.fullname ||
+      "CommuniShield SuperAdmin",
+    middleName: getCache("api:/profile")?.middle_name || "",
+    lastName: getCache("api:/profile")?.last_name || "",
+    email: getCache("api:/profile")?.email || "",
+    phone: getCache("api:/profile")?.phone || "",
+  });
+
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [confirmData, setConfirmData] = useState(null);
 
@@ -229,10 +248,24 @@ function SAdmin_SettingsContent() {
 
       const cachedProfile = getCache("api:/profile");
       if (cachedProfile) {
-        setFullName(cachedProfile.name || cachedProfile.fullname || "CommuniShield SuperAdmin");
+        const cachedParts = {
+          firstName:
+            cachedProfile.first_name ||
+            cachedProfile.name ||
+            cachedProfile.fullname ||
+            "CommuniShield SuperAdmin",
+          middleName: cachedProfile.middle_name || "",
+          lastName: cachedProfile.last_name || "",
+        };
+        setNameParts(cachedParts);
         setEmailAddress(cachedProfile.email || "");
         setPhoneNumber(cachedProfile.phone || "");
         setInitialEmail(cachedProfile.email || "");
+        initialProfileRef.current = {
+          ...cachedParts,
+          email: cachedProfile.email || "",
+          phone: cachedProfile.phone || "",
+        };
       }
 
       const cachedSettings = getCache("api:/admin/settings");
@@ -266,10 +299,24 @@ function SAdmin_SettingsContent() {
 
       const profile = profileRes.data ?? {};
       setCache("api:/profile", profile);
-      setFullName(profile.name || profile.fullname || "CommuniShield SuperAdmin");
+      const serverParts = {
+        firstName:
+          profile.first_name ||
+          profile.name ||
+          profile.fullname ||
+          "CommuniShield SuperAdmin",
+        middleName: profile.middle_name || "",
+        lastName: profile.last_name || "",
+      };
+      setNameParts(serverParts);
       setEmailAddress(profile.email || "");
       setPhoneNumber(profile.phone || "");
       setInitialEmail(profile.email || "");
+      initialProfileRef.current = {
+        ...serverParts,
+        email: profile.email || "",
+        phone: profile.phone || "",
+      };
 
       const settingsData = settingsRes.data ?? {};
       setCache("api:/admin/settings", settingsData);
@@ -296,7 +343,7 @@ function SAdmin_SettingsContent() {
     }
   }, []);
 
-  useAutoRefresh(loadAccountData, 30000);
+  useAutoRefresh(loadAccountData, 60000);
 
   useEffect(() => {
     loadAccountData();
@@ -355,25 +402,59 @@ function SAdmin_SettingsContent() {
 
 
   const showMessage = (title, message) => {
-    if (Platform.OS === "web") {
-      window.alert(`${title}\n\n${message}`);
-      return;
+    const fullMessage = `${title}. ${message}`;
+    const lowerTitle = title.toLowerCase();
+    if (
+      lowerTitle.includes("fail") ||
+      lowerTitle.includes("missing") ||
+      lowerTitle.includes("mismatch") ||
+      lowerTitle.includes("invalid") ||
+      lowerTitle.includes("error") ||
+      lowerTitle.includes("required")
+    ) {
+      toast.error(fullMessage);
+    } else {
+      toast.success(fullMessage);
     }
-
-    Alert.alert(title, message);
   };
 
+  const fullName = joinFullName(nameParts);
+
+  const profileDirty =
+    nameParts.firstName.trim() !== initialProfileRef.current.firstName.trim() ||
+    nameParts.middleName.trim() !==
+      initialProfileRef.current.middleName.trim() ||
+    nameParts.lastName.trim() !== initialProfileRef.current.lastName.trim() ||
+    emailAddress.trim().toLowerCase() !==
+      initialProfileRef.current.email.trim().toLowerCase() ||
+    phoneNumber.trim() !== initialProfileRef.current.phone.trim();
+
+  const passwordReady = Boolean(
+    currentPassword && newPassword && confirmNewPassword
+  );
+
   const handleSaveProfile = async () => {
-    if (!fullName.trim() || !emailAddress.trim() || !phoneNumber.trim()) {
+    if (
+      !nameParts.firstName.trim() ||
+      !nameParts.lastName.trim() ||
+      !emailAddress.trim() ||
+      !phoneNumber.trim()
+    ) {
       showMessage("Missing Information", "Please fill in all profile fields.");
       return;
     }
 
-    if (!emailAddress.includes("@")) {
+    if (!isValidEmail(emailAddress)) {
       showMessage("Invalid Email", "Please enter a valid email address.");
       return;
     }
 
+    if (!isValidPhone(phoneNumber)) {
+      showMessage("Invalid Phone Number", "Phone number must be exactly 11 digits.");
+      return;
+    }
+
+    setSavingProfile(true);
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
@@ -381,7 +462,12 @@ function SAdmin_SettingsContent() {
       const changes = [
         apiClient.put(
           "/profile",
-          { first_name: fullName.trim(), phone: phoneNumber.trim() },
+          {
+            first_name: nameParts.firstName.trim(),
+            middle_name: nameParts.middleName.trim(),
+            last_name: nameParts.lastName.trim(),
+            phone: phoneNumber.trim(),
+          },
           { headers: { Authorization: `Bearer ${token}` } }
         ),
       ];
@@ -400,23 +486,36 @@ function SAdmin_SettingsContent() {
 
       await Promise.all(changes);
 
+      const cleanParts = {
+        firstName: nameParts.firstName.trim(),
+        middleName: nameParts.middleName.trim(),
+        lastName: nameParts.lastName.trim(),
+      };
       const cachedProfile = getCache("api:/profile");
       setCache("api:/profile", {
         ...(cachedProfile || {}),
-        name: fullName.trim(),
-        fullname: fullName.trim(),
+        name: joinFullName(cleanParts),
+        fullname: joinFullName(cleanParts),
+        first_name: cleanParts.firstName,
+        middle_name: cleanParts.middleName,
+        last_name: cleanParts.lastName,
         phone: phoneNumber.trim(),
       });
 
       saveAdminInfo({
         ...(globalThis.adminAccount || {}),
-        fullName: fullName.trim(),
+        fullName: joinFullName(cleanParts),
         email: cleanEmail,
         phone: phoneNumber.trim(),
         role: "SuperAdmin",
       });
 
       setInitialEmail(cleanEmail);
+      initialProfileRef.current = {
+        ...cleanParts,
+        email: cleanEmail,
+        phone: phoneNumber.trim(),
+      };
 
       showMessage(
         "Profile Updated",
@@ -427,6 +526,8 @@ function SAdmin_SettingsContent() {
         "Update Failed",
         error.response?.data?.error || "Could not update your profile."
       );
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -443,6 +544,7 @@ function SAdmin_SettingsContent() {
 
     if (currentError || newError || confirmError) return;
 
+    setSavingPassword(true);
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
@@ -473,6 +575,8 @@ function SAdmin_SettingsContent() {
         "Update Failed",
         error.response?.data?.error || "Could not update your password."
       );
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -534,13 +638,52 @@ function SAdmin_SettingsContent() {
 
                 <View style={styles.profileGrid}>
                   <View style={styles.inputCard}>
+                    <Text style={styles.inputLabel}>First Name</Text>
+                    <TextInput
+                      value={nameParts.firstName}
+                      onChangeText={(text) =>
+                        setNameParts((prev) => ({ ...prev, firstName: text }))
+                      }
+                      style={styles.textInput}
+                      placeholder="First Name"
+                      placeholderTextColor="#5D6F92"
+                    />
+                  </View>
+
+                  <View style={styles.inputCard}>
+                    <Text style={styles.inputLabel}>Middle Name</Text>
+                    <TextInput
+                      value={nameParts.middleName}
+                      onChangeText={(text) =>
+                        setNameParts((prev) => ({ ...prev, middleName: text }))
+                      }
+                      style={styles.textInput}
+                      placeholder="Middle Name"
+                      placeholderTextColor="#5D6F92"
+                    />
+                  </View>
+
+                  <View style={styles.inputCard}>
+                    <Text style={styles.inputLabel}>Last Name</Text>
+                    <TextInput
+                      value={nameParts.lastName}
+                      onChangeText={(text) =>
+                        setNameParts((prev) => ({ ...prev, lastName: text }))
+                      }
+                      style={styles.textInput}
+                      placeholder="Last Name"
+                      placeholderTextColor="#5D6F92"
+                    />
+                  </View>
+
+                  <View style={styles.inputCard}>
                     <Text style={styles.inputLabel}>Full Name</Text>
                     <TextInput
                       value={fullName}
-                      onChangeText={setFullName}
-                      style={styles.textInput}
-                      placeholder="Full Name"
+                      style={[styles.textInput, styles.textInputDisabled]}
+                      placeholder="Auto-generated from name parts"
                       placeholderTextColor="#5D6F92"
+                      editable={false}
                     />
                   </View>
 
@@ -561,9 +704,9 @@ function SAdmin_SettingsContent() {
                     <Text style={styles.inputLabel}>Phone Number</Text>
                     <TextInput
                       value={phoneNumber}
-                      onChangeText={setPhoneNumber}
+                      onChangeText={(text) => setPhoneNumber(digitsOnly(text))}
                       style={styles.textInput}
-                      placeholder="Phone Number"
+                      placeholder="Enter 11-digit phone number"
                       placeholderTextColor="#5D6F92"
                       keyboardType="phone-pad"
                     />
@@ -572,13 +715,22 @@ function SAdmin_SettingsContent() {
 
                 <View style={styles.profileActionRow}>
                   <TouchableOpacity
-                    style={styles.primaryActionButton}
+                    style={[
+                      styles.primaryActionButton,
+                      (!profileDirty || savingProfile) &&
+                        styles.primaryActionButtonDisabled,
+                    ]}
                     onPress={handleSaveProfile}
+                    disabled={!profileDirty || savingProfile}
                     activeOpacity={0.85}
                   >
-                    <Ionicons name="save-outline" size={17} color="#FFFFFF" />
+                    {savingProfile ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Ionicons name="save-outline" size={17} color="#FFFFFF" />
+                    )}
                     <Text style={styles.primaryActionButtonText}>
-                      Save Profile
+                      {savingProfile ? "Saving..." : "Save Profile"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -715,19 +867,40 @@ function SAdmin_SettingsContent() {
                   </View>
                 </View>
 
+                <View style={styles.passwordPolicyHint}>
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={18}
+                    color="#294880"
+                  />
+                  <Text style={styles.passwordPolicyHintText}>
+                    Password must be 8 to 16 characters with at least one
+                    uppercase letter, one number, and one special character.
+                  </Text>
+                </View>
+
                 <View style={styles.profileActionRow}>
                   <TouchableOpacity
-                    style={styles.primaryActionButton}
+                    style={[
+                      styles.primaryActionButton,
+                      (!passwordReady || savingPassword) &&
+                        styles.primaryActionButtonDisabled,
+                    ]}
                     onPress={handleChangePassword}
+                    disabled={!passwordReady || savingPassword}
                     activeOpacity={0.85}
                   >
-                    <Ionicons
-                      name="lock-closed-outline"
-                      size={17}
-                      color="#FFFFFF"
-                    />
+                    {savingPassword ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={17}
+                        color="#FFFFFF"
+                      />
+                    )}
                     <Text style={styles.primaryActionButtonText}>
-                      Update Password
+                      {savingPassword ? "Updating..." : "Update Password"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -1407,10 +1580,33 @@ const styles = StyleSheet.create({
     gap: 7,
   },
 
+  primaryActionButtonDisabled: {
+    opacity: 0.45,
+  },
+
   primaryActionButtonText: {
     color: "#FFFFFF",
     fontSize: 13,
     fontFamily: "PoppinsMedium",
+  },
+
+  passwordPolicyHint: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    backgroundColor: "#EAF2FF",
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  passwordPolicyHintText: {
+    flex: 1,
+    marginLeft: 8,
+    color: "#294880",
+    fontSize: 13,
+    fontFamily: "PoppinsRegular",
+    lineHeight: 19,
   },
 
   secondaryButton: {
@@ -1527,6 +1723,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "PoppinsRegular",
     outlineStyle: Platform.OS === "web" ? "none" : undefined,
+  },
+
+  textInputDisabled: {
+    backgroundColor: "#EDF1F8",
+    color: "#5D6F92",
   },
 
   passwordInputWrap: {

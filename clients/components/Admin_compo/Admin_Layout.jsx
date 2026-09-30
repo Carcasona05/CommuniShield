@@ -19,6 +19,7 @@ import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
 import ErrorBoundary from "../../components/ErrorBoundary";
 import { saveLastPage } from "../../services/lastPage";
+import { subscribeToAdminNotifications } from "../../services/realtime";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -111,30 +112,68 @@ function Admin_Layout({ children }) {
     }));
   });
 
+  const visibleCountRef = useRef(10);
+  const notifRefreshTimerRef = useRef(null);
+
+  const [unreadCount, setUnreadCount] = useState(() => {
+    const cached = getCache("api:/admin/notifications");
+    if (typeof cached?.unreadCount === "number") return cached.unreadCount;
+    if (cached && Array.isArray(cached.notifications)) {
+      return cached.notifications.filter((item) => item.unread).length;
+    }
+    return 0;
+  });
+
+  const [hasMore, setHasMore] = useState(() => {
+    const cached = getCache("api:/admin/notifications");
+    return typeof cached?.hasMore === "boolean" ? cached.hasMore : false;
+  });
+
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const loadNotifications = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      const applyNotifications = (list) =>
+      const cached = getCache("api:/admin/notifications");
+      if (cached && Array.isArray(cached.notifications)) {
         setNotifications(
-          list.map((item) => ({
+          cached.notifications.map((item) => ({
             ...item,
             time: formatRelativeTime(item.time),
           }))
         );
-
-      const cached = getCache("api:/admin/notifications");
-      if (cached && Array.isArray(cached.notifications)) {
-        applyNotifications(cached.notifications);
+        if (typeof cached.unreadCount === "number") {
+          setUnreadCount(cached.unreadCount);
+        }
+        if (typeof cached.hasMore === "boolean") setHasMore(cached.hasMore);
+        if (cached.notifications.length > visibleCountRef.current) {
+          visibleCountRef.current = cached.notifications.length;
+        }
       }
 
       const res = await apiClient.get("/admin/notifications", {
+        params: { limit: visibleCountRef.current, offset: 0 },
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      setCache("api:/admin/notifications", res.data ?? {});
-      applyNotifications(res.data?.notifications || []);
+      const payload = res.data ?? {};
+      const list = Array.isArray(payload.notifications)
+        ? payload.notifications
+        : [];
+
+      setCache("api:/admin/notifications", payload);
+      setNotifications(
+        list.map((item) => ({
+          ...item,
+          time: formatRelativeTime(item.time),
+        }))
+      );
+      if (typeof payload.unreadCount === "number") {
+        setUnreadCount(payload.unreadCount);
+      }
+      if (typeof payload.hasMore === "boolean") setHasMore(payload.hasMore);
     } catch (err) {
       const status = err.response?.status;
       const message = err.response?.data?.error || "";
@@ -166,7 +205,25 @@ function Admin_Layout({ children }) {
     }
   }, []);
 
-  useAutoRefresh(loadNotifications, 30000);
+  useAutoRefresh(loadNotifications, 120000);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToAdminNotifications(() => {
+      if (notifRefreshTimerRef.current) {
+        clearTimeout(notifRefreshTimerRef.current);
+      }
+      notifRefreshTimerRef.current = setTimeout(() => {
+        loadNotifications();
+      }, 400);
+    });
+
+    return () => {
+      if (notifRefreshTimerRef.current) {
+        clearTimeout(notifRefreshTimerRef.current);
+      }
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, [loadNotifications]);
 
   const handleDisabledLogout = async () => {
     setShowDisabledModal(false);
@@ -178,6 +235,11 @@ function Admin_Layout({ children }) {
 
   const checkDisabled = useCallback(async () => {
     if (disabledCheckRef.current) return;
+    if (
+      typeof document !== "undefined" &&
+      document.visibilityState === "hidden"
+    )
+      return;
     disabledCheckRef.current = true;
     try {
       const token = await AsyncStorage.getItem("access_token");
@@ -203,7 +265,7 @@ function Admin_Layout({ children }) {
   }, []);
 
   useEffect(() => {
-    const id = setInterval(checkDisabled, 4000);
+    const id = setInterval(checkDisabled, 60000);
     return () => clearInterval(id);
   }, [checkDisabled]);
 
@@ -214,8 +276,6 @@ function Admin_Layout({ children }) {
   if (!fontsLoaded) {
     return null;
   }
-
-  const unreadCount = notifications.filter((item) => item.unread).length;
 
   const isRouteActive = (item) => {
     return (
@@ -334,17 +394,23 @@ function Admin_Layout({ children }) {
     setShowProfileDropdown(false);
 
     if (item.unread) {
+      setUnreadCount((count) => Math.max(count - 1, 0));
       setNotifications((prev) =>
         prev.map((n) => (n.id === item.id ? { ...n, unread: false } : n))
       );
 
       const cached = getCache("api:/admin/notifications");
       if (cached && Array.isArray(cached.notifications)) {
+        const cachedUnread =
+          typeof cached.unreadCount === "number"
+            ? cached.unreadCount
+            : cached.notifications.filter((n) => n.unread).length;
         setCache("api:/admin/notifications", {
           ...cached,
           notifications: cached.notifications.map((n) =>
             n.id === item.id ? { ...n, unread: false } : n
           ),
+          unreadCount: Math.max(cachedUnread - 1, 0),
         });
       }
 
@@ -357,12 +423,105 @@ function Admin_Layout({ children }) {
             { headers: { Authorization: `Bearer ${token}` } }
           );
         }
-      } catch {
-        // keep local read state even if the call fails
-      }
+      } catch {}
     }
 
-    router.push(item.route);
+    if (item.reportId) {
+      router.push({
+        pathname: "/(admin)/Admin_Validation",
+        params: { openReport: item.reportId, notifNonce: String(Date.now()) },
+      });
+    } else {
+      router.push(item.route);
+    }
+  };
+
+  const handleViewMore = async () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+
+      const res = await apiClient.get("/admin/notifications", {
+        params: { limit: 10, offset: notifications.length },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const payload = res.data ?? {};
+      const incoming = Array.isArray(payload.notifications)
+        ? payload.notifications
+        : [];
+
+      if (incoming.length > 0) {
+        setNotifications((prev) => [
+          ...prev,
+          ...incoming.map((item) => ({
+            ...item,
+            time: formatRelativeTime(item.time),
+          })),
+        ]);
+      }
+
+      if (typeof payload.unreadCount === "number") {
+        setUnreadCount(payload.unreadCount);
+      }
+      setHasMore(
+        typeof payload.hasMore === "boolean"
+          ? payload.hasMore
+          : incoming.length >= 10
+      );
+      visibleCountRef.current = notifications.length + incoming.length;
+
+      const cached = getCache("api:/admin/notifications");
+      if (cached && Array.isArray(cached.notifications)) {
+        setCache("api:/admin/notifications", {
+          ...cached,
+          notifications: [...cached.notifications, ...incoming],
+          unreadCount:
+            typeof payload.unreadCount === "number"
+              ? payload.unreadCount
+              : cached.unreadCount,
+          hasMore: typeof payload.hasMore === "boolean"
+            ? payload.hasMore
+            : cached.hasMore,
+        });
+      }
+    } catch {} finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    if (unreadCount === 0) return;
+
+    setUnreadCount(0);
+    setNotifications((prev) =>
+      prev.map((n) => (n.unread ? { ...n, unread: false } : n))
+    );
+
+    const cached = getCache("api:/admin/notifications");
+    if (cached && Array.isArray(cached.notifications)) {
+      setCache("api:/admin/notifications", {
+        ...cached,
+        notifications: cached.notifications.map((n) =>
+          n.unread ? { ...n, unread: false } : n
+        ),
+        unreadCount: 0,
+      });
+    }
+
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (token) {
+        await apiClient.patch(
+          "/admin/notifications/read-all",
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+    } catch {}
   };
 
   const handleSettingsPress = () => {
@@ -472,6 +631,23 @@ function Admin_Layout({ children }) {
                       <Text style={styles.notificationSubtitle}>
                         {unreadCount} unread alerts
                       </Text>
+
+                      {unreadCount > 0 && (
+                        <TouchableOpacity
+                          style={styles.markAllButton}
+                          onPress={handleMarkAllRead}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons
+                            name="checkmark-done-outline"
+                            size={13}
+                            color={COMMUNISHIELD_BLUE}
+                          />
+                          <Text style={styles.markAllText}>
+                            Mark all as read
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
 
                     <TouchableOpacity
@@ -545,24 +721,25 @@ function Admin_Layout({ children }) {
                         </TouchableOpacity>
                       );
                     })}
-                  </ScrollView>
 
-                  <TouchableOpacity
-                    style={styles.viewAllButton}
-                    onPress={() => {
-                      setShowNotifications(false);
-                      setShowProfileDropdown(false);
-                      router.push("/(admin)/Admin_Logs");
-                    }}
-                    activeOpacity={0.75}
-                  >
-                    <Text style={styles.viewAllText}>View all notifications</Text>
-                    <Ionicons
-                      name="arrow-forward-outline"
-                      size={16}
-                      color={COMMUNISHIELD_BLUE}
-                    />
-                  </TouchableOpacity>
+                    {hasMore && (
+                      <TouchableOpacity
+                        style={styles.viewMoreButton}
+                        onPress={handleViewMore}
+                        disabled={loadingMore}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.viewMoreText}>
+                          {loadingMore ? "Loading..." : "View more"}
+                        </Text>
+                        <Ionicons
+                          name={loadingMore ? "hourglass-outline" : "chevron-down"}
+                          size={16}
+                          color={COMMUNISHIELD_BLUE}
+                        />
+                      </TouchableOpacity>
+                    )}
+                  </ScrollView>
                 </View>
               )}
             </View>
@@ -1070,19 +1247,36 @@ const styles = {
     fontFamily: "PoppinsSemiBold",
   },
 
-  viewAllButton: {
-    height: 48,
-    paddingHorizontal: 18,
-    borderTopWidth: 1,
-    borderTopColor: "#EEF3FA",
+  markAllButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "flex-start",
+    marginTop: 7,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: "#E8EFFB",
+  },
+
+  markAllText: {
+    fontSize: 11.5,
+    fontFamily: "PoppinsMedium",
+    color: COMMUNISHIELD_BLUE,
+  },
+
+  viewMoreButton: {
+    height: 46,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 7,
     backgroundColor: "#F8FAFD",
+    borderTopWidth: 1,
+    borderTopColor: "#EEF3FA",
   },
 
-  viewAllText: {
+  viewMoreText: {
     fontSize: 14,
     fontFamily: "PoppinsSemiBold",
     color: COMMUNISHIELD_BLUE,

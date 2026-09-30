@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  Alert,
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,6 +20,7 @@ import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
 import { getCache, setCache } from "../../services/dataStore";
+import ToastProvider, { useToast } from "../../components/Toast";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -271,7 +271,8 @@ const SectionHeader = ({ title, action, onAction }) => {
   );
 };
 
-const User_Notification = () => {
+const User_NotificationInner = () => {
+  const toast = useToast();
   const [loading, setLoading] = useState(() => getCache("api:/notifications") === undefined);
 
   const [fontsLoaded] = useFonts({
@@ -382,7 +383,7 @@ const User_Notification = () => {
     }
   }, []);
 
-  useAutoRefresh(loadNotifications, 30000);
+  useAutoRefresh(loadNotifications, 60000);
 
   useEffect(() => subscribeRefresh(loadNotifications), [loadNotifications]);
 
@@ -434,11 +435,11 @@ const User_Notification = () => {
       setNearbyIncidents((prev) => prev.map((n) => ({ ...n, isRead: true })));
       setCachedReadFlags(unreadIds);
     } catch {
-      Alert.alert("Error", "Could not mark notifications as read.");
+      toast.error("Could not mark notifications as read.");
     } finally {
       setMarking(false);
     }
-  }, [marking, userReports, nearbyIncidents, setCachedReadFlags]);
+  }, [marking, userReports, nearbyIncidents, setCachedReadFlags, toast]);
 
   const markAsRead = useCallback(async (id) => {
     setUserReports((prev) =>
@@ -762,5 +763,11 @@ const styles = StyleSheet.create({
     fontFamily: "PoppinsMedium",
   },
 });
+
+const User_Notification = () => (
+  <ToastProvider>
+    <User_NotificationInner />
+  </ToastProvider>
+);
 
 export default User_Notification;

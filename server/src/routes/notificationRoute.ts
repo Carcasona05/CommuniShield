@@ -6,6 +6,7 @@ import {
   markAllNotificationsRead,
   getAdminNotifications,
   markAdminNotificationRead,
+  markAdminAllNotificationsRead,
 } from "../controllers/notificationController.js";
 import { authenticate } from "../middlewares/authMiddleware.js";
 
@@ -16,6 +17,11 @@ router.get("/notifications/login-activity", authenticate, getLoginActivities);
 router.patch("/notifications/read-all", authenticate, markAllNotificationsRead);
 router.patch("/notifications/:id/read", authenticate, markNotificationRead);
 router.get("/admin/notifications", authenticate, getAdminNotifications);
+router.patch(
+  "/admin/notifications/read-all",
+  authenticate,
+  markAdminAllNotificationsRead
+);
 router.patch("/admin/notifications/:id/read", authenticate, markAdminNotificationRead);
 
 export default router;

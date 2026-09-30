@@ -1,14 +1,20 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
 import { smartBack } from "../../services/navigation";
 import ToastProvider, { useToast } from "../../components/Toast";
+import ConfirmModal from "../../components/modals/ConfirmModal";
 import MyUser_RepPostView_Layout from "../../components/User_compo/MyUser_RepPostView_Layout";
 import { removeCachedReport } from "../../services/dataStore";
 
-const MyUser_RepPostView = () => {
+const MyUser_RepPostView = () => (
+  <ToastProvider>
+    <MyUser_RepPostViewInner />
+  </ToastProvider>
+);
+
+const MyUser_RepPostViewInner = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
   const toast = useToast();
@@ -27,6 +33,7 @@ const MyUser_RepPostView = () => {
   }
 
   const [freshReport, setFreshReport] = useState(parsedReport);
+  const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!parsedReport?.id) return;
@@ -56,47 +63,47 @@ const MyUser_RepPostView = () => {
   };
 
   const handleDelete = () => {
-    Alert.alert("Delete Report", "Are you sure you want to delete this report?", [
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          if (!(freshReport?.id || parsedReport?.id)) return;
-          try {
-            const token = await AsyncStorage.getItem("access_token");
-            if (!token) return;
+    setConfirmDeleteVisible(true);
+  };
 
-            await apiClient.delete(
-              `/reports/${freshReport?.id || parsedReport.id}`,
-              {
-                headers: { Authorization: `Bearer ${token}` },
-              }
-            );
+  const confirmDelete = async () => {
+    if (!(freshReport?.id || parsedReport?.id)) return;
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
 
-            removeCachedReport(freshReport?.id || parsedReport.id);
+      await apiClient.delete(
+        `/reports/${freshReport?.id || parsedReport.id}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
-            toast.success("Report deleted successfully.");
-            smartBack("/(tabs)/User_MyReports");
-          } catch (error) {
-            toast.error(error.response?.data?.error || "Could not delete the report.");
-          }
-        },
-      },
-    ]);
+      removeCachedReport(freshReport?.id || parsedReport.id);
+
+      toast.success("Report deleted successfully.");
+      smartBack("/(tabs)/User_MyReports");
+    } catch (error) {
+      toast.error(error.response?.data?.error || "Could not delete the report.");
+    }
   };
 
   return (
-    <ToastProvider>
+    <>
       <MyUser_RepPostView_Layout
         report={freshReport || parsedReport}
         onEdit={handleEdit}
         onDelete={handleDelete}
       />
-    </ToastProvider>
+      <ConfirmModal
+        visible={confirmDeleteVisible}
+        onClose={() => setConfirmDeleteVisible(false)}
+        onConfirm={confirmDelete}
+        title="Delete Report"
+        message="Are you sure you want to delete this report?"
+        confirmLabel="Delete"
+      />
+    </>
   );
 };
 
