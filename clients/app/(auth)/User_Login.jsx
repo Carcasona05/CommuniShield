@@ -183,9 +183,15 @@ function UserLoginInner() {
     try {
       await apiClient.post("/forgot-password", { email: cleanEmail, role: "user" });
 
+      if (!globalThis.demoAccount) {
+        globalThis.demoAccount = {};
+      }
       globalThis.demoAccount.resetEmail = cleanEmail;
       closeForgotModal();
-      router.push("/(auth)/SendOTP");
+      router.push({
+        pathname: "/(auth)/SendOTP",
+        params: { email: cleanEmail },
+      });
     } catch (error) {
       toast.error(
         error.response?.data?.error || "Could not send OTP. Try again."

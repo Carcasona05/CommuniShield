@@ -12,7 +12,7 @@ import {
   Dimensions,
 } from "react-native";
 import { Ionicons, FontAwesome } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
 import apiClient from "../../services/apiClient";
@@ -45,6 +45,7 @@ export default function SendOTP() {
 
 function SendOTPInner() {
   const toast = useToast();
+  const params = useLocalSearchParams();
   const [email, setEmail] = useState("");
   const [step, setStep] = useState("otp");
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
@@ -61,8 +62,9 @@ function SendOTPInner() {
   const otpRefs = useRef([]);
 
   useEffect(() => {
-    setEmail(globalThis.demoAccount.resetEmail || globalThis.demoAccount.email || "");
-  }, []);
+    const targetEmail = params?.email || globalThis.demoAccount?.resetEmail || globalThis.demoAccount?.email || "";
+    setEmail(targetEmail);
+  }, [params?.email]);
 
   const handleOtpChange = (value, index) => {
     const cleanValue = value.replace(/[^0-9]/g, "").slice(0, 1);
@@ -110,14 +112,14 @@ function SendOTPInner() {
     setNewPassword(text);
     if (submitted) {
       setNewPasswordError(validateNewPassword(text));
-      setConfirmPasswordError(validateConfirmPassword(text, confirmPassword));
+      setConfirmPasswordError(validateConfirmPassword(confirmPassword, text));
     }
   };
 
   const handleConfirmPasswordChange = (text) => {
     setConfirmPassword(text);
     if (submitted) {
-      setConfirmPasswordError(validateConfirmPassword(newPassword, text));
+      setConfirmPasswordError(validateConfirmPassword(text, newPassword));
     }
   };
 
@@ -125,7 +127,7 @@ function SendOTPInner() {
     setSubmitted(true);
 
     const pwError = validateNewPassword(newPassword);
-    const confirmError = validateConfirmPassword(newPassword, confirmPassword);
+    const confirmError = validateConfirmPassword(confirmPassword, newPassword);
     setNewPasswordError(pwError);
     setConfirmPasswordError(confirmError);
 

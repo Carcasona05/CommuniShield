@@ -10,6 +10,35 @@ const generateOtp = (): string => {
   return crypto.randomInt(100000, 999999).toString();
 };
 
+async function findUserByEmail(cleanEmail: string) {
+  let page = 1;
+  const perPage = 1000;
+  while (true) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) {
+      console.error("listUsers error:", error.message);
+      break;
+    }
+
+    if (!data || !data.users || data.users.length === 0) {
+      break;
+    }
+
+    const found = data.users.find(
+      (u) => u.email?.trim().toLowerCase() === cleanEmail
+    );
+    if (found) return found;
+
+    if (data.users.length < perPage) break;
+    page++;
+  }
+  return null;
+}
+
 export const forgotPassword = async (req: Request, res: Response) => {
   try {
     const { email, role } = req.body ?? {};
@@ -21,10 +50,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanRole = String(role || "user").trim();
 
-    const { data: userData } = await supabaseAdmin.auth.admin.listUsers();
-    const authUser = userData?.users?.find(
-      (u) => u.email?.toLowerCase() === cleanEmail
-    );
+    const authUser = await findUserByEmail(cleanEmail);
 
     if (!authUser) {
       if (cleanRole === "admin" || cleanRole === "super_admin") {
@@ -135,10 +161,7 @@ export const resetPassword = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "OTP not verified. Please verify your OTP first." });
     }
 
-    const { data: userData } = await supabaseAdmin.auth.admin.listUsers();
-    const user = userData?.users?.find(
-      (u) => u.email?.toLowerCase() === cleanEmail
-    );
+    const user = await findUserByEmail(cleanEmail);
 
     if (!user) {
       return res.status(400).json({ error: "User not found." });

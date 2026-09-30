@@ -95,7 +95,7 @@ function Admin_LoginInner() {
     setNewPassword(text);
     if (forgotSubmitted) {
       setNewPasswordError(validateNewPassword(text));
-      setConfirmNewPasswordError(validateConfirmPassword(text, confirmNewPassword));
+      setConfirmNewPasswordError(validateConfirmPassword(confirmNewPassword, text));
     }
   };
 
@@ -261,7 +261,7 @@ function Admin_LoginInner() {
     setForgotSubmitted(true);
 
     const pwError = validateNewPassword(newPassword);
-    const confirmError = validateConfirmPassword(newPassword, confirmNewPassword);
+    const confirmError = validateConfirmPassword(confirmNewPassword, newPassword);
     setNewPasswordError(pwError);
     setConfirmNewPasswordError(confirmError);
 
