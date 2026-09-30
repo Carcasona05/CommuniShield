@@ -14,6 +14,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import BottomNavBar from "../../components/BottomNavBar";
 import ErrorBoundary from "../../components/ErrorBoundary";
 import { scrollToTop } from "../../services/scrollToTopBus";
+import { subscribeNavVisibility, publishNavVisibility } from "../../services/navBus";
 import { smartBack } from "../../services/navigation";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
@@ -42,6 +43,13 @@ export default function TabLayout() {
     ].filter((n) => !n.isRead).length;
   });
   const prevTabRef = useRef("/(tabs)/User_Home");
+  const [navVisible, setNavVisible] = useState(true);
+
+  useEffect(() => subscribeNavVisibility(setNavVisible), []);
+
+  useEffect(() => {
+    publishNavVisibility(true);
+  }, [pathname]);
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -292,7 +300,7 @@ export default function TabLayout() {
         </Tabs>
       </View>
 
-      {showBottomNav && <BottomNavBar />}
+      {showBottomNav && <BottomNavBar visible={navVisible} />}
     </View>
     </ErrorBoundary>
   );

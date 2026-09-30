@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -244,10 +244,16 @@ function AuditLogRow({ log, isLast }) {
   );
 }
 
+const PAGE_SIZE = 10;
+
 export default function SAdmin_AuditLogs() {
   const [loading, setLoading] = useState(() => getCache("api:/admin/logs") === undefined);
   const [searchText, setSearchText] = useState("");
   const [selectedFilter, setSelectedFilter] = useState("All");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const showScrollTopRef = useRef(false);
+  const scrollRef = useRef(null);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -318,6 +324,20 @@ export default function SAdmin_AuditLogs() {
     });
   }, [searchText, selectedFilter, logs]);
 
+  const visibleLogs = filteredLogs.slice(0, visibleCount);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [searchText, selectedFilter]);
+
+  const handleScroll = (e) => {
+    const next = e.nativeEvent.contentOffset.y > 300;
+    if (next !== showScrollTopRef.current) {
+      showScrollTopRef.current = next;
+      setShowScrollTop(next);
+    }
+  };
+
   if (!fontsLoaded) {
     return null;
   }
@@ -346,9 +366,12 @@ export default function SAdmin_AuditLogs() {
     <SAdmin_Layout>
       <View style={styles.mainWrapper}>
         <ScrollView
+          ref={scrollRef}
           style={styles.container}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           <View style={styles.summaryGrid}>
             <View style={styles.summaryCard}>
@@ -474,22 +497,44 @@ export default function SAdmin_AuditLogs() {
                   size={38}
                   color="#5D6F92"
                 />
-                <Text style={styles.emptyTitle}>No audit logs found</Text>
+                <Text style={styles.emptyTitle}>No logs found</Text>
                 <Text style={styles.emptyText}>
                   Try changing the search keyword or selected filter.
                 </Text>
               </View>
             ) : (
-              filteredLogs.map((log, index) => (
+              visibleLogs.map((log, index) => (
                 <AuditLogRow
                   key={log.id}
                   log={log}
-                  isLast={index === filteredLogs.length - 1}
+                  isLast={index === visibleLogs.length - 1}
                 />
               ))
             )}
+
+            {filteredLogs.length > visibleLogs.length && (
+              <TouchableOpacity
+                style={styles.viewMoreBtn}
+                onPress={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.viewMoreText}>View more</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </ScrollView>
+
+        {showScrollTop && (
+          <TouchableOpacity
+            style={styles.scrollTopBtn}
+            onPress={() =>
+              scrollRef.current?.scrollTo({ y: 0, animated: true })
+            }
+            activeOpacity={0.8}
+          >
+            <Ionicons name="chevron-up" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+        )}
       </View>
     </SAdmin_Layout>
   );
@@ -834,5 +879,39 @@ const styles = StyleSheet.create({
     fontFamily: "PoppinsRegular",
     color: "#5D6F92",
     textAlign: "center",
+  },
+
+  viewMoreBtn: {
+    alignSelf: "center",
+    marginTop: 16,
+    marginBottom: 6,
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "#294880",
+  },
+
+  viewMoreText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontFamily: "PoppinsSemiBold",
+  },
+
+  scrollTopBtn: {
+    position: "absolute",
+    right: 26,
+    bottom: 30,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#294880",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 20,
+    elevation: 6,
+    shadowColor: "#000000",
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
   },
 });

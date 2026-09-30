@@ -252,7 +252,7 @@ function SAdmin_Layout({ children }) {
       description: "Review report validation and AI credibility results",
     },
     {
-      label: "Audit Logs",
+      label: "Logs",
       route: "/(sadmin)/SAdmin_AuditLogs",
       path: "/SAdmin_AuditLogs",
       icon: "list-outline",

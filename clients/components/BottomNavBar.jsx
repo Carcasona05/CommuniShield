@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
   View,
   TouchableOpacity,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   useWindowDimensions,
   Platform,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
@@ -15,11 +16,20 @@ import { scrollToTop } from "../services/scrollToTopBus";
 const COMMUNISHIELD_BLUE = "#294880";
 const INACTIVE = "#6C7A96";
 
-const BottomNavBar = () => {
+const BottomNavBar = ({ visible = true }) => {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const slideAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(slideAnim, {
+      toValue: visible ? 0 : 200,
+      duration: visible ? 220 : 180,
+      useNativeDriver: true,
+    }).start();
+  }, [visible, slideAnim]);
 
   const isTinyScreen = width < 340;
   const isSmallScreen = width >= 340 && width < 390;
@@ -148,12 +158,13 @@ const BottomNavBar = () => {
   };
 
   return (
-    <View
+    <Animated.View
       pointerEvents="box-none"
       style={[
         styles.wrapper,
         {
           bottom: bottomSpace,
+          transform: [{ translateY: slideAnim }],
         },
       ]}
     >
@@ -189,8 +200,8 @@ const BottomNavBar = () => {
             <Ionicons name="add" size={plusIconSize} color="#FFFFFF" />
           </TouchableOpacity>
         )}
-      </View>
-    </View>
+        </View>
+    </Animated.View>
   );
 };
 

@@ -437,7 +437,7 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
 
   if (result.error) return res.status(400).json({ error: result.error });
 
-  res.json({ liked: result.data?.liked });
+  res.json({ liked: result.data?.liked, likes: result.data?.likes });
 };
 
 export const getIncidentOptions = async (req: AuthRequest, res: Response) => {

@@ -19,6 +19,10 @@ import {
   markModelExhausted,
 } from "./services/geminiRotation.js";
 import { __testing as aiKit } from "./services/aiService.js";
+import {
+  __testing as forecastActionsKit,
+  type ForecastActionFacts,
+} from "./services/forecastActionsService.js";
 import { validateSetting } from "./controllers/settingsController.js";
 
 const basePrediction = (
@@ -396,6 +400,95 @@ describe("settingsController", () => {
     );
     assert.ok("error" in validateSetting("ai_api_endpoint", "not-a-url"));
     assert.ok("error" in validateSetting("ai_api_endpoint", "ftp://example.com"));
+  });
+});
+
+const actionFacts = (
+  overrides: Partial<ForecastActionFacts> = {}
+): ForecastActionFacts => ({
+  riskLevel: "HIGH",
+  probability: 92,
+  zones: [{ location: "Poblacion", count: 4 }],
+  timeWindow: "8:00 PM - 10:00 PM",
+  trendPct: 14,
+  crimeTypes: [{ label: "Theft", value: "50%" }],
+  activeHighCritical: 6,
+  activeTotal: 40,
+  ...overrides,
+});
+
+describe("forecastActionsService", () => {
+  test("rule fallback returns a single data message when there are no reports", () => {
+    const actions = forecastActionsKit.ruleBasedActions(
+      actionFacts({ activeTotal: 0, zones: [], crimeTypes: [] })
+    );
+    assert.equal(actions.length, 1);
+    assert.match(actions[0] ?? "", /Not enough report data/);
+  });
+
+  test("rule fallback for HIGH risk mentions the primary zone and time window", () => {
+    const actions = forecastActionsKit.ruleBasedActions(actionFacts());
+    assert.ok(actions.length >= 3 && actions.length <= 5);
+    assert.ok(
+      actions.some((action) => action.includes("Poblacion")),
+      `expected a zone in ${JSON.stringify(actions)}`
+    );
+    assert.ok(
+      actions.some((action) => action.includes("8:00 PM - 10:00 PM")),
+      `expected the time window in ${JSON.stringify(actions)}`
+    );
+  });
+
+  test("rule fallback never exceeds 5 actions", () => {
+    const actions = forecastActionsKit.ruleBasedActions(
+      actionFacts({ riskLevel: "MEDIUM", trendPct: 40 })
+    );
+    assert.ok(actions.length <= 5);
+    assert.ok(actions.every((action) => action.length > 0));
+  });
+
+  test("fingerprint is stable for identical facts and changes with the prediction", () => {
+    const first = forecastActionsKit.actionsFingerprint(actionFacts());
+    const second = forecastActionsKit.actionsFingerprint(actionFacts());
+    assert.equal(first, second);
+    const changed = forecastActionsKit.actionsFingerprint(
+      actionFacts({ probability: 60 })
+    );
+    assert.notEqual(first, changed);
+  });
+
+  test("prompt includes the computed zone, risk level, and incident types", () => {
+    const prompt = forecastActionsKit.buildActionsPrompt(actionFacts());
+    assert.match(prompt, /Poblacion/);
+    assert.match(prompt, /HIGH/);
+    assert.match(prompt, /92%/);
+    assert.match(prompt, /Theft 50%/);
+    assert.match(prompt, /\+14%/);
+  });
+
+  test("parser accepts a fenced JSON array and wraps object responses", () => {
+    const fromArray = forecastActionsKit.parseActionsResponse(
+      '```json\n["Increase patrol in Poblacion", "Notify standby units", "Review incoming reports"]\n```'
+    );
+    assert.ok(fromArray);
+    assert.equal(fromArray.length, 3);
+
+    const fromObject = forecastActionsKit.parseActionsResponse(
+      '{"actions": ["Watch Poblacion at night", "Stage response units", "Verify high-severity reports", "Brief barangay officials"]}'
+    );
+    assert.ok(fromObject);
+    assert.equal(fromObject.length, 4);
+  });
+
+  test("parser rejects fewer than 3 items and non-JSON output", () => {
+    assert.equal(
+      forecastActionsKit.parseActionsResponse('["Only one action"]'),
+      null
+    );
+    assert.equal(
+      forecastActionsKit.parseActionsResponse("Increase patrols tonight"),
+      null
+    );
   });
 });
 

@@ -25,7 +25,7 @@ const FONT = {
 };
 
 const MyUser_RepPost_Layout = ({
-  id = Date.now().toString(),
+  id = "",
   userName = "You",
   userAvatar = null,
   location = "Location not specified",

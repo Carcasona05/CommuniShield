@@ -22,7 +22,9 @@ import Dropdown from "../../components/Dropdown";
 import ToastProvider, { useToast } from "../../components/Toast";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
-import { getCache, setCache } from "../../services/dataStore";
+import { uploadImage } from "../../services/imageUpload";
+import { getCache, setCache, patchCachedReports } from "../../services/dataStore";
+import { triggerRefresh } from "../../services/refreshBus";
 
 const PRIMARY = "#294880";
 
@@ -115,6 +117,8 @@ function EditScreenInner() {
   });
   const [details, setDetails] = useState("");
   const [photos, setPhotos] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [initial, setInitial] = useState(null);
 
   const incidentTypes = useMemo(() => {
     const found = categoryOptions.find((o) => o.category === incidentCategory);
@@ -151,13 +155,32 @@ function EditScreenInner() {
       const parsedReport = params?.report ? JSON.parse(params.report) : null;
 
       if (parsedReport) {
+        const nextLocation = parsedReport.location || "";
+        const nextCategory =
+          parsedReport.incidentCategory || parsedReport.incident_category || "";
+        const nextType =
+          parsedReport.incidentType || parsedReport.incident_type || "";
+        const nextDetails = parsedReport.details || "";
+        const nextPhotos = Array.isArray(parsedReport.images)
+          ? parsedReport.images
+          : [];
+        const nextUserName =
+          parsedReport.userName || parsedReport.poster_name || "You";
+
         setReport(parsedReport);
-        setUserName(parsedReport.userName || "You");
-        setLocation(parsedReport.location || "");
-        setIncidentCategory(parsedReport.incidentCategory || "");
-        setIncidentType(parsedReport.incidentType || "");
-        setDetails(parsedReport.details || "");
-        setPhotos(Array.isArray(parsedReport.images) ? parsedReport.images : []);
+        setUserName(nextUserName);
+        setLocation(nextLocation);
+        setIncidentCategory(nextCategory);
+        setIncidentType(nextType);
+        setDetails(nextDetails);
+        setPhotos(nextPhotos);
+        setInitial({
+          location: nextLocation,
+          incidentCategory: nextCategory,
+          incidentType: nextType,
+          details: nextDetails,
+          photos: nextPhotos,
+        });
       }
     } catch {
       setReport(null);
@@ -167,8 +190,23 @@ function EditScreenInner() {
   useEffect(() => {
     if (incidentCategory && !incidentTypes.includes(incidentType)) {
       setIncidentType("");
+      setInitial((prev) =>
+        prev && incidentType ? { ...prev, incidentType: "" } : prev
+      );
     }
   }, [incidentCategory, incidentType, incidentTypes]);
+
+  const hasChanges = useMemo(() => {
+    if (!initial) return false;
+    return (
+      initial.location !== location ||
+      initial.incidentCategory !== incidentCategory ||
+      initial.incidentType !== incidentType ||
+      initial.details !== details ||
+      initial.photos.length !== photos.length ||
+      initial.photos.some((p, i) => p !== photos[i])
+    );
+  }, [initial, location, incidentCategory, incidentType, details, photos]);
 
   const handlePickPhoto = async () => {
     if (photos.length >= 3) {
@@ -199,29 +237,71 @@ function EditScreenInner() {
     setPhotos((prev) => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
+    if (saving) return;
+
     if (!incidentCategory || !incidentType || !details.trim()) {
       toast.error("Please complete the category, incident type, and details.");
       return;
     }
 
-    const updatedReport = {
-      ...report,
-      userName,
-      location,
-      incidentCategory,
-      incidentType,
-      details: details.trim(),
-      images: photos,
-    };
+    if (!report?.id) {
+      toast.error("Could not find this report.");
+      return;
+    }
 
-    console.log("Updated Report:", updatedReport);
+    setSaving(true);
 
-    toast.success("Your report has been updated successfully.");
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) throw new Error("Please sign in again.");
 
-    setTimeout(() => {
-      smartBack("/(tabs)/User_MyReports");
-    }, 1200);
+      const uploadedPhotos = [];
+      for (const img of photos) {
+        if (typeof img === "string" && img.startsWith("blob:")) {
+          const url = await uploadImage(img);
+          uploadedPhotos.push(url);
+        } else {
+          uploadedPhotos.push(img);
+        }
+      }
+
+      await apiClient.put(
+        `/reports/${report.id}`,
+        {
+          details: details.trim(),
+          incident_category: incidentCategory,
+          incident_type: incidentType,
+          photos: uploadedPhotos,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      patchCachedReports(report.id, (r) => ({
+        ...r,
+        details: details.trim(),
+        incident_category: incidentCategory,
+        incident_type: incidentType,
+        images: uploadedPhotos,
+      }));
+
+      triggerRefresh();
+
+      toast.success("Your report has been updated successfully.");
+
+      setTimeout(() => {
+        smartBack("/(tabs)/User_MyReports");
+      }, 1200);
+    } catch (error) {
+      setSaving(false);
+      toast.error(
+        error?.response?.data?.error ||
+          error?.message ||
+          "Could not update the report."
+      );
+    }
   };
 
   if (!fontsLoaded) {
@@ -244,17 +324,6 @@ function EditScreenInner() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.formCard}>
-          <View style={styles.topRow}>
-            <TouchableOpacity
-              style={styles.backButton}
-              activeOpacity={0.85}
-              onPress={() => router.back()}
-            >
-              <Ionicons name="chevron-back" size={22} color={PRIMARY} />
-            </TouchableOpacity>
-
-            <ThemedText style={styles.pageTitle}>Edit My Report</ThemedText>
-          </View>
 
           <View style={styles.fieldContainer}>
             <ThemedText style={styles.label}>Username</ThemedText>
@@ -393,13 +462,21 @@ function EditScreenInner() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.saveButton}
+              style={[
+                styles.saveButton,
+                { opacity: saving || !hasChanges ? 0.6 : 1 },
+              ]}
               activeOpacity={0.88}
               onPress={handleSaveChanges}
+              disabled={saving || !hasChanges || !report?.id}
             >
-              <ThemedText style={styles.saveButtonText}>
-                Save Changes
-              </ThemedText>
+              {saving ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <ThemedText style={styles.saveButtonText}>
+                  Save Changes
+                </ThemedText>
+              )}
             </TouchableOpacity>
           </View>
         </View>

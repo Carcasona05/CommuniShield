@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ojieesteam.Communishield",
+      "bundleIdentifier": "com.oskarjitem.CommuniShield20",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -26,7 +26,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.ojieesteam.Communishield"
+      "package": "com.oskarjitem.CommuniShield20"
     },
     "web": {
       "favicon": "assets/icon.png"
@@ -39,9 +39,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "625685c1-0063-49e6-93ee-abbfe85f128d"
+        "projectId": "fdc613c1-1548-4657-86cc-9fd19047eba2"
       }
     },
-    "owner": "ojiees-team"
+    "owner": "oskarji"
   }
 }

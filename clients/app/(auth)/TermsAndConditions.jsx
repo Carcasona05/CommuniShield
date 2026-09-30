@@ -50,7 +50,7 @@ export default function TermsAndConditions() {
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => smartBack("/(tabs)/User_Settings")}
+            onPress={() => smartBack("/(tabs)/User_ProfileSettings")}
             style={styles.backButton}
             activeOpacity={0.7}
           >
@@ -320,6 +320,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginTop: 25,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,

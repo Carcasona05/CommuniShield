@@ -32,6 +32,8 @@ import { getCache, setCache, patchCachedReports, removeCachedReport } from "../.
 
 const PRIMARY = "#294880";
 
+const PAGE_SIZE = 10;
+
 const FONT = {
   regular: "Poppins-Regular",
   medium: "Poppins-Medium",
@@ -239,6 +241,7 @@ const EditReportModal = ({ visible, report, onClose, onSave }) => {
   const [details, setDetails] = useState("");
   const [photos, setPhotos] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [initial, setInitial] = useState(null);
 
   const incidentTypes = useMemo(() => {
     const found = categoryOptions.find((o) => o.category === incidentCategory);
@@ -277,14 +280,36 @@ const EditReportModal = ({ visible, report, onClose, onSave }) => {
       setIncidentType(report.incidentType || "");
       setDetails(report.details || "");
       setPhotos(Array.isArray(report.images) ? report.images : []);
+      setInitial({
+        location: report.location || "",
+        incidentCategory: report.incidentCategory || "",
+        incidentType: report.incidentType || "",
+        details: report.details || "",
+        photos: Array.isArray(report.images) ? report.images : [],
+      });
     }
   }, [report]);
 
   useEffect(() => {
     if (incidentCategory && !incidentTypes.includes(incidentType)) {
       setIncidentType("");
+      setInitial((prev) =>
+        prev && incidentType ? { ...prev, incidentType: "" } : prev
+      );
     }
   }, [incidentCategory, incidentType, incidentTypes]);
+
+  const hasChanges = useMemo(() => {
+    if (!initial) return false;
+    return (
+      initial.location !== location ||
+      initial.incidentCategory !== incidentCategory ||
+      initial.incidentType !== incidentType ||
+      initial.details !== details ||
+      initial.photos.length !== photos.length ||
+      initial.photos.some((p, i) => p !== photos[i])
+    );
+  }, [initial, location, incidentCategory, incidentType, details, photos]);
 
   const handlePickPhoto = async () => {
     if (photos.length >= 3) {
@@ -504,10 +529,13 @@ const EditReportModal = ({ visible, report, onClose, onSave }) => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.saveButton, { opacity: saving ? 0.6 : 1 }]}
+                style={[
+                  styles.saveButton,
+                  { opacity: saving || !hasChanges ? 0.6 : 1 },
+                ]}
                 activeOpacity={0.88}
                 onPress={handleSaveChanges}
-                disabled={saving}
+                disabled={saving || !hasChanges}
               >
                 {saving ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
@@ -553,6 +581,9 @@ const MyReportsInner = () => {
   });
   const [refreshing, setRefreshing] = useState(false);
   const scrollRef = useScrollToTop();
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
@@ -598,6 +629,21 @@ const MyReportsInner = () => {
     return myReports.filter((report) => report.status === selectedStatus);
   }, [selectedStatus, myReports]);
 
+  const visibleReports = filteredReports.slice(0, visibleCount);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [selectedStatus]);
+
+  const handleViewMore = () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    setTimeout(() => {
+      setVisibleCount((count) => count + PAGE_SIZE);
+      setLoadingMore(false);
+    }, 400);
+  };
+
   const statusCounts = useMemo(() => {
     const counts = { "All Status": myReports.length };
 
@@ -630,6 +676,8 @@ const MyReportsInner = () => {
       );
 
       const liked = res.data?.liked ?? false;
+      const serverLikes =
+        typeof res.data?.likes === "number" ? res.data.likes : null;
 
       setMyReports((prevReports) =>
         prevReports.map((report) =>
@@ -637,7 +685,9 @@ const MyReportsInner = () => {
             ? {
                 ...report,
                 isLiked: liked,
-                likes: report.likes + (liked ? 1 : -1),
+                likes:
+                  serverLikes ??
+                  Math.max(0, report.likes + (liked ? 1 : -1)),
               }
             : report
         )
@@ -646,7 +696,7 @@ const MyReportsInner = () => {
       patchCachedReports(reportId, (r) => ({
         ...r,
         is_liked: liked,
-        likes: (r.likes ?? 0) + (liked ? 1 : -1),
+        likes: serverLikes ?? (r.likes ?? 0) + (liked ? 1 : -1),
       }));
     } catch {
       // ignore like failures
@@ -692,7 +742,6 @@ const MyReportsInner = () => {
         {
           details: updatedReport.details,
           location: updatedReport.location,
-          poster_name: updatedReport.userName,
           incident_category: updatedReport.incidentCategory,
           incident_type: updatedReport.incidentType,
           photos: uploadPhotos,
@@ -714,7 +763,6 @@ const MyReportsInner = () => {
         ...r,
         details: updatedReport.details,
         location: updatedReport.location,
-        poster_name: updatedReport.userName,
         incident_category: updatedReport.incidentCategory,
         incident_type: updatedReport.incidentType,
         images: uploadPhotos,
@@ -781,6 +829,10 @@ const MyReportsInner = () => {
         style={styles.scrollContainer}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        onScroll={(event) =>
+          setShowScrollTop(event.nativeEvent.contentOffset.y > 300)
+        }
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -820,9 +872,10 @@ const MyReportsInner = () => {
               </ThemedText>
             </View>
           ) : (
-            filteredReports.map((report, index) => (
+            visibleReports.map((report, index) => (
                 <MyUser_RepPost_Layout
                   key={report.id}
+                  id={report.id}
                   userName={report.userName}
                   userAvatar={report.userAvatar}
                   datePosted={report.datePosted}
@@ -848,15 +901,44 @@ const MyReportsInner = () => {
                 onEdit={() => handleEditReport(report)}
                 onDelete={() => handleDeleteReport(report.id)}
                 style={
-                  index !== filteredReports.length - 1
+                  index !== visibleReports.length - 1
                     ? styles.reportCardSpacing
                     : null
                 }
               />
             ))
           )}
+
+          {!loading && filteredReports.length > visibleReports.length ? (
+            <TouchableOpacity
+              style={styles.viewMoreBtn}
+              activeOpacity={0.8}
+              onPress={handleViewMore}
+              disabled={loadingMore}
+            >
+              {loadingMore ? (
+                <ActivityIndicator size="small" color={PRIMARY} />
+              ) : (
+                <ThemedText style={styles.viewMoreText}>
+                  View more posts
+                </ThemedText>
+              )}
+            </TouchableOpacity>
+          ) : null}
         </View>
       </ScrollView>
+
+      {showScrollTop ? (
+        <TouchableOpacity
+          style={styles.scrollTopBtn}
+          activeOpacity={0.8}
+          onPress={() =>
+            scrollRef.current?.scrollTo?.({ y: 0, animated: true })
+          }
+        >
+          <Ionicons name="arrow-up" size={22} color="#FFFFFF" />
+        </TouchableOpacity>
+      ) : null}
 
       <EditReportModal
         visible={editModalVisible}
@@ -889,8 +971,8 @@ const styles = StyleSheet.create({
 
   scrollContent: {
     paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 110,
+    paddingTop: 16,
+    paddingBottom: 148,
   },
 
   sectionBlock: {
@@ -1017,6 +1099,41 @@ const styles = StyleSheet.create({
 
   reportCardSpacing: {
     marginBottom: 6,
+  },
+
+  viewMoreBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 46,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E1E8F2",
+    backgroundColor: "#FFFFFF",
+    marginTop: 6,
+    marginBottom: 4,
+  },
+
+  viewMoreText: {
+    fontFamily: FONT.medium,
+    fontSize: 13,
+    color: PRIMARY,
+  },
+
+  scrollTopBtn: {
+    position: "absolute",
+    right: 16,
+    bottom: 150,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: PRIMARY,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
   },
 
   emptyCard: {

@@ -66,7 +66,7 @@ const mapValidationReports = (list) =>
     sentiment_model: r.sentiment_model ?? "none",
     sentiment_analyzed_at: r.sentiment_analyzed_at ?? null,
     credibilityReview: r.credibility_review || "",
-    submittedBy: r.poster_name || "Anonymous User",
+    submittedBy: r.reporter_name || r.poster_name || "Anonymous User",
     submittedRole: r.source === "Admin" ? "Admin" : "User",
     submittedAt: formatSubmittedAt(r.created_at),
     verifiedBy: r.is_verified ? "System" : "",
@@ -75,6 +75,8 @@ const mapValidationReports = (list) =>
     comments: Array.isArray(r.comments) ? r.comments : [],
     images: Array.isArray(r.images) ? r.images : [],
   }));
+
+const PAGE_SIZE = 10;
 
 export default function SAdmin_Validation() {
   const toast = useToast();
@@ -88,6 +90,10 @@ export default function SAdmin_Validation() {
   const [reanalyzing, setReanalyzing] = useState(false);
 
   const [addAnnouncementVisible, setAddAnnouncementVisible] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const showScrollTopRef = useRef(false);
+  const scrollRef = useRef(null);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -358,6 +364,20 @@ export default function SAdmin_Validation() {
       return matchesStatus && matchesWeek;
     });
   }, [groupedReports, selectedStatus, selectedWeekRange]);
+
+  const visibleReports = filteredReports.slice(0, visibleCount);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [selectedStatus, selectedWeekRange]);
+
+  const handleScroll = (e) => {
+    const next = e.nativeEvent.contentOffset.y > 300;
+    if (next !== showScrollTopRef.current) {
+      showScrollTopRef.current = next;
+      setShowScrollTop(next);
+    }
+  };
 
   if (!fontsLoaded) {
     return null;
@@ -664,9 +684,12 @@ export default function SAdmin_Validation() {
     <SAdmin_Layout>
       <View style={styles.wrapper}>
         <ScrollView
+          ref={scrollRef}
           style={styles.container}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           <View style={styles.statsRow}>
             <StatCard
@@ -880,7 +903,7 @@ export default function SAdmin_Validation() {
                 </Text>
               </View>
             ) : (
-              filteredReports.map((group, index) => {
+              visibleReports.map((group, index) => {
                 const statusStyle = getStatusStyle(group.status);
                 const severityStyle = getSeverityStyle(group.severity);
                 const isCompiled = group.reportCount > 1;
@@ -1015,8 +1038,30 @@ export default function SAdmin_Validation() {
                 );
               })
             )}
+
+            {filteredReports.length > visibleReports.length && (
+              <TouchableOpacity
+                style={styles.viewMoreBtn}
+                onPress={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.viewMoreText}>View more</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </ScrollView>
+
+        {showScrollTop && (
+          <TouchableOpacity
+            style={styles.scrollTopBtn}
+            onPress={() =>
+              scrollRef.current?.scrollTo({ y: 0, animated: true })
+            }
+            activeOpacity={0.8}
+          >
+            <Ionicons name="chevron-up" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+        )}
 
         <Admin_ViewSimilarReportsModal
           visible={viewVisible}
@@ -1476,5 +1521,39 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#5D6F92",
     fontFamily: "PoppinsRegular",
+  },
+
+  viewMoreBtn: {
+    alignSelf: "center",
+    marginTop: 16,
+    marginBottom: 6,
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "#294880",
+  },
+
+  viewMoreText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontFamily: "PoppinsSemiBold",
+  },
+
+  scrollTopBtn: {
+    position: "absolute",
+    right: 26,
+    bottom: 30,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#294880",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 20,
+    elevation: 6,
+    shadowColor: "#000000",
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
   },
 });

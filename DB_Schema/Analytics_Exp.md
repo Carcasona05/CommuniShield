@@ -30,39 +30,52 @@ No model is required — this is a query over data the AI layer already produced
 large language model. For one municipality's scale, a **statistical
 time-series forecast** is the right choice:
 
-- Weight historical reports by severity (`Low`=1, `Medium`=2, `High`=3,
-  `Critical`=4).
-- Build an average per hour-of-day from the last 30 days.
-- Project the next 48 hours: baseline = that hour's weighted average
-  normalized against the peak hour, adjusted by a recent-vs-prior trend factor
-  (last 7 days vs the 7 days before).
+- Count incidents per hour-of-day from active reports (Rejected/Archived
+  excluded) over the observed window (up to the last 30 days).
+- Expected rate per slot: λ = count ÷ days observed, scaled by a
+  recent-vs-prior trend factor (last 7 days vs the 7 days before), applied
+  more strongly the further out the hour is.
+- Project the next 48 hours as the probability of at least one incident:
+  `P = (1 − e^−λ) × 100`, floored at 3%. Because λ is a real rate, quiet
+  hours land around 5–15% and busy hours 60–90% — so the HIGH (≥80) /
+  MEDIUM (≥60) / LOW thresholds are actually reachable.
 
 Deterministic, cheap, and explainable. You only move to ARIMA / Prophet or a
 trained ML model if the simple version proves inaccurate.
 
 ## 3. Possible Crime Forecast
 
-**Not a separate AI.** It is the *output* of the predictive model plus simple
-rules:
+**The numbers come from the predictive model; the recommended actions are
+written by Gemini, grounded in those numbers:**
 
 | Field                  | Source                                                     |
 | ---------------------- | ---------------------------------------------------------- |
-| Predicted high-risk zone | Highest-density/severity cluster among recent reports    |
-| Risk level              | Derived from max forecast probability (≥80 HIGH, ≥60 MEDIUM, else LOW) |
-| Probability %           | Max forecast probability                                   |
-| Predicted crime types   | Incident-type distribution inside the zone (top 3)         |
+| Predicted high-risk zones | Up to 3 ranked locations by High/Critical report count (case/spacing-insensitively compared; "Insufficient data" when none) |
+| Evidence line          | `Based on N active reports (M high-severity)` — the actual counts fed to the model; replaces any probability % |
+| Predicted crime types   | Incident-type distribution across active High/Critical reports (top 5) |
 | Estimated time window   | Forecast hour with peak probability (± 2 hours)            |
-| Trend indicator         | Forecast volume vs previous period                         |
-| Recommended actions     | Rule-based (e.g., probability ≥ 80 → "increase patrol")    |
+| Report trend           | Real weekly counts, rendered client-side as `Rising / Falling / Stable — N reports this week vs M last week` (±10% band = stable; red / green / grey) |
+| Recommended actions     | **AI-written** from the computed facts (zones, window, trend, types) via Gemini, cached per prediction fingerprint; deterministic rule-based fallback when AI is unavailable or fails |
 
-An LLM could rephrase the recommendations, but rule-based suggestions are
-safer and deterministic for a safety system.
+**Not displayed (internal only):** risk level (≥80 HIGH / ≥60 MEDIUM) and the
+probability % still exist server-side — they feed the AI prompt and the
+rule-based fallback — but they are hidden from the card: a raw "100%" claim
+was unverifiable and changed no decision. The 48-hour chart is labeled
+`Relative likelihood` on a 0–100 index (no `%` axis labels) for the same
+reason.
+
+Guardrails: the LLM never computes any of the numbers — it only words the
+actions, and the prompt forbids inventing locations, times, percentages, or
+crime types. If parsing fails or Gemini errors, the rule-based actions are
+shown instead, so the card is never empty.
 
 ## Summary
 
-- Sentiment Analysis → aggregate query (not AI).
+- Sentiment Analysis → aggregate query over labels the AI layer already produced.
 - Predictive Trend Model → statistical forecast (light data-science, no LLM).
-- Possible Crime Forecast → derived output + rules (not AI).
+- Possible Crime Forecast → derived output + AI-written recommended actions
+  grounded in those numbers (rule-based fallback; the forecast math itself is
+  still not AI).
 
 Implementation lives in `reportService.getAdminAnalytics()` (backend) and the
 rewritten `Admin_Analytics.jsx` (frontend).

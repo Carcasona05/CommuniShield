@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,6 +19,7 @@ import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
+import { publishNavVisibility, subscribeNavVisibility } from "../../services/navBus";
 import { getCache, setCache, patchCachedReports } from "../../services/dataStore";
 import { SkeletonFeed } from "../../components/SkeletonCard";
 
@@ -42,6 +44,8 @@ const statusOptions = [
 
 const sourceOptions = ["All", "User", "Admin"];
 
+const PAGE_SIZE = 10;
+
 const isWithinPastHours = (dateValue, hours) => {
   const date = new Date(dateValue);
   const limit = new Date();
@@ -65,6 +69,8 @@ const mapFeed = (reportsData, adminData) => {
     userName: r.poster_name || "Anonymous User",
     userAvatar: null,
     location: r.location,
+    latitude: r.latitude ?? null,
+    longitude: r.longitude ?? null,
     incidentCategory: r.incident_category,
     incidentType: r.incident_type,
     details: r.details,
@@ -101,24 +107,76 @@ const mapFeed = (reportsData, adminData) => {
   return [...adminPosts, ...userPosts];
 };
 
-const MapPreview = ({ style }) => {
+const NEARBY_RADIUS_KM = 2;
+
+const distanceKm = (lat1, lng1, lat2, lng2) => {
+  const dLat = (lat2 - lat1) * 111;
+  const dLng = (lng2 - lng1) * 111 * Math.cos((lat1 * Math.PI) / 180);
+  return Math.sqrt(dLat * dLat + dLng * dLng);
+};
+
+const buildReminderText = (count) => {
+  if (count === 1) {
+    return "A report has been logged near your location - just a reminder to stay alert when going around the area.";
+  }
+  if (count < 4) {
+    return "A few reports have been logged near your location - just a reminder to stay alert when going around the area.";
+  }
+  return "Several reports have been logged near your location - please stay alert when going around the area.";
+};
+
+const MapPreview = ({ style, reports = [] }) => {
+  const [userPosition, setUserPosition] = useState(null);
+
+  const handleLocation = useCallback((pos) => {
+    setUserPosition((prev) => {
+      if (prev && distanceKm(prev[0], prev[1], pos[0], pos[1]) < 0.05) {
+        return prev;
+      }
+      return pos;
+    });
+  }, []);
+
+  const nearbyCount = useMemo(() => {
+    if (!userPosition) return 0;
+    return reports.filter((report) => {
+      if (report.latitude == null || report.longitude == null) return false;
+      if (report.status === "Rejected" || report.status === "Archived") {
+        return false;
+      }
+      return (
+        distanceKm(
+          userPosition[0],
+          userPosition[1],
+          Number(report.latitude),
+          Number(report.longitude)
+        ) <= NEARBY_RADIUS_KM
+      );
+    }).length;
+  }, [reports, userPosition]);
+
   return (
     <View style={[styles.mapCard, style]}>
-      <MapView interactive={false} />
+      <MapView interactive={false} onLocation={handleLocation} />
 
-      <View style={styles.mapReminderCard}>
-        <View style={styles.reminderIcon}>
-          <Ionicons name="shield-checkmark-outline" size={17} color={PRIMARY} />
-        </View>
+      {nearbyCount > 0 ? (
+        <View style={styles.mapReminderCard}>
+          <View style={styles.reminderIcon}>
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={17}
+              color={PRIMARY}
+            />
+          </View>
 
-        <View style={styles.reminderTextWrap}>
-          <ThemedText style={styles.reminderTitle}>Area Reminder</ThemedText>
-          <ThemedText style={styles.reminderText}>
-            Stay aware of nearby reports and admin safety updates before going
-            around the area.
-          </ThemedText>
+          <View style={styles.reminderTextWrap}>
+            <ThemedText style={styles.reminderTitle}>Area Reminder</ThemedText>
+            <ThemedText style={styles.reminderText}>
+              {buildReminderText(nearbyCount)}
+            </ThemedText>
+          </View>
         </View>
-      </View>
+      ) : null}
     </View>
   );
 };
@@ -236,6 +294,11 @@ const User_Home = () => {
     return getCache("api:/reports") === undefined && getCache("api:/admin/posts") === undefined;
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [navShown, setNavShown] = useState(true);
+  const [arrowReady, setArrowReady] = useState(false);
   const scrollRef = useScrollToTop();
 
   const loadReports = useCallback(async () => {
@@ -296,11 +359,56 @@ const User_Home = () => {
     });
   }, [reports, selectedTimeRange, selectedStatus, selectedSource]);
 
+  const visibleReports = filteredReports.slice(0, visibleCount);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [selectedTimeRange, selectedStatus, selectedSource]);
+
   const handleDropdownToggle = (dropdownName) => {
     setOpenDropdown((current) =>
       current === dropdownName ? null : dropdownName
     );
   };
+
+  const handleViewMore = () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    setTimeout(() => {
+      setVisibleCount((count) => count + PAGE_SIZE);
+      setLoadingMore(false);
+    }, 400);
+  };
+
+  const lastScrollYRef = useRef(0);
+
+  const handleScroll = (event) => {
+    const y = event.nativeEvent.contentOffset.y;
+    setShowScrollTop(y > 300);
+
+    const delta = y - lastScrollYRef.current;
+    if (y <= 0) {
+      publishNavVisibility(true);
+      lastScrollYRef.current = 0;
+    } else if (delta > 12) {
+      publishNavVisibility(false);
+      lastScrollYRef.current = y;
+    } else if (delta < -12) {
+      publishNavVisibility(true);
+      lastScrollYRef.current = y;
+    }
+  };
+
+  useEffect(() => subscribeNavVisibility(setNavShown), []);
+
+  useEffect(() => {
+    if (navShown) {
+      setArrowReady(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setArrowReady(true), 220);
+    return () => clearTimeout(timer);
+  }, [navShown]);
 
   const handleLike = async (reportId) => {
     try {
@@ -314,6 +422,8 @@ const User_Home = () => {
       );
 
       const liked = res.data?.liked ?? false;
+      const serverLikes =
+        typeof res.data?.likes === "number" ? res.data.likes : null;
 
       setReports((prevReports) =>
         prevReports.map((report) =>
@@ -321,7 +431,9 @@ const User_Home = () => {
             ? {
                 ...report,
                 isLiked: liked,
-                likes: report.likes + (liked ? 1 : -1),
+                likes:
+                  serverLikes ??
+                  Math.max(0, report.likes + (liked ? 1 : -1)),
               }
             : report
         )
@@ -330,7 +442,7 @@ const User_Home = () => {
       patchCachedReports(reportId, (r) => ({
         ...r,
         is_liked: liked,
-        likes: (r.likes ?? 0) + (liked ? 1 : -1),
+        likes: serverLikes ?? (r.likes ?? 0) + (liked ? 1 : -1),
       }));
     } catch {
       // ignore like failures
@@ -353,6 +465,8 @@ const User_Home = () => {
         style={styles.scrollContainer}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -362,7 +476,7 @@ const User_Home = () => {
           />
         }
       >
-        <MapPreview style={styles.mapSpacing} />
+        <MapPreview style={styles.mapSpacing} reports={reports} />
 
         <View style={styles.filterCard}>
           <DropdownFilter
@@ -410,9 +524,9 @@ const User_Home = () => {
         </View>
 
         <View style={styles.feedList}>
-          {filteredReports.map((report, index) => {
+          {visibleReports.map((report, index) => {
             const cardSpacing =
-              index !== filteredReports.length - 1
+              index !== visibleReports.length - 1
                 ? styles.reportCardSpacing
                 : null;
 
@@ -458,6 +572,23 @@ const User_Home = () => {
             );
           })}
 
+          {!loading && filteredReports.length > visibleReports.length ? (
+            <TouchableOpacity
+              style={styles.viewMoreBtn}
+              activeOpacity={0.8}
+              onPress={handleViewMore}
+              disabled={loadingMore}
+            >
+              {loadingMore ? (
+                <ActivityIndicator size="small" color={PRIMARY} />
+              ) : (
+                <ThemedText style={styles.viewMoreText}>
+                  View more posts
+                </ThemedText>
+              )}
+            </TouchableOpacity>
+          ) : null}
+
           {loading && filteredReports.length === 0 ? (
             <SkeletonFeed count={3} />
           ) : filteredReports.length === 0 ? (
@@ -475,6 +606,18 @@ const User_Home = () => {
           ) : null}
         </View>
       </ScrollView>
+
+      {showScrollTop && !navShown && arrowReady ? (
+        <TouchableOpacity
+          style={styles.scrollTopBtn}
+          activeOpacity={0.8}
+          onPress={() =>
+            scrollRef.current?.scrollTo?.({ y: 0, animated: true })
+          }
+        >
+          <Ionicons name="arrow-up" size={22} color="#FFFFFF" />
+        </TouchableOpacity>
+      ) : null}
     </ThemedView>
   );
 };
@@ -492,7 +635,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 14,
     paddingTop: 16,
-    paddingBottom: 110,
+    paddingBottom: 148,
   },
 
   mapSpacing: {
@@ -702,6 +845,41 @@ const styles = StyleSheet.create({
 
   reportCardSpacing: {
     marginBottom: 6,
+  },
+
+  viewMoreBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 46,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E1E8F2",
+    backgroundColor: "#FFFFFF",
+    marginTop: 6,
+    marginBottom: 4,
+  },
+
+  viewMoreText: {
+    fontFamily: FONT.medium,
+    fontSize: 13,
+    color: PRIMARY,
+  },
+
+  scrollTopBtn: {
+    position: "absolute",
+    right: 16,
+    bottom: 40,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: PRIMARY,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
   },
 });
 

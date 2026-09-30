@@ -143,7 +143,7 @@ const ReportStatusCard = ({ item, onPress }) => {
   );
 };
 
-const NearbyIncidentCard = ({ item, onPress, onViewPost }) => {
+const NearbyIncidentCard = ({ item, onPress }) => {
   const high = item.level === "High";
 
   return (
@@ -191,15 +191,9 @@ const NearbyIncidentCard = ({ item, onPress, onViewPost }) => {
 
       <ThemedText style={styles.cardMessage}>{item.message}</ThemedText>
 
-      <View style={styles.metaRowBetween}>
-        <View style={styles.metaRow}>
-          <Ionicons name="navigate" size={14} color="#1E5EFF" />
-          <ThemedText style={styles.metaText}>{item.distance}</ThemedText>
-        </View>
-
-        <TouchableOpacity activeOpacity={0.8} onPress={() => { onPress?.(); onViewPost(item.reportId); }}>
-          <ThemedText style={styles.linkText}>View Post</ThemedText>
-        </TouchableOpacity>
+      <View style={styles.metaRow}>
+        <Ionicons name="navigate" size={14} color="#1E5EFF" />
+        <ThemedText style={styles.metaText}>{item.distance}</ThemedText>
       </View>
     </TouchableOpacity>
   );
@@ -315,30 +309,36 @@ const User_NotificationInner = () => {
   const toggleSection = (key) =>
     setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  const openNearbyPost = useCallback(
-    async (reportId) => {
+  const openReportPost = useCallback(
+    async (reportId, ownPost) => {
       if (!reportId) return;
       try {
         const token = await AsyncStorage.getItem("access_token");
         if (!token) return;
-        const res = await apiClient.get("/reports", {
+        const res = await apiClient.get(`/reports/${reportId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        setCache("api:/reports", res.data ?? {});
-        const report = (res.data?.reports || []).find(
-          (r) => r.id === reportId
-        );
-        if (report) {
-          router.push({
-            pathname: "/User_RepPostView",
-            params: { post: JSON.stringify(report) },
-          });
+        const report = res.data?.report;
+        if (!report) {
+          toast.error("This post is no longer available.");
+          return;
         }
+        router.push(
+          ownPost
+            ? {
+                pathname: "/MyUser_RepPostView",
+                params: { report: JSON.stringify(report) },
+              }
+            : {
+                pathname: "/User_RepPostView",
+                params: { post: JSON.stringify(report) },
+              }
+        );
       } catch {
-        // ignore
+        toast.error("This post is no longer available.");
       }
     },
-    [router]
+    [router, toast]
   );
 
   const LIMIT = 5;
@@ -527,7 +527,14 @@ const User_NotificationInner = () => {
             <ThemedText style={styles.emptyText}>No report updates yet.</ThemedText>
           ) : (
             sliceItems(userReports, expandedSections.reports).map((item) => (
-              <ReportStatusCard key={item.id} item={item} onPress={() => markAsRead(item.id)} />
+              <ReportStatusCard
+                key={item.id}
+                item={item}
+                onPress={() => {
+                  markAsRead(item.id);
+                  openReportPost(item.reportId, true);
+                }}
+              />
             ))
           )}
         </View>
@@ -552,8 +559,10 @@ const User_NotificationInner = () => {
               <NearbyIncidentCard
                 key={item.id}
                 item={item}
-                onPress={() => markAsRead(item.id)}
-                onViewPost={openNearbyPost}
+                onPress={() => {
+                  markAsRead(item.id);
+                  openReportPost(item.reportId, false);
+                }}
               />
             ))
           )}
@@ -714,23 +723,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  metaRowBetween: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-
   metaText: {
     marginLeft: 6,
     fontSize: 12,
     fontFamily: "PoppinsRegular",
     color: "#667085",
-  },
-
-  linkText: {
-    fontSize: 12,
-    fontFamily: "PoppinsMedium",
-    color: "#1E5EFF",
   },
 
   emptyText: {

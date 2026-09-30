@@ -796,20 +796,12 @@ const UserProfileSettings = () => {
                 </View>
 
                 <TouchableOpacity
-                  style={[
-                    styles.termsButton,
-                    !termsStatus.hasAcceptedLatest && styles.termsButtonAction,
-                  ]}
+                  style={styles.termsButton}
                   onPress={() => router.push({ pathname: "/(auth)/TermsAndConditions", params: { viewOnly: "1" } })}
                   activeOpacity={0.7}
                 >
-                  <ThemedText
-                    style={[
-                      styles.termsButtonText,
-                      !termsStatus.hasAcceptedLatest && styles.termsButtonTextAction,
-                    ]}
-                  >
-                    {termsStatus.hasAcceptedLatest ? "View" : "Review"}
+                  <ThemedText style={styles.termsButtonText}>
+                    Review
                   </ThemedText>
                 </TouchableOpacity>
               </View>
@@ -1381,19 +1373,10 @@ const styles = StyleSheet.create({
     borderColor: "#C8CFE0",
   },
 
-  termsButtonAction: {
-    backgroundColor: COMMUNISHIELD_BLUE,
-    borderColor: COMMUNISHIELD_BLUE,
-  },
-
   termsButtonText: {
     fontSize: moderateScale(12),
     fontFamily: "PoppinsSemiBold",
     color: "#5A6F9E",
-  },
-
-  termsButtonTextAction: {
-    color: "#FFFFFF",
   },
 });
 

@@ -7,6 +7,9 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,6 +19,9 @@ import apiClient from "../../services/apiClient";
 import formatRelativeTime from "../../services/formatRelativeTime";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
 import censorText from "../../services/censorText";
+import { patchCachedReports } from "../../services/dataStore";
+import { triggerRefresh } from "../../services/refreshBus";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useToast } from "../Toast";
 
 const PRIMARY = "#294880";
@@ -26,10 +32,21 @@ const FONT = {
   semiBold: "Poppins-SemiBold",
 };
 
+const COMMENT_WINDOW = 10;
+
 const MyUser_RepPostView_Layout = ({ report }) => {
   const toast = useToast();
+  const insets = useSafeAreaInsets();
   const [commentText, setCommentText] = useState("");
   const [comments, setComments] = useState([]);
+  const [sending, setSending] = useState(false);
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [likeState, setLikeState] = useState({
+    liked: report?.isLiked ?? false,
+    count: report?.likes ?? 0,
+  });
+  const [visibleCommentCount, setVisibleCommentCount] = useState(COMMENT_WINDOW);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const [fontsLoaded] = useFonts({
     "Poppins-Regular": require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -60,6 +77,31 @@ const MyUser_RepPostView_Layout = ({ report }) => {
       active = false;
     };
   }, [report?.id]);
+
+  useEffect(() => {
+    setLikeState({
+      liked: report?.isLiked ?? false,
+      count: report?.likes ?? 0,
+    });
+  }, [report?.isLiked, report?.likes]);
+
+  useEffect(() => {
+    setVisibleCommentCount(COMMENT_WINDOW);
+  }, [report?.id]);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return undefined;
+    const showSub = Keyboard.addListener("keyboardDidShow", (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   if (!fontsLoaded) {
     return (
@@ -129,7 +171,8 @@ const MyUser_RepPostView_Layout = ({ report }) => {
   };
 
   const handleAddComment = async () => {
-    if (!commentText.trim() || !report?.id) return;
+    if (!commentText.trim() || !report?.id || sending) return;
+    setSending(true);
 
     try {
       const token = await AsyncStorage.getItem("access_token");
@@ -147,8 +190,47 @@ const MyUser_RepPostView_Layout = ({ report }) => {
       });
       setComments(response.data?.comments || []);
       setCommentText("");
+      triggerRefresh();
     } catch (error) {
       toast.error(error.response?.data?.error || "Could not add comment.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleLikeToggle = async () => {
+    if (likeBusy || !report?.id) return;
+
+    const token = await AsyncStorage.getItem("access_token");
+    if (!token) {
+      toast.error("Please sign in to like this post.");
+      return;
+    }
+
+    setLikeBusy(true);
+    try {
+      const res = await apiClient.post(
+        `/reports/${report.id}/like`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const liked = res.data?.liked ?? false;
+      const serverLikes =
+        typeof res.data?.likes === "number" ? res.data.likes : null;
+      setLikeState((prev) => ({
+        liked,
+        count: serverLikes ?? Math.max(0, prev.count + (liked ? 1 : -1)),
+      }));
+      patchCachedReports(report.id, (r) => ({
+        ...r,
+        is_liked: liked,
+        likes: serverLikes ?? (r.likes ?? 0) + (liked ? 1 : -1),
+      }));
+      triggerRefresh();
+    } catch (error) {
+      toast.error(error.response?.data?.error || "Could not update like.");
+    } finally {
+      setLikeBusy(false);
     }
   };
 
@@ -164,6 +246,10 @@ const MyUser_RepPostView_Layout = ({ report }) => {
   const statusData = getStatusData();
 
   return (
+    <KeyboardAvoidingView
+      style={styles.keyboardView}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -274,60 +360,20 @@ const MyUser_RepPostView_Layout = ({ report }) => {
           )}
         </View>
 
-        {(report.ai_score !== null && report.ai_score !== undefined) ? (
-          <View style={styles.aiReviewContainer}>
-            <View style={styles.aiHeader}>
-              <Ionicons name="shield-checkmark" size={18} color="#237A4B" />
-              <Text style={styles.aiTitle}>AI Credibility Review</Text>
-              <View style={styles.aiScoreBadge}>
-                <Text style={styles.aiScoreText}>{report.ai_score}%</Text>
-              </View>
-            </View>
-            <Text style={styles.aiReviewText}>
-              {report.credibility_review || "AI analysis completed."}
-            </Text>
-            <View style={styles.aiTags}>
-              <Text style={styles.aiTag}>
-                Severity: {report.severity || "Medium"}
-              </Text>
-            </View>
-          </View>
-        ) : null}
-
-        {report.sentiment_status ? (
-          <View style={styles.aiReviewContainer}>
-            <View style={styles.aiHeader}>
-              <Ionicons name="happy-outline" size={18} color={PRIMARY} />
-              <Text style={styles.aiTitle}>Sentiment Analysis</Text>
-              <View style={styles.aiScoreBadge}>
-                <Text style={styles.aiScoreText}>
-                  {report.sentiment || report.sentiment_status}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.aiTags}>
-              {report.sentiment_language && report.sentiment_language !== "unknown" ? (
-                <Text style={styles.aiTag}>
-                  Language: {report.sentiment_language}
-                </Text>
-              ) : null}
-              {report.sentiment_confidence ? (
-                <Text style={styles.aiTag}>
-                  Confidence: {Math.round(report.sentiment_confidence * 100)}%
-                </Text>
-              ) : null}
-              {report.sentiment_error ? (
-                <Text style={styles.aiTag}>{report.sentiment_error}</Text>
-              ) : null}
-            </View>
-          </View>
-        ) : null}
-
         <View style={styles.summaryRow}>
-          <View style={styles.summaryItem}>
-            <Ionicons name="thumbs-up-outline" size={18} color={PRIMARY} />
-            <Text style={styles.summaryText}>{report.likes || 0} Likes</Text>
-          </View>
+          <TouchableOpacity
+            style={styles.summaryItem}
+            activeOpacity={0.7}
+            onPress={handleLikeToggle}
+            disabled={likeBusy}
+          >
+            <Ionicons
+              name={likeState.liked ? "thumbs-up" : "thumbs-up-outline"}
+              size={18}
+              color={PRIMARY}
+            />
+            <Text style={styles.summaryText}>{likeState.count} Likes</Text>
+          </TouchableOpacity>
 
           <View style={styles.summaryItem}>
             <Ionicons
@@ -346,6 +392,20 @@ const MyUser_RepPostView_Layout = ({ report }) => {
           <Text style={styles.commentsCount}>{comments.length}</Text>
         </View>
 
+        {comments.length > visibleCommentCount ? (
+          <TouchableOpacity
+            style={styles.viewMoreComments}
+            activeOpacity={0.7}
+            onPress={() =>
+              setVisibleCommentCount((count) => count + COMMENT_WINDOW)
+            }
+          >
+            <Text style={styles.viewMoreCommentsText}>
+              View more comments ({comments.length - visibleCommentCount} more)
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
         {comments.length === 0 ? (
           <View style={styles.noCommentsBox}>
             <Ionicons
@@ -356,7 +416,7 @@ const MyUser_RepPostView_Layout = ({ report }) => {
             <Text style={styles.noCommentsText}>No comments yet.</Text>
           </View>
         ) : (
-          comments.map((comment) => (
+          comments.slice(-visibleCommentCount).map((comment) => (
             <View key={comment.id} style={styles.commentItem}>
               <View style={styles.commentAvatar}>
                 <Ionicons name="person-outline" size={15} color={PRIMARY} />
@@ -379,26 +439,43 @@ const MyUser_RepPostView_Layout = ({ report }) => {
           ))
         )}
 
-        <View style={styles.commentInputRow}>
-          <TextInput
-            style={styles.commentInput}
-            value={commentText}
-            onChangeText={setCommentText}
-            placeholder="Write a comment..."
-            placeholderTextColor="#9CA3AF"
-            multiline
-          />
-
-          <TouchableOpacity
-            style={styles.sendButton}
-            activeOpacity={0.8}
-            onPress={handleAddComment}
-          >
-            <Ionicons name="send" size={18} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
       </View>
     </ScrollView>
+
+    <View
+      style={[
+        styles.commentFooter,
+        {
+          paddingBottom: Math.max(insets.bottom, Platform.OS === "ios" ? 20 : 12),
+        },
+        keyboardHeight > 0 ? { marginBottom: keyboardHeight } : null,
+      ]}
+    >
+      <View style={styles.commentInputRow}>
+        <TextInput
+          style={styles.commentInput}
+          value={commentText}
+          onChangeText={setCommentText}
+          placeholder="Write a comment..."
+          placeholderTextColor="#9CA3AF"
+          multiline
+        />
+
+        <TouchableOpacity
+          style={[styles.sendButton, sending && styles.sendButtonDisabled]}
+          activeOpacity={0.8}
+          onPress={handleAddComment}
+          disabled={sending}
+        >
+          {sending ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Ionicons name="send" size={18} color="#FFFFFF" />
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -418,7 +495,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 14,
     paddingTop: 14,
-    paddingBottom: 34,
+    paddingBottom: 130,
   },
 
   emptyContainer: {
@@ -615,60 +692,6 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
   },
 
-  aiReviewContainer: {
-    padding: 16,
-    backgroundColor: "#F8FAFC",
-    borderRadius: 8,
-    marginVertical: 12,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-  },
-  aiHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  aiTitle: {
-    fontFamily: FONT.semiBold,
-    fontSize: 15,
-    color: "#0F172A",
-    marginLeft: 6,
-    flex: 1,
-  },
-  aiScoreBadge: {
-    backgroundColor: "#DCFCE7",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  aiScoreText: {
-    fontFamily: FONT.bold,
-    fontSize: 12,
-    color: "#166534",
-  },
-  aiReviewText: {
-    fontFamily: FONT.regular,
-    fontSize: 14,
-    color: "#334155",
-    lineHeight: 20,
-    marginBottom: 10,
-  },
-  aiTags: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  aiTag: {
-    fontFamily: FONT.medium,
-    fontSize: 12,
-    color: "#64748B",
-    backgroundColor: "#F1F5F9",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-  },
-
   summaryRow: {
     flexDirection: "row",
     borderTopWidth: 1,
@@ -797,9 +820,19 @@ const styles = StyleSheet.create({
   commentInputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
+  },
+
+  commentFooter: {
+    backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
     borderTopColor: "#EEF2F7",
+    paddingHorizontal: 14,
     paddingTop: 12,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 8,
   },
 
   commentInput: {
@@ -825,6 +858,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 8,
+  },
+
+  sendButtonDisabled: {
+    opacity: 0.6,
+  },
+
+  viewMoreComments: {
+    alignItems: "center",
+    paddingVertical: 10,
+    marginBottom: 4,
+  },
+
+  viewMoreCommentsText: {
+    fontFamily: FONT.medium,
+    fontSize: 13,
+    color: PRIMARY,
+  },
+
+  keyboardView: {
+    flex: 1,
   },
 });
 

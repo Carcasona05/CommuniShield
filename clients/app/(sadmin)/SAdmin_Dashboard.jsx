@@ -279,7 +279,7 @@ export default function SAdmin_Dashboard() {
       bg: "#DBEAFE",
     },
     {
-      title: "Audit Logs Today",
+      title: "Logs Today",
       value: formatCount(auditLogsToday),
       note: "System and admin activities",
       icon: "list-outline",
@@ -483,7 +483,7 @@ export default function SAdmin_Dashboard() {
                   onPress={() => router.push("/(sadmin)/SAdmin_AuditLogs")}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.smallActionText}>Audit Logs</Text>
+                  <Text style={styles.smallActionText}>Logs</Text>
                   <Ionicons
                     name="arrow-forward-outline"
                     size={15}

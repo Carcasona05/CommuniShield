@@ -135,12 +135,14 @@ export default function Admin_Analytics() {
   const [forecastSummary, setForecastSummary] = useState(() => {
     const cached = getCache("api:/admin/analytics");
     return cached?.forecastSummary || {
-      zone: "Argao",
-      riskLevel: "LOW",
-      probability: 0,
+      zone: "",
+      zones: [],
       crimeTypes: [],
       timeWindow: "",
-      trend: 0,
+      recentCount: 0,
+      priorCount: 0,
+      activeCount: 0,
+      highSeverityCount: 0,
       recommendedActions: [],
     };
   });
@@ -289,11 +291,30 @@ export default function Admin_Analytics() {
         );
 
   const crimeTypes = forecastSummary.crimeTypes || [];
+  const zones = forecastSummary.zones || [];
   const recommendedActions = forecastSummary.recommendedActions || [];
-  const trendPct = Number(forecastSummary.trend) || 0;
-  const trendText = `${trendPct >= 0 ? "▲" : "▼"} ${Math.abs(trendPct)}% vs previous period`;
-  const riskLevel = forecastSummary.riskLevel || "LOW";
-  const probability = Number(forecastSummary.probability) || 0;
+  const recentReports = Number(forecastSummary.recentCount) || 0;
+  const priorReports = Number(forecastSummary.priorCount) || 0;
+  const activeCount = Number(forecastSummary.activeCount) || 0;
+  const highSeverityCount = Number(forecastSummary.highSeverityCount) || 0;
+  const reportWord = (count) => `${count} report${count === 1 ? "" : "s"}`;
+  let trendText = `Stable — ${reportWord(recentReports)} this week vs ${reportWord(priorReports)} last week`;
+  let trendColor = null;
+  if (recentReports === 0 && priorReports === 0) {
+    trendText = "No reports in the last 14 days";
+  } else if (priorReports === 0) {
+    trendText = `Rising — ${reportWord(recentReports)} this week, none the week before`;
+    trendColor = "#E45757";
+  } else {
+    const weeklyChange = (recentReports - priorReports) / priorReports;
+    if (weeklyChange > 0.1) {
+      trendText = `Rising — ${reportWord(recentReports)} this week vs ${reportWord(priorReports)} last week`;
+      trendColor = "#E45757";
+    } else if (weeklyChange < -0.1) {
+      trendText = `Falling — ${reportWord(recentReports)} this week vs ${reportWord(priorReports)} last week`;
+      trendColor = "#22A06B";
+    }
+  }
 
   return (
     <Admin_Layout>
@@ -532,15 +553,15 @@ export default function Admin_Analytics() {
 
                     <View style={styles.chartContent}>
                       <Text style={styles.predictiveSubText}>
-                        Forecasted Incident Probability{"\n"}over next 48 hours
+                        Forecasted Incident Likelihood{"\n"}over next 48 hours
                       </Text>
 
                       <View style={styles.scatterChartBox}>
                         <View style={styles.scatterAxisY}>
-                          <Text style={styles.axisText}>100%</Text>
-                          <Text style={styles.axisText}>80%</Text>
-                          <Text style={styles.axisText}>40%</Text>
-                          <Text style={styles.axisText}>20%</Text>
+                          <Text style={styles.axisText}>100</Text>
+                          <Text style={styles.axisText}>80</Text>
+                          <Text style={styles.axisText}>40</Text>
+                          <Text style={styles.axisText}>20</Text>
                           <Text style={styles.axisText}>0</Text>
                         </View>
 
@@ -554,7 +575,7 @@ export default function Admin_Analytics() {
                           <Text style={styles.axisText}>48</Text>
                         </View>
 
-                        <Text style={styles.yAxisTitle}>Probability</Text>
+                        <Text style={styles.yAxisTitle}>Relative likelihood</Text>
                         <Text style={styles.xAxisTitle}>Incident Hours</Text>
                       </View>
                     </View>
@@ -576,16 +597,23 @@ export default function Admin_Analytics() {
                   <Text style={styles.forecastSectionTitle}>
                     Predicted High-Risk Zone
                   </Text>
-                  <Text style={styles.forecastText}>{forecastSummary.zone}</Text>
+
+                  {zones.length > 0 ? (
+                    zones.map((item, index) => (
+                      <Text key={index} style={styles.forecastText}>
+                        {item.location} ({item.count})
+                      </Text>
+                    ))
+                  ) : (
+                    <Text style={styles.forecastText}>Insufficient data</Text>
+                  )}
 
                   <Text style={styles.forecastText}>
-                    Risk Level:{" "}
-                    <Text style={styles.highRiskText}>{riskLevel}</Text>
-                  </Text>
-
-                  <Text style={styles.forecastText}>
-                    Probability:{" "}
-                    <Text style={styles.highRiskText}>{probability}%</Text>
+                    {activeCount > 0
+                      ? `Based on ${activeCount} active report${
+                          activeCount === 1 ? "" : "s"
+                        } (${highSeverityCount} high-severity)`
+                      : "No active reports to base a forecast on yet"}
                   </Text>
 
                   <View style={styles.forecastDivider} />
@@ -627,12 +655,12 @@ export default function Admin_Analytics() {
                   <View style={styles.forecastDivider} />
 
                   <Text style={styles.forecastSectionTitle}>
-                    Trend Indicator
+                    Report Trend
                   </Text>
                   <Text
                     style={[
                       styles.trendText,
-                      trendPct < 0 && { color: "#E45757" },
+                      trendColor ? { color: trendColor } : null,
                     ]}
                   >
                     {trendText}
@@ -1151,14 +1179,9 @@ const styles = {
     fontFamily: "PoppinsSemiBold",
   },
 
-  highRiskText: {
-    color: "#E45757",
-    fontFamily: "PoppinsSemiBold",
-  },
-
   trendText: {
     fontSize: 14,
-    color: "#22A06B",
+    color: "#9AA8C2",
     fontFamily: "PoppinsSemiBold",
   },
 

@@ -101,6 +101,8 @@ const mapLogs = (list) =>
     dateTime: formatLogTime(log.dateTime),
   }));
 
+const PAGE_SIZE = 10;
+
 export default function Admin_Logs() {
   const [loading, setLoading] = useState(() => getCache("api:/admin/logs") === undefined);
   const [searchText, setSearchText] = useState("");
@@ -127,6 +129,9 @@ export default function Admin_Logs() {
   const scrollRef = useRef(null);
   const logsCardTopRef = useRef(null);
   const rowOffsetsRef = useRef({});
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const showScrollTopRef = useRef(false);
 
   const loadLogs = useCallback(async () => {
     try {
@@ -191,6 +196,20 @@ export default function Admin_Logs() {
     });
   }, [searchText, selectedFilter, logs]);
 
+  const visibleLogs = filteredLogs.slice(0, visibleCount);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [searchText, selectedFilter]);
+
+  const handleScroll = (e) => {
+    const next = e.nativeEvent.contentOffset.y > 300;
+    if (next !== showScrollTopRef.current) {
+      showScrollTopRef.current = next;
+      setShowScrollTop(next);
+    }
+  };
+
   useEffect(() => {
     if (!highlightParam || highlightConsumedRef.current === highlightParam) {
       return;
@@ -204,7 +223,14 @@ export default function Admin_Logs() {
 
     highlightConsumedRef.current = highlightParam;
     setHighlightId(target.id);
-  }, [highlightParam, logs, loading]);
+
+    const visibleIndex = visibleLogs.findIndex((log) => log.id === target.id);
+    if (visibleIndex >= visibleCount) {
+      setVisibleCount((count) =>
+        Math.max(count, Math.ceil((visibleIndex + 1) / PAGE_SIZE) * PAGE_SIZE)
+      );
+    }
+  }, [highlightParam, logs, loading, visibleLogs, visibleCount]);
 
   useEffect(() => {
     if (!highlightId) return;
@@ -383,6 +409,8 @@ export default function Admin_Logs() {
           style={styles.container}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           <View style={styles.statsRow}>
             <StatCard
@@ -493,7 +521,7 @@ export default function Admin_Logs() {
                 </Text>
               </View>
             ) : (
-              filteredLogs.map((log, index) => {
+              visibleLogs.map((log, index) => {
                 const logStyle = getLogStyle(log.actionType);
                 const badgeStyle = getBadgeStyle(log.actionType);
 
@@ -560,7 +588,7 @@ export default function Admin_Logs() {
                         <View style={styles.statusItem}>
                           <Text style={styles.statusLabel}>Old Status</Text>
                           <Text style={styles.statusValue}>
-                            {formatLogValue(log.oldStatus) || "\u2014"}
+                            {formatLogValue(log.oldStatus) || "N/A"}
                           </Text>
                         </View>
 
@@ -575,7 +603,7 @@ export default function Admin_Logs() {
                         <View style={styles.statusItem}>
                           <Text style={styles.statusLabel}>New Status</Text>
                           <Text style={styles.statusValue}>
-                            {formatLogValue(log.newStatus) || "\u2014"}
+                            {formatLogValue(log.newStatus) || "N/A"}
                           </Text>
                         </View>
                       </View>
@@ -584,8 +612,30 @@ export default function Admin_Logs() {
                 );
               })
             )}
+
+            {filteredLogs.length > visibleLogs.length && (
+              <TouchableOpacity
+                style={styles.viewMoreBtn}
+                onPress={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.viewMoreText}>View more</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </ScrollView>
+
+        {showScrollTop && (
+          <TouchableOpacity
+            style={styles.scrollTopBtn}
+            onPress={() =>
+              scrollRef.current?.scrollTo({ y: 0, animated: true })
+            }
+            activeOpacity={0.8}
+          >
+            <Ionicons name="chevron-up" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+        )}
       </Pressable>
     </Admin_Layout>
   );
@@ -922,5 +972,39 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#5D6F92",
     fontFamily: "PoppinsRegular",
+  },
+
+  viewMoreBtn: {
+    alignSelf: "center",
+    marginTop: 16,
+    marginBottom: 6,
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "#294880",
+  },
+
+  viewMoreText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontFamily: "PoppinsSemiBold",
+  },
+
+  scrollTopBtn: {
+    position: "absolute",
+    right: 26,
+    bottom: 30,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#294880",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 20,
+    elevation: 6,
+    shadowColor: "#000000",
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
   },
 });

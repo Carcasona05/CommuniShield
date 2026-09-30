@@ -19,12 +19,17 @@ import { MapSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
+import {
+  ARGAO_BARANGAYS,
+  ARGAO_HELP_FACILITIES,
+  MAP_TYPE_META,
+  MAP_TYPE_BY_LABEL,
+  MAP_FILTER_TYPES,
+} from "../../constants/argaoMapData";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
 const { width } = Dimensions.get("window");
-
-const FACILITY_TYPES = ["All", "Police Station", "Fire Department"];
 
 const DEFAULT_ARGAO = { lat: 9.8816, lng: 123.5953 };
 
@@ -35,25 +40,24 @@ const clampToCebu = (lat, lng) => [
   Math.min(Math.max(lng, CEBU_BOUNDS.west), CEBU_BOUNDS.east),
 ];
 
+const haversineKm = (lat1, lng1, lat2, lng2) => {
+  const R = 6371;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
 const formatDistance = (km) => {
   if (km === undefined || km === null || Number.isNaN(km)) return "—";
   if (km < 1) return `${Math.max(1, Math.round(km * 1000))} m away`;
   return `${km.toFixed(1)} km away`;
 };
 
-const getTypeLabel = (type) =>
-  type === "fire" ? "Fire Department" : "Police Station";
-
-const getFacilityIconName = (type) => {
-  if (type === "fire" || type === "Fire Department") return "flame";
-  if (type === "police" || type === "Police Station") return "shield-checkmark";
-  return "location";
-};
-
-const getResponseNote = (type) =>
-  type === "fire"
-    ? "Nearest fire response for fire and emergency incidents."
-    : "Nearest police assistance for public safety concerns.";
+const metaFor = (type) => MAP_TYPE_META[type] || MAP_TYPE_META.police;
 
 const UserMap = () => {
   const [selectedType, setSelectedType] = useState("All");
@@ -105,12 +109,7 @@ const UserMap = () => {
 
       const cached = getCache("api:/facilities/nearby");
       if (cached !== undefined) {
-        const cachedList = cached?.facilities ?? [];
-        setFacilities(cachedList);
-        setSelectedFacility((prev) => {
-          if (prev && cachedList.some((f) => f.id === prev.id)) return prev;
-          return cachedList[0] ?? null;
-        });
+        setFacilities(cached?.facilities ?? []);
       }
 
       const anchor = userPosition
@@ -125,13 +124,7 @@ const UserMap = () => {
 
       setCache("api:/facilities/nearby", res.data ?? {});
 
-      const list = res.data?.facilities ?? [];
-      setFacilities(list);
-
-      setSelectedFacility((prev) => {
-        if (prev && list.some((f) => f.id === prev.id)) return prev;
-        return list[0] ?? null;
-      });
+      setFacilities(res.data?.facilities ?? []);
     } catch (err) {
       console.warn("Failed to load facilities:", err.message);
     } finally {
@@ -147,15 +140,69 @@ const UserMap = () => {
     if (userPosition) loadFacilities();
   }, [userPosition, loadFacilities]);
 
+  const mergedFacilities = useMemo(() => {
+    const anchor = userPosition
+      ? clampToCebu(userPosition[0], userPosition[1])
+      : [DEFAULT_ARGAO.lat, DEFAULT_ARGAO.lng];
+
+    const staticFacilities = ARGAO_HELP_FACILITIES.filter(
+      (s) =>
+        !facilities.some(
+          (f) =>
+            f.type === s.type &&
+            haversineKm(f.lat, f.lng, s.lat, s.lng) < 2.5
+        )
+    ).map((s) => ({
+      ...s,
+      distanceKm: haversineKm(anchor[0], anchor[1], s.lat, s.lng),
+    }));
+
+    const all = [
+      ...facilities.map((f) => ({ ...f })),
+      ...ARGAO_BARANGAYS.map((b) => ({
+        ...b,
+        distanceKm: haversineKm(anchor[0], anchor[1], b.lat, b.lng),
+      })),
+      ...staticFacilities,
+    ];
+
+    all.sort(
+      (a, b) => (a.distanceKm ?? 1e9) - (b.distanceKm ?? 1e9)
+    );
+    return all;
+  }, [facilities, userPosition]);
+
+  useEffect(() => {
+    setSelectedFacility((prev) =>
+      prev && mergedFacilities.some((f) => f.id === prev.id)
+        ? prev
+        : mergedFacilities[0] ?? null
+    );
+  }, [mergedFacilities]);
+
   const filteredFacilities = useMemo(() => {
-    return facilities.filter((facility) => {
-      return selectedType === "All" || getTypeLabel(facility.type) === selectedType;
-    });
-  }, [facilities, selectedType]);
+    if (selectedType === "All") return mergedFacilities;
+    const type = MAP_TYPE_BY_LABEL[selectedType];
+    if (!type) return mergedFacilities;
+    return mergedFacilities.filter((facility) => facility.type === type);
+  }, [mergedFacilities, selectedType]);
 
-  const nearestPolice = facilities.find((f) => f.type === "police");
+  const mapMarkers = useMemo(
+    () =>
+      filteredFacilities.map((facility) => ({
+        id: facility.id,
+        lat: facility.lat,
+        lng: facility.lng,
+        label: facility.name,
+        type: facility.type,
+        color: metaFor(facility.type).color,
+      })),
+    [filteredFacilities]
+  );
 
-  const nearestFire = facilities.find((f) => f.type === "fire");
+  const nearestPolice = mergedFacilities.find((f) => f.type === "police");
+
+  const nearestFire = mergedFacilities.find((f) => f.type === "fire");
 
   const mapPosition = userPosition
     ? clampToCebu(userPosition[0], userPosition[1])
@@ -167,7 +214,7 @@ const UserMap = () => {
   };
 
   const openCall = (facility) => {
-    const phone = (facility.phone || "").replace(/[^0-9+]/g, "");
+    const phone = (facility.phone || "911").replace(/[^0-9+]/g, "");
     if (phone) Linking.openURL(`tel:${phone}`).catch(() => {});
   };
 
@@ -175,9 +222,11 @@ const UserMap = () => {
     setSelectedType(type);
     setShowFilters(false);
 
-    const firstMatch = facilities.find((f) => {
-      return type === "All" || getTypeLabel(f.type) === type;
-    });
+    const targetType = MAP_TYPE_BY_LABEL[type];
+    const firstMatch =
+      type === "All"
+        ? mergedFacilities[0]
+        : mergedFacilities.find((f) => f.type === targetType);
 
     if (firstMatch) {
       setSelectedFacility(firstMatch);
@@ -186,10 +235,12 @@ const UserMap = () => {
 
   const resetFilters = () => {
     setSelectedType("All");
-    setSelectedFacility(facilities[0] ?? null);
+    setSelectedFacility(mergedFacilities[0] ?? null);
   };
 
-  const getFacilityIcon = getFacilityIconName;
+  const selectedMeta = selectedFacility
+    ? metaFor(selectedFacility.type)
+    : null;
 
   if (loading) {
     return (
@@ -206,15 +257,9 @@ const UserMap = () => {
           ref={mapViewRef}
           style={styles.fullMap}
           position={mapPosition}
-          markers={filteredFacilities.map((facility) => ({
-            id: facility.id,
-            lat: facility.lat,
-            lng: facility.lng,
-            label: facility.name,
-            color: facility.type === "police" ? COMMUNISHIELD_BLUE : "#D9534F",
-          }))}
+          markers={mapMarkers}
           onMarkerPress={(id) => {
-            const facility = facilities.find((f) => f.id === id);
+            const facility = mergedFacilities.find((f) => f.id === id);
             if (facility) {
               setSelectedFacility(facility);
               setShowPanel(true);
@@ -229,16 +274,14 @@ const UserMap = () => {
               <Ionicons name="information-circle-outline" size={13} color="#5D6F92" />
               <ThemedText style={styles.legendTitle}>Legend</ThemedText>
             </View>
+            {Object.values(MAP_TYPE_META).map((meta) => (
+              <View key={meta.label} style={styles.legendItem}>
+                <Ionicons name={meta.icon} size={13} color={meta.color} />
+                <ThemedText style={styles.legendText}>{meta.label}</ThemedText>
+              </View>
+            ))}
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, styles.policeDot]} />
-              <ThemedText style={styles.legendText}>Police Station</ThemedText>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, styles.fireDot]} />
-              <ThemedText style={styles.legendText}>Fire Department</ThemedText>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, styles.userDotSmall]} />
+              <Ionicons name="location" size={13} color="#2F80ED" />
               <ThemedText style={styles.legendText}>Your Location</ThemedText>
             </View>
           </View>
@@ -252,7 +295,7 @@ const UserMap = () => {
         </TouchableOpacity>
       </View>
 
-      {showPanel && selectedFacility && (
+      {showPanel && selectedFacility && selectedMeta && (
         <View style={styles.panelOverlay} pointerEvents="box-none">
           <View style={styles.facilityCard}>
             <View style={styles.facilityHeader}>
@@ -260,13 +303,11 @@ const UserMap = () => {
                 <View
                   style={[
                     styles.facilityIconBox,
-                    selectedFacility.type === "police"
-                      ? styles.policeIconBox
-                      : styles.fireIconBox,
+                    { backgroundColor: selectedMeta.color },
                   ]}
                 >
                   <Ionicons
-                    name={getFacilityIcon(selectedFacility.type)}
+                    name={selectedMeta.icon}
                     size={18}
                     color="#FFFFFF"
                   />
@@ -278,7 +319,7 @@ const UserMap = () => {
                   </ThemedText>
 
                   <ThemedText style={styles.facilityType}>
-                    {getTypeLabel(selectedFacility.type)}
+                    {selectedMeta.label}
                   </ThemedText>
                 </View>
               </View>
@@ -303,7 +344,7 @@ const UserMap = () => {
             </View>
 
             <ThemedText style={styles.responseNote}>
-              {getResponseNote(selectedFacility.type)}
+              {selectedMeta.responseNote}
             </ThemedText>
 
             <View style={styles.cardButtons}>
@@ -381,7 +422,8 @@ const UserMap = () => {
             </View>
 
             <ThemedText style={styles.bottomNote}>
-              Facility pins are loaded from the CommuniShield database for Argao, Cebu.
+              Pins cover all 45 barangays of Argao plus hospitals, clinics,
+              police, fire, and help stations.
             </ThemedText>
           </View>
         </View>
@@ -410,7 +452,7 @@ const UserMap = () => {
               Emergency Location Type
             </ThemedText>
 
-            {FACILITY_TYPES.map((type) => {
+            {MAP_FILTER_TYPES.map((type) => {
               const active = selectedType === type;
 
               return (
@@ -442,7 +484,7 @@ const UserMap = () => {
 
                   {type !== "All" && (
                     <Ionicons
-                      name={getFacilityIcon(type)}
+                      name={MAP_TYPE_META[MAP_TYPE_BY_LABEL[type]].icon}
                       size={18}
                       color={active ? COMMUNISHIELD_BLUE : "#9CA3AF"}
                     />
@@ -523,24 +565,6 @@ const styles = StyleSheet.create({
     gap: 7,
   },
 
-  legendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-
-  policeDot: {
-    backgroundColor: COMMUNISHIELD_BLUE,
-  },
-
-  fireDot: {
-    backgroundColor: "#D9534F",
-  },
-
-  userDotSmall: {
-    backgroundColor: "#2F80ED",
-  },
-
   legendText: {
     fontSize: 11,
     fontFamily: "PoppinsMedium",
@@ -614,7 +638,7 @@ const styles = StyleSheet.create({
   },
 
   fireIconBox: {
-    backgroundColor: "#D9534F",
+    backgroundColor: "#F4511E",
   },
 
   facilityTitleWrap: {

@@ -1,5 +1,10 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { reverseGeocode } from "../utils/geocode.js";
+import {
+  getRecommendedActions,
+  ruleBasedActions,
+  type ForecastActionFacts,
+} from "./forecastActionsService.js";
 
 type ReportInput = {
   location?: string;
@@ -382,29 +387,9 @@ export const reportService = {
       };
     });
 
-    const userIds = enriched
-      .map((r) => r.user_id)
-      .filter((id): id is string => !!id);
-
-    const nameByUser = new Map<string, string>();
-    if (userIds.length > 0) {
-      const { data: profiles, error: profileError } = await supabaseAdmin
-        .from("profiles")
-        .select("id, fullname, user_name")
-        .in("id", userIds);
-
-      if (!profileError) {
-        (profiles || []).forEach(
-          (p: { id: string; fullname: string | null; user_name: string | null }) => {
-            nameByUser.set(p.id, p.fullname || p.user_name || "");
-          }
-        );
-      }
-    }
-
     const final = enriched.map((r) => ({
       ...r,
-      poster_name: r.poster_name || nameByUser.get(r.user_id) || "Anonymous User",
+      poster_name: r.poster_name || "Anonymous User",
     }));
 
     return { data: final, error: null };
@@ -616,7 +601,11 @@ export const reportService = {
         .eq("report_id", reportId)
         .eq("user_id", userId);
       if (error) return { error: error.message, liked: false };
-      return { data: { liked: false }, error: null };
+      const countResult = await this.countLikes(reportId);
+      return {
+        data: { liked: false, likes: countResult.error ? undefined : countResult.data },
+        error: null,
+      };
     }
 
     const { error } = await supabaseAdmin.from("report_likes").insert({
@@ -624,7 +613,11 @@ export const reportService = {
       user_id: userId,
     });
     if (error) return { error: error.message, liked: false };
-    return { data: { liked: true }, error: null };
+    const countResult = await this.countLikes(reportId);
+    return {
+      data: { liked: true, likes: countResult.error ? undefined : countResult.data },
+      error: null,
+    };
   },
 
   async countLikes(reportId: string) {
@@ -779,13 +772,33 @@ export const reportService = {
     const { data: reports, error: reportError } = await supabaseAdmin
       .from("reports")
       .select(
-        "id, location, latitude, longitude, details, poster_name, status, is_verified, created_at, incident_type_id, role"
+        "id, user_id, location, latitude, longitude, details, poster_name, status, is_verified, created_at, incident_type_id, role"
       )
       .order("created_at", { ascending: false });
 
     if (reportError) return { data: null, error: reportError.message };
 
     const reportIds = (reports || []).map((r) => r.id);
+
+    const reporterIds = [
+      ...new Set(
+        (reports || [])
+          .map((r) => r.user_id)
+          .filter((id): id is string => Boolean(id))
+      ),
+    ];
+    const reporterNameByUser = new Map<string, string>();
+    if (reporterIds.length > 0) {
+      const { data: reporterProfiles } = await supabaseAdmin
+        .from("profiles")
+        .select("id, fullname, user_name")
+        .in("id", reporterIds);
+      (reporterProfiles || []).forEach(
+        (p: { id: string; fullname: string | null; user_name: string | null }) => {
+          reporterNameByUser.set(p.id, p.fullname || p.user_name || "");
+        }
+      );
+    }
 
     const { data: analyses, error: analysisError } = reportIds.length
       ? await supabaseAdmin
@@ -936,6 +949,10 @@ export const reportService = {
         barangay: deriveBarangay(r.location ?? ""),
         details: r.details ?? "",
         poster_name: r.poster_name ?? "",
+        reporter_name:
+          (r.user_id ? reporterNameByUser.get(r.user_id) : "") ||
+          r.poster_name ||
+          "Anonymous User",
         status: r.status ?? "Pending Review",
         is_verified: r.is_verified ?? false,
         created_at: r.created_at,
@@ -1113,13 +1130,6 @@ export const reportService = {
       positive: 0.2,
     };
 
-    const SEVERITY_WEIGHT: Record<string, number> = {
-      Low: 1,
-      Medium: 2,
-      High: 3,
-      Critical: 4,
-    };
-
     const active = list.filter(
       (r) => !["Rejected", "Archived"].includes(r.status)
     );
@@ -1224,18 +1234,17 @@ export const reportService = {
       };
     });
 
-    const hourWeights = new Array(24).fill(0);
-    list.forEach((r) => {
+    const hourCounts = new Array(24).fill(0);
+    active.forEach((r) => {
       const h = new Date(r.created_at).getHours();
-      hourWeights[h] += SEVERITY_WEIGHT[r.severity] ?? 2;
+      hourCounts[h] += 1;
     });
-    const maxHourWeight = Math.max(1, ...hourWeights);
 
     let recent = 0;
     let prior = 0;
     const weekAgo = now.getTime() - 7 * 24 * 60 * 60 * 1000;
     const twoWeeksAgo = now.getTime() - 14 * 24 * 60 * 60 * 1000;
-    list.forEach((r) => {
+    active.forEach((r) => {
       const t = new Date(r.created_at).getTime();
       if (t >= weekAgo) recent += 1;
       else if (t >= twoWeeksAgo) prior += 1;
@@ -1243,12 +1252,25 @@ export const reportService = {
     const trendFactor =
       recent + prior ? (recent - prior) / Math.max(1, recent + prior) : 0;
 
+    const dayMs = 24 * 60 * 60 * 1000;
+    let earliest = now.getTime();
+    active.forEach((r) => {
+      const t = new Date(r.created_at).getTime();
+      if (t < earliest) earliest = t;
+    });
+    const windowDays = active.length
+      ? Math.min(30, Math.max(1, (now.getTime() - earliest) / dayMs))
+      : 30;
+
     const forecast = Array.from({ length: 48 }, (_, i) => {
       const target = new Date(now.getTime() + i * 60 * 60 * 1000);
       const h = target.getHours();
-      const base = hourWeights[h] / maxHourWeight;
-      let probability = base * 100 + trendFactor * 20 * ((i + 1) / 48);
-      probability = Math.min(100, Math.max(3, Math.round(probability)));
+      const lambda =
+        (hourCounts[h] / windowDays) * (1 + trendFactor * ((i + 1) / 48));
+      const probability = Math.min(
+        100,
+        Math.max(3, Math.round((1 - Math.exp(-lambda)) * 100))
+      );
       return { hour: target.getTime(), probability };
     });
 
@@ -1259,28 +1281,37 @@ export const reportService = {
     const zoneCandidates = active.filter(
       (r) => r.severity === "High" || r.severity === "Critical"
     );
-    const zoneCounts = new Map<string, number>();
+    const normalizeLocation = (value: string) =>
+      value.trim().toLowerCase().replace(/\s+/g, " ");
+    const zoneCounts = new Map<string, { count: number; display: string }>();
     zoneCandidates.forEach((r) => {
-      const zoneName = r.location && r.location.trim() ? r.location.trim() : "Unspecified";
-      zoneCounts.set(zoneName, (zoneCounts.get(zoneName) || 0) + 1);
+      const raw = (r.location || "").trim();
+      if (!raw) return;
+      const key = normalizeLocation(raw);
+      const entry = zoneCounts.get(key) || { count: 0, display: raw };
+      entry.count += 1;
+      zoneCounts.set(key, entry);
     });
-    const zone =
-      [...zoneCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "Argao";
+    const rankedZones = [...zoneCounts.values()].sort(
+      (a, b) => b.count - a.count
+    );
+    const zone = rankedZones[0]?.display || "";
+    const zones = rankedZones.slice(0, 3).map((z) => ({
+      location: z.display,
+      count: z.count,
+    }));
 
     const riskLevel =
       peak.probability >= 80 ? "HIGH" : peak.probability >= 60 ? "MEDIUM" : "LOW";
 
-    const inZone = zoneCandidates.filter(
-      (r) => (r.location && r.location.trim()) === zone
-    );
     const typeCounts = new Map<string, number>();
-    inZone.forEach((r) => {
+    zoneCandidates.forEach((r) => {
       const typeName = r.incident_type || "Incident";
       typeCounts.set(typeName, (typeCounts.get(typeName) || 0) + 1);
     });
     const sortedTypes = [...typeCounts.entries()].sort((a, b) => b[1] - a[1]);
     const totalTypes = sortedTypes.reduce((sum, [, count]) => sum + count, 0) || 1;
-    const crimeTypes = sortedTypes.slice(0, 3).map(([label, count]) => ({
+    const crimeTypes = sortedTypes.slice(0, 5).map(([label, count]) => ({
       label,
       value: `${Math.round((count / totalTypes) * 100)}%`,
     }));
@@ -1292,20 +1323,27 @@ export const reportService = {
     const peakHour = new Date(peak.hour).getHours();
     const startHour = (peakHour - 2 + 24) % 24;
     const endHour = (peakHour + 2) % 24;
-    const timeWindow = `${fmtHour(startHour)} – ${fmtHour(endHour)}`;
+    const timeWindow = active.length
+      ? `${fmtHour(startHour)} – ${fmtHour(endHour)}`
+      : "";
 
     const trendPct = Math.round(trendFactor * 100);
 
-    const recommendedActions: string[] = [];
-    if (riskLevel === "HIGH") {
-      recommendedActions.push("Increase patrol in the predicted hotspot area");
-    }
-    if (riskLevel !== "LOW") {
-      recommendedActions.push("Notify nearest response units and prepare standby");
-    }
-    recommendedActions.push("Review similar reports in the area for context");
-    if (criticalHotspots > 0) {
-      recommendedActions.push("Prioritize verified high-severity reports for resolution");
+    const actionFacts: ForecastActionFacts = {
+      riskLevel,
+      probability: peak.probability,
+      zones,
+      timeWindow,
+      trendPct,
+      crimeTypes,
+      activeHighCritical: zoneCandidates.length,
+      activeTotal: active.length,
+    };
+    let recommendedActions: string[];
+    try {
+      recommendedActions = await getRecommendedActions(actionFacts);
+    } catch {
+      recommendedActions = ruleBasedActions(actionFacts);
     }
 
     return {
@@ -1324,11 +1362,16 @@ export const reportService = {
         forecast,
         forecastSummary: {
           zone,
+          zones,
           riskLevel,
           probability: peak.probability,
           crimeTypes,
           timeWindow,
           trend: trendPct,
+          recentCount: recent,
+          priorCount: prior,
+          activeCount: active.length,
+          highSeverityCount: zoneCandidates.length,
           recommendedActions,
         },
       },
