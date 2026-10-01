@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Modal,
   View,
@@ -10,6 +10,8 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import apiClient from "../../services/apiClient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -27,8 +29,56 @@ export default function Admin_ViewSimilarReportsModal({
   validating = false,
 }) {
   const [openMenuReportId, setOpenMenuReportId] = useState(null);
+  const [freshComments, setFreshComments] = useState({});
+
+  // Fetch fresh comments with sentiment for each report in the group
+  useEffect(() => {
+    if (!visible || !compiledGroup) return;
+    let active = true;
+
+    const loadComments = async () => {
+      try {
+        const token = await AsyncStorage.getItem("access_token");
+        if (!token) return;
+
+        const commentPromises = (compiledGroup.reports || []).map(async (report) => {
+          try {
+            const response = await apiClient.get(`/reports/${report.id}/comments`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            return { reportId: report.id, comments: response.data?.comments || [] };
+          } catch {
+            return { reportId: report.id, comments: [] };
+          }
+        });
+
+        const results = await Promise.all(commentPromises);
+        if (active) {
+          const commentsMap = {};
+          results.forEach(({ reportId, comments }) => {
+            commentsMap[reportId] = comments;
+          });
+          setFreshComments(commentsMap);
+        }
+      } catch {}
+    };
+
+    loadComments();
+    return () => { active = false; };
+  }, [visible, compiledGroup]);
 
   if (!compiledGroup) return null;
+
+  // Merge fresh comments with grouped reports
+  const reportsWithFreshComments = (compiledGroup.reports || []).map((report) => ({
+    ...report,
+    comments: freshComments[report.id] || report.comments || [],
+  }));
+
+  const allGatheredComments =
+    reportsWithFreshComments.flatMap((report) =>
+      report.gatheredComments || report.comments || []
+    ) || [];
 
   const getStatusStyle = (status) => {
     if (status === "Resolved") {
@@ -278,11 +328,6 @@ export default function Admin_ViewSimilarReportsModal({
 
   const groupStatusStyle = getStatusStyle(compiledGroup.status);
   const groupSeverityStyle = getSeverityStyle(compiledGroup.severity);
-
-  const allGatheredComments =
-    compiledGroup.reports?.flatMap((report) =>
-      report.gatheredComments || report.comments || []
-    ) || [];
 
   const groupSentimentAnalysis =
     getCommentSentimentAnalysis(allGatheredComments);
@@ -848,7 +893,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 20,
-  },
+  }, 
 
   modalCard: {
     width: "100%",

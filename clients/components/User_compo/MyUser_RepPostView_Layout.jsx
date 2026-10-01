@@ -316,11 +316,11 @@ const MyUser_RepPostView_Layout = ({ report }) => {
 
         <View style={styles.contentBox}>
           <Text style={styles.categoryText}>
-            {report.incidentCategory || "No category"}
+            {report.incidentCategory || report.incident_category || "No category"}
           </Text>
 
           <Text style={styles.typeText} numberOfLines={2}>
-            {report.incidentType || "No incident type"}
+            {report.incidentType || report.incident_type || "No incident type"}
           </Text>
 
           <Text style={styles.detailsText}>

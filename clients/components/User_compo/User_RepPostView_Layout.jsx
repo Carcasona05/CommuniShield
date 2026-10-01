@@ -305,11 +305,11 @@ const User_RepPostView_Layout = ({ post }) => {
 
         <View style={styles.contentBox}>
           <Text style={styles.categoryText}>
-            {post.incidentCategory || "Not specified"}
+            {post.incidentCategory || post.incident_category || "Not specified"}
           </Text>
 
           <Text style={styles.typeText} numberOfLines={2}>
-            {post.incidentType || "Not specified"}
+            {post.incidentType || post.incident_type || "Not specified"}
           </Text>
 
           <Text style={styles.detailsText}>
