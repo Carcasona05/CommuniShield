@@ -69,7 +69,8 @@ export const register = async (req: Request, res: Response) => {
       access_token: authData.session?.access_token ?? null,
       user: authData.user,
     });
-  } catch {
+  } catch (err) {
+    console.error("[Register Error]", err);
     res.status(500).json({ error: "Internal server error" });
   }
 };
