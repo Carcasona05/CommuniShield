@@ -11,6 +11,7 @@ import {
 } from "react-native";
 
 import * as ImagePicker from "expo-image-picker";
+import ActionSheetModal from "../../components/ActionSheetModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import { useToast } from "../Toast";
@@ -100,6 +101,7 @@ export default function Admin_AddAnnouncementModal({
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [formError, setFormError] = useState("");
+  const [actionSheetVisible, setActionSheetVisible] = useState(false);
 
   const filteredBarangays = useMemo(() => {
     const query = locationSearch.trim().toLowerCase();
@@ -132,23 +134,38 @@ export default function Admin_AddAnnouncementModal({
     onClose();
   };
 
-  const pickImage = async () => {
-    const permission =
-      await ImagePicker.requestMediaLibraryPermissionsAsync();
+  const pickImage = () => {
+    setActionSheetVisible(true);
+  };
 
-    if (!permission.granted) {
-      toast.error("Please allow photo access.");
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 1,
-      allowsEditing: true,
-    });
-
-    if (!result.canceled) {
-      setImage(result.assets[0]);
+  const handleActionSheetSelect = async (index) => {
+    if (index === 0) {
+      const camPerm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!camPerm.granted) {
+        toast.error("Please allow camera access to take a photo.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        quality: 1,
+      });
+      if (!result.canceled) {
+        setImage(result.assets[0]);
+      }
+    } else if (index === 1) {
+      const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!libPerm.granted) {
+        toast.error("Please allow photo access.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 1,
+        allowsEditing: true,
+      });
+      if (!result.canceled) {
+        setImage(result.assets[0]);
+      }
     }
   };
 
@@ -197,11 +214,12 @@ export default function Admin_AddAnnouncementModal({
   };
 
   return (
-    <Modal
-      animationType="fade"
-      transparent
-      visible={visible}
-    >
+    <>
+      <Modal
+        animationType="fade"
+        transparent
+        visible={visible}
+      >
       <View style={styles.overlay}>
 
         <View style={styles.modal}>
@@ -566,6 +584,14 @@ export default function Admin_AddAnnouncementModal({
       </View>
 
     </Modal>
+    <ActionSheetModal
+      visible={actionSheetVisible}
+      title="Add Photo"
+      options={["Take Photo", "Choose from Gallery"]}
+      onSelect={handleActionSheetSelect}
+      onClose={() => setActionSheetVisible(false)}
+    />
+    </>
   );
 }
 

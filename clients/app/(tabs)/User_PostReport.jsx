@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
+import ActionSheetModal from "../../components/ActionSheetModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFonts } from "expo-font";
@@ -122,6 +123,7 @@ function UserPostReportInner() {
   const [photos, setPhotos] = useState([]);
   const [loadingLocation, setLoadingLocation] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [actionSheetVisible, setActionSheetVisible] = useState(false);
 
   const incidentOptions = categoryOptions.length
     ? categoryOptions
@@ -304,28 +306,43 @@ function UserPostReportInner() {
     }
   };
 
-  const handlePickPhoto = async () => {
+  const handlePickPhoto = () => {
     if (photos.length >= 3) {
       toast.error("You can only upload up to 3 photos.");
       return;
     }
+    setActionSheetVisible(true);
+  };
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!permission.granted) {
-      toast.error("Please allow access to your photo library.");
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets?.length) {
-      const selectedUri = result.assets[0].uri;
-      setPhotos((prev) => [...prev, selectedUri]);
+  const handleActionSheetSelect = async (index) => {
+    if (index === 0) {
+      // Camera
+      const camPerm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!camPerm.granted) {
+        toast.error("Please allow camera access to take a photo.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets?.length) {
+        setPhotos((prev) => [...prev, result.assets[0].uri]);
+      }
+    } else if (index === 1) {
+      const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!libPerm.granted) {
+        toast.error("Please allow access to your photo library.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets?.length) {
+        setPhotos((prev) => [...prev, result.assets[0].uri]);
+      }
     }
   };
 
@@ -416,11 +433,12 @@ function UserPostReportInner() {
   }
 
   return (
-    <ThemedView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.keyboardView}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
+    <>
+      <ThemedView style={styles.container}>
+        <KeyboardAvoidingView
+          style={styles.keyboardView}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
         <ScrollView
         contentContainerStyle={[
           styles.scrollContainer,
@@ -677,6 +695,14 @@ function UserPostReportInner() {
       </ScrollView>
     </KeyboardAvoidingView>
     </ThemedView>
+    <ActionSheetModal
+      visible={actionSheetVisible}
+      title="Add Photo"
+      options={["Take Photo", "Choose from Gallery"]}
+      onSelect={handleActionSheetSelect}
+      onClose={() => setActionSheetVisible(false)}
+    />
+  </>
   );
 }
 

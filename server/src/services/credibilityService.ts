@@ -3,6 +3,8 @@ import { supabaseAdmin } from "../config/supabaseAdmin.js";
 export const CREDIBILITY_POINTS = {
   report_submitted: 5,
   report_rejected: -10,
+  report_verified: 5,
+  report_marked_fake: -30,
 } as const;
 
 export type CredibilityEventType = keyof typeof CREDIBILITY_POINTS;

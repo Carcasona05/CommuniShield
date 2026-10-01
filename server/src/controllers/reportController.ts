@@ -60,6 +60,28 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
         .catch(() => {});
     }
 
+    if (verified) {
+      await credibilityService
+        .addPoints(
+          result.data.ownerId,
+          "report_verified",
+          "Report verified by admin",
+          result.data.id
+        )
+        .catch(() => {});
+    }
+
+    if (newStatus === "Marked Fake") {
+      await credibilityService
+        .addPoints(
+          result.data.ownerId,
+          "report_marked_fake",
+          "Report marked as fake",
+          result.data.id
+        )
+        .catch(() => {});
+    }
+
     await notificationService.createNotification({
       userId: result.data.ownerId,
       type: "report_status",

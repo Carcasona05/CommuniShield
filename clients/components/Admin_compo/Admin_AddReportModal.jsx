@@ -12,6 +12,7 @@ import {
   Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import ActionSheetModal from "../../components/ActionSheetModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -160,6 +161,7 @@ export default function Admin_AddReportModal({
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [formError, setFormError] = useState("");
+  const [actionSheetVisible, setActionSheetVisible] = useState(false);
 
   const filteredBarangays = useMemo(() => {
     const query = locationSearch.trim().toLowerCase();
@@ -278,32 +280,42 @@ export default function Admin_AddReportModal({
     }
   };
 
-  const handlePickPhoto = async () => {
+  const handlePickPhoto = () => {
     if (photos.length >= 3) {
       toast.error("You can only upload up to 3 photos.");
       return;
     }
+    setActionSheetVisible(true);
+  };
 
-    const permission =
-      await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!permission.granted) {
-      toast.error("Please allow access to your photo library.");
-      return;
-    }
-
-    const result =
-      await ImagePicker.launchImageLibraryAsync({
+  const handleActionSheetSelect = async (index) => {
+    if (index === 0) {
+      const camPerm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!camPerm.granted) {
+        toast.error("Please allow camera access to take a photo.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets?.length) {
+        setPhotos((prev) => [...prev, result.assets[0].uri]);
+      }
+    } else if (index === 1) {
+      const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!libPerm.granted) {
+        toast.error("Please allow access to your photo library.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         quality: 0.8,
       });
-
-    if (!result.canceled && result.assets?.length) {
-      setPhotos((prev) => [
-        ...prev,
-        result.assets[0].uri,
-      ]);
+      if (!result.canceled && result.assets?.length) {
+        setPhotos((prev) => [...prev, result.assets[0].uri]);
+      }
     }
   };
 
@@ -420,12 +432,13 @@ export default function Admin_AddReportModal({
   if (!fontsLoaded) return null;
 
   return (
-    <Modal
-      animationType="fade"
-      transparent
-      visible={visible}
-      onRequestClose={handleClose}
-    >
+    <>
+      <Modal
+        animationType="fade"
+        transparent
+        visible={visible}
+        onRequestClose={handleClose}
+      >
       <View style={styles.overlay}>
         <View style={styles.modal}>
           {/* HEADER */}
@@ -803,6 +816,14 @@ export default function Admin_AddReportModal({
         </View>
       </View>
     </Modal>
+    <ActionSheetModal
+      visible={actionSheetVisible}
+      title="Add Photo"
+      options={["Take Photo", "Choose from Gallery"]}
+      onSelect={handleActionSheetSelect}
+      onClose={() => setActionSheetVisible(false)}
+    />
+  </>
   );
 }
 

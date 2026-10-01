@@ -4,6 +4,7 @@ import {
   clearModelExhaustion,
   markModelExhausted,
 } from "./geminiRotation.js";
+import { validateImageAuthenticity } from "./imageValidation.js";
 
 const DEFAULT_GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const DEFAULT_MODEL = "gemini-3.6-flash";
@@ -508,7 +509,7 @@ export const aiService = {
     return data?.value || "gemini-3.6-flash";
   },
 
-  /**
+/**
    * Analyze a single report
    */
   async analyzeReport(reportId: string, reportData: {
@@ -528,6 +529,15 @@ export const aiService = {
         status: "skipped",
       };
     }
+
+    // Fetch report images for validation
+    const { data: reportImages } = await supabaseAdmin
+      .from("report_images")
+      .select("image_url")
+      .eq("report_id", reportId)
+      .order("position", { ascending: true });
+
+    const imageUrls = (reportImages || []).map((img) => img.image_url).filter(Boolean);
 
     const [imageCountResult, reportTypeResult] = await Promise.all([
       supabaseAdmin
@@ -585,14 +595,41 @@ export const aiService = {
     const modelVersion = usedModel;
     const durationMs = Date.now() - startTime;
 
+    // Validate images and apply penalties
+    let totalPenalty = 0;
+    const allFlags: string[] = [];
+
+    if (imageUrls.length > 0 && reportData.latitude != null && reportData.longitude != null) {
+      const validationResults = await Promise.all(
+        imageUrls.map((url) => validateImageAuthenticity(url, reportData.latitude!, reportData.longitude!))
+      );
+
+      for (const vr of validationResults) {
+        totalPenalty += vr.penalty;
+        allFlags.push(...vr.flags);
+      }
+    }
+
+    // Apply penalty to AI score
+    const penalizedScore = Math.max(0, result.ai_score - totalPenalty);
+
+    // Build credibility review with image flags
+    let credibilityReview = result.credibility_review;
+    if (allFlags.length > 0) {
+      const uniqueFlags = [...new Set(allFlags)];
+      credibilityReview += `\n\n📸 Image authenticity flags: ${uniqueFlags.join(", ")}`;
+    } else if (imageUrls.length > 0) {
+      credibilityReview += "\n\n📸 Images: No authenticity issues detected";
+    }
+
     // Store analysis in database
     const { error } = await supabaseAdmin
       .from("report_credibility_analysis")
       .upsert({
         report_id: reportId,
-        ai_score: result.ai_score,
+        ai_score: penalizedScore,
         severity: result.severity,
-        credibility_review: result.credibility_review,
+        credibility_review: credibilityReview,
         ai_model_version: modelVersion,
         analysis_duration_ms: durationMs,
         analyzed_at: new Date().toISOString(),
@@ -600,10 +637,10 @@ export const aiService = {
 
     if (error) {
       console.error("Failed to store AI analysis:", error);
-      return { ...result, analysis_duration_ms: durationMs, status: "failed" };
+      return { ...result, ai_score: penalizedScore, credibility_review: credibilityReview, analysis_duration_ms: durationMs, status: "failed" };
     }
 
-    return { ...result, analysis_duration_ms: durationMs, status: "succeeded" };
+    return { ...result, ai_score: penalizedScore, credibility_review: credibilityReview, analysis_duration_ms: durationMs, status: "succeeded" };
   },
 
   /**
