@@ -617,9 +617,9 @@ export const aiService = {
     let credibilityReview = result.credibility_review;
     if (allFlags.length > 0) {
       const uniqueFlags = [...new Set(allFlags)];
-      credibilityReview += `\n\n📸 Image authenticity flags: ${uniqueFlags.join(", ")}`;
+      credibilityReview += `\n\n Image authenticity flags: ${uniqueFlags.join(", ")}`;
     } else if (imageUrls.length > 0) {
-      credibilityReview += "\n\n📸 Images: No authenticity issues detected";
+      credibilityReview += "\n\n Images: No authenticity issues detected";
     }
 
     // Store analysis in database
