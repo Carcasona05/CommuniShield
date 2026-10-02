@@ -114,6 +114,7 @@ const User_RepPostView_Layout = ({ post }) => {
   const normalizeStatus = (value) => {
     const current = String(value || "").toLowerCase();
 
+    if (current.includes("fake") || current.includes("marked")) return "Marked Fake";
     if (current.includes("under")) return "Under Verification";
     if (current.includes("resolved")) return "Resolved";
     if (current.includes("reject")) return "Rejected";
@@ -147,6 +148,13 @@ const User_RepPostView_Layout = ({ post }) => {
           label: "Rejected",
           icon: "close-circle-outline",
           color: "#C0392B",
+        };
+
+      case "Marked Fake":
+        return {
+          label: "Marked Fake",
+          icon: "warning-outline",
+          color: "#B42318",
         };
 
       case "Archived":

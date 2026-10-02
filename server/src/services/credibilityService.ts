@@ -1,15 +1,23 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 
 export const CREDIBILITY_POINTS = {
-  report_submitted: 5,
-  report_rejected: -10,
-  report_verified: 5,
+  report_rejected: -5,
+  report_verified: 10,
   report_marked_fake: -30,
 } as const;
 
 export type CredibilityEventType = keyof typeof CREDIBILITY_POINTS;
 
 type CredibilityResult<T> = { data: T; error: { message: string } | null };
+
+async function isAdminOrSuperAdmin(userId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .maybeSingle();
+  return data?.role === "admin" || data?.role === "super_admin";
+}
 
 export const credibilityService = {
   async ensureCredibility(userId: string): Promise<CredibilityResult<boolean>> {
@@ -64,6 +72,11 @@ export const credibilityService = {
     reason = "",
     reportId: string | null = null
   ): Promise<CredibilityResult<number>> {
+    // Skip credibility scoring for admin/super_admin - they always have 100
+    if (await isAdminOrSuperAdmin(userId)) {
+      return { data: 100, error: null };
+    }
+
     await this.ensureCredibility(userId);
 
     const points = CREDIBILITY_POINTS[eventType];
@@ -75,6 +88,12 @@ export const credibilityService = {
       .maybeSingle();
 
     const base = Number(current?.score ?? 60);
+
+    // If already at 100, don't add positive points
+    if (base >= 100 && points > 0) {
+      return { data: 100, error: null };
+    }
+
     const next = Math.min(100, Math.max(0, base + points));
     const applied = next - base;
 

@@ -8,9 +8,8 @@ import {
   SafeAreaView,
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, router } from "expo-router";
 import { clearTermsAccepted, markTermsAccepted } from "../../services/termsBus";
-import { smartBack } from "../../services/navigation";
 
 export default function TermsAndConditions() {
   const { viewOnly } = useLocalSearchParams();
@@ -35,27 +34,27 @@ export default function TermsAndConditions() {
     if (hasScrolledToBottom) {
       setIsAccepted(true);
       await markTermsAccepted(TERMS_VERSION);
-      smartBack("/User_Register");
+      router.back();
     }
   };
 
   const handleDecline = async () => {
     setIsAccepted(false);
     await clearTermsAccepted();
-    smartBack("/User_Register");
+    router.back();
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => smartBack("/(tabs)/User_ProfileSettings")}
-            style={styles.backButton}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons name="arrow-back" size={28} color="#294880" />
-          </TouchableOpacity>
+<View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backButton}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="arrow-back" size={28} color="#294880" />
+        </TouchableOpacity>
           <Text style={styles.headerTitle}>Terms & Conditions</Text>
           <View style={{ width: 44 }} />
         </View>
@@ -69,7 +68,7 @@ export default function TermsAndConditions() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>1. Introduction</Text>
             <Text style={styles.bodyText}>
-              Welcome to ARGUS (&ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;). These Terms and Conditions (&ldquo;Terms&rdquo;) constitute a legally binding agreement between you (&ldquo;User,&rdquo; &ldquo;you,&rdquo; or &ldquo;your&rdquo;) and ARGUS governing your access to and use of our mobile application and related services (collectively, the &ldquo;Service&rdquo;).
+              Welcome to CommuniShield (&ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;). These Terms and Conditions (&ldquo;Terms&rdquo;) constitute a legally binding agreement between you (&ldquo;User,&rdquo; &ldquo;you,&rdquo; or &ldquo;your&rdquo;) and CommuniShield governing your access to and use of our mobile application and related services (collectively, the &ldquo;Service&rdquo;).
             </Text>
             <Text style={styles.bodyText}>
               By registering for an account and using the Service, you acknowledge that you have read, understood, and agree to be bound by these Terms, including the Non-Disclosure Agreement (&ldquo;NDA&rdquo;) and Data Privacy Act (&ldquo;DPA&rdquo;) Compliance provisions set forth below. If you do not agree to these Terms, you must not register for or use the Service.
@@ -95,13 +94,13 @@ export default function TermsAndConditions() {
               <Text style={styles.bulletPoint}>• Use Confidential Information solely for the purpose of accessing and using the Service as intended;</Text>
               <Text style={styles.bulletPoint}>• Implement reasonable security measures to protect Confidential Information from unauthorized access, use, or disclosure;</Text>
               <Text style={styles.bulletPoint}>• Not reverse engineer, decompile, disassemble, or attempt to derive the source code of any software comprising the Service;</Text>
-              <Text style={styles.bulletPoint}>• Promptly notify ARGUS of any unauthorized use or disclosure of Confidential Information of which you become aware.</Text>
+              <Text style={styles.bulletPoint}>• Promptly notify CommuniShield of any unauthorized use or disclosure of Confidential Information of which you become aware.</Text>
             </View>
 
             <View style={styles.subSection}>
               <Text style={styles.subSectionTitle}>2.3 Exclusions</Text>
               <Text style={styles.bodyText}>
-                The obligations under this NDA shall not apply to information that: (a) is or becomes publicly available through no fault of the User; (b) was lawfully known to the User prior to disclosure; (c) is independently developed by the User without reference to Confidential Information; (d) is rightfully received from a third party without restriction on disclosure; or (e) is required to be disclosed by law or court order, provided the User gives prompt written notice to ARGUS.
+                The obligations under this NDA shall not apply to information that: (a) is or becomes publicly available through no fault of the User; (b) was lawfully known to the User prior to disclosure; (c) is independently developed by the User without reference to Confidential Information; (d) is rightfully received from a third party without restriction on disclosure; or (e) is required to be disclosed by law or court order, provided the User gives prompt written notice to CommuniShield.
               </Text>
             </View>
 
@@ -115,7 +114,7 @@ export default function TermsAndConditions() {
             <View style={styles.subSection}>
               <Text style={styles.subSectionTitle}>2.5 Remedies</Text>
               <Text style={styles.bodyText}>
-                You acknowledge that any breach of this NDA may cause irreparable harm to ARGUS for which monetary damages may be inadequate. ARGUS shall be entitled to seek injunctive relief, specific performance, and any other equitable remedies available at law or in equity, in addition to all other rights and remedies.
+                You acknowledge that any breach of this NDA may cause irreparable harm to CommuniShield for which monetary damages may be inadequate. CommuniShield shall be entitled to seek injunctive relief, specific performance, and any other equitable remedies available at law or in equity, in addition to all other rights and remedies.
               </Text>
             </View>
           </View>
@@ -126,7 +125,7 @@ export default function TermsAndConditions() {
             <View style={styles.subSection}>
               <Text style={styles.subSectionTitle}>3.1 Commitment to Data Protection</Text>
               <Text style={styles.bodyText}>
-                ARGUS is committed to protecting your personal information in compliance with the Data Privacy Act of 2012 (Republic Act No. 10173) of the Philippines, its Implementing Rules and Regulations, and all other applicable data privacy laws and regulations (collectively, &ldquo;Data Privacy Laws&rdquo;).
+                CommuniShield is committed to protecting your personal information in compliance with the Data Privacy Act of 2012 (Republic Act No. 10173) of the Philippines, its Implementing Rules and Regulations, and all other applicable data privacy laws and regulations (collectively, &ldquo;Data Privacy Laws&rdquo;).
               </Text>
             </View>
 
@@ -209,28 +208,28 @@ export default function TermsAndConditions() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>5. Intellectual Property</Text>
             <Text style={styles.bodyText}>
-              All rights, title, and interest in and to the Service, including all software, designs, trademarks, logos, content, and intellectual property rights therein, are owned by or licensed to ARGUS. These Terms grant you a limited, non-exclusive, non-transferable, revocable license to access and use the Service for your personal or internal business purposes only.
+              All rights, title, and interest in and to the Service, including all software, designs, trademarks, logos, content, and intellectual property rights therein, are owned by or licensed to CommuniShield. These Terms grant you a limited, non-exclusive, non-transferable, revocable license to access and use the Service for your personal or internal business purposes only.
             </Text>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>6. Disclaimer of Warranties</Text>
             <Text style={styles.bodyText}>
-              THE SERVICE IS PROVIDED &ldquo;AS IS&ldquo; AND &ldquo;AS AVAILABLE&rdquo; WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND ACCURACY. ARGUS DOES NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS.
+              THE SERVICE IS PROVIDED &ldquo;AS IS&ldquo; AND &ldquo;AS AVAILABLE&rdquo; WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND ACCURACY. CommuniShield DOES NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS.
             </Text>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>7. Limitation of Liability</Text>
             <Text style={styles.bodyText}>
-              TO THE MAXIMUM EXTENT PERMITTED BY LAW, ARGUS SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING LOSS OF PROFITS, DATA, USE, GOODWILL, OR OTHER INTANGIBLE LOSSES, ARISING OUT OF OR RELATED TO YOUR USE OR INABILITY TO USE THE SERVICE, EVEN IF ARGUS HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. ARGUS&ldquo;S TOTAL AGGREGATE LIABILITY SHALL NOT EXCEED THE AMOUNT PAID BY YOU, IF ANY, FOR THE SERVICE IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM.
+              TO THE MAXIMUM EXTENT PERMITTED BY LAW, CommuniShield SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING LOSS OF PROFITS, DATA, USE, GOODWILL, OR OTHER INTANGIBLE LOSSES, ARISING OUT OF OR RELATED TO YOUR USE OR INABILITY TO USE THE SERVICE, EVEN IF CommuniShield HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. CommuniShield&ldquo;S TOTAL AGGREGATE LIABILITY SHALL NOT EXCEED THE AMOUNT PAID BY YOU, IF ANY, FOR THE SERVICE IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM.
             </Text>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>8. Indemnification</Text>
             <Text style={styles.bodyText}>
-              You agree to defend, indemnify, and hold harmless ARGUS and its officers, directors, employees, and agents from and against any claims, damages, obligations, losses, liabilities, costs, and expenses (including reasonable attorney&ldquo;s fees) arising out of or related to: (a) your use of the Service; (b) your violation of these Terms; (c) your violation of any third-party right; or (d) any personal information you submit that is false, inaccurate, or misleading.
+              You agree to defend, indemnify, and hold harmless CommuniShield and its officers, directors, employees, and agents from and against any claims, damages, obligations, losses, liabilities, costs, and expenses (including reasonable attorney&ldquo;s fees) arising out of or related to: (a) your use of the Service; (b) your violation of these Terms; (c) your violation of any third-party right; or (d) any personal information you submit that is false, inaccurate, or misleading.
             </Text>
           </View>
 
@@ -244,14 +243,14 @@ export default function TermsAndConditions() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>10. Governing Law and Dispute Resolution</Text>
             <Text style={styles.bodyText}>
-              These Terms shall be governed by and construed in accordance with the laws of the Republic of the Philippines. Any dispute arising out of or relating to these Terms shall be resolved through good-faith negotiation. If unresolved within thirty (30) days, the dispute shall be submitted to the appropriate courts of the Philippines, with venue in the city where ARGUS&ldquo;s principal office is located.
+              These Terms shall be governed by and construed in accordance with the laws of the Republic of the Philippines. Any dispute arising out of or relating to these Terms shall be resolved through good-faith negotiation. If unresolved within thirty (30) days, the dispute shall be submitted to the appropriate courts of the Philippines, with venue in the city where CommuniShield&ldquo;s principal office is located.
             </Text>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>11. General Provisions</Text>
             <Text style={styles.bodyText}>
-              These Terms constitute the entire agreement between you and ARGUS regarding the Service. If any provision is found unenforceable, the remaining provisions shall continue in full force. Our failure to enforce any right shall not constitute a waiver. We may assign these Terms without your consent. You may not assign these Terms without our prior written consent. Headings are for convenience only.
+              These Terms constitute the entire agreement between you and CommuniShield regarding the Service. If any provision is found unenforceable, the remaining provisions shall continue in full force. Our failure to enforce any right shall not constitute a waiver. We may assign these Terms without your consent. You may not assign these Terms without our prior written consent. Headings are for convenience only.
             </Text>
           </View>
 
@@ -260,8 +259,8 @@ export default function TermsAndConditions() {
             <Text style={styles.bodyText}>
               For questions, concerns, or to exercise your data subject rights, contact our Data Protection Officer at:
             </Text>
-            <Text style={styles.contactInfo}>Email: dpo@argus.example.com</Text>
-            <Text style={styles.contactInfo}>Address: ARGUS Data Privacy Office, [Company Address], Philippines</Text>
+            <Text style={styles.contactInfo}>Email: dpo@CommuniShield.example.com</Text>
+            <Text style={styles.contactInfo}>Address: CommuniShield Data Privacy Office, [Company Address], Philippines</Text>
           </View>
 
           <View style={styles.lastUpdated}>

@@ -29,10 +29,10 @@ const SENSITIVE_WORDS = [
   "asses", "ass",
 
   // Filipino / Tagalog / Bisaya
-  "pisting", "pist",
+  "pisting", "pist", "piste",
   "siraulo", "demonyo", "satanas",
   "unggoy", "hayop",
-  "pakshet", "pakyu",
+  "pakshet", "pakyu", "pakyo",
   "punyeta", "letse", "leche",
   "buang", "bogo", "yawa", "byssat", "atinde",
   "ulol", "tanga", "bobo",

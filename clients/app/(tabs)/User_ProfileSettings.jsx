@@ -10,6 +10,7 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Dimensions,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
@@ -23,7 +24,7 @@ import { ProfileFormSkeleton } from "../../components/PageSkeletons";
 import Divboxwhite from "../../components/Divboxwhite";
 import ThemedHeader from "../../components/ThemedHeader";
 import apiClient from "../../services/apiClient";
-import { getCache, setCache } from "../../services/dataStore";
+import { getCache, setCache, clearProfileCache } from "../../services/dataStore";
 import ToastProvider, { useToast } from "../../components/Toast";
 import {
   digitsOnly,
@@ -69,7 +70,7 @@ const credibilityLevels = [
   {
     label: "Suspended",
     color: "#6B7280",
-    bg: "#E5E7EB",
+    bg: "#F3F4F6",
   },
   {
     label: "At risk",
@@ -127,13 +128,12 @@ const toDateString = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-const CredibilityScore = ({ statusIndex = 3, score = 60 }) => {
+const CredibilityScore = ({ statusIndex = 3 }) => {
   const safeIndex = Math.min(
     credibilityLevels.length - 1,
     Math.max(0, Number(statusIndex) || 0)
   );
-  const safeScore = Math.min(100, Math.max(0, Number(score) || 0));
-  const scorePosition = Math.min(1, Math.max(0, safeScore / 80));
+  const scorePosition = Math.min(1, Math.max(0, safeIndex / (credibilityLevels.length - 1)));
   const lineWidthPercent = scorePosition * 80;
   const currentStatus = credibilityLevels[safeIndex];
 
@@ -284,6 +284,18 @@ const UserProfileSettings = () => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await clearProfileCache();
+      await loadProfile();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadProfile]);
+
   const [termsStatus, setTermsStatus] = useState({
     hasAcceptedLatest: true,
     acceptedVersion: null,
@@ -341,8 +353,8 @@ const UserProfileSettings = () => {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      const cached = getCache("api:/profile");
-      if (cached !== undefined) applyProfile(cached);
+      // Clear cached profile to force fresh fetch
+      clearProfileCache();
 
       const res = await apiClient.get("/profile", {
         headers: { Authorization: `Bearer ${token}` },
@@ -605,6 +617,14 @@ const UserProfileSettings = () => {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="always"
             keyboardDismissMode="none"
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={[COMMUNISHIELD_BLUE]}
+                tintColor={COMMUNISHIELD_BLUE}
+              />
+            }
           >
             <Divboxwhite style={styles.detailsCard}>
               <View style={styles.cardHeader}>

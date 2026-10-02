@@ -121,6 +121,10 @@ export const removeCachedReport = (id) => {
   });
 };
 
+export const clearProfileCache = () => {
+  setCache("api:/profile", undefined);
+};
+
 export const toReportCode = (id) => {
   const raw = String(id || "").replace(/-/g, "");
   if (!raw) return "";

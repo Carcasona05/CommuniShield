@@ -10,10 +10,6 @@ interface ExifData {
   [key: string]: unknown;
 }
 
-interface MetadataWithExif {
-  exif?: ExifData;
-}
-
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const toRad = (d: number) => (d * Math.PI) / 180;
   const R = 6371;
@@ -45,13 +41,13 @@ export async function validateImageAuthenticity(
 ): Promise<ImageAuthResult> {
   try {
     const res = await fetch(imageUrl);
-    if (!res.ok) return { valid: false, penalty: 50, flags: ['FETCH_FAILED'], reason: 'Failed to fetch image', exif: { gps: false, timestamp: false, software: 'none' } };
+    if (!res.ok) return { valid: false, penalty: 20, flags: ['FETCH_FAILED'], reason: 'Failed to fetch image', exif: { gps: false, timestamp: false, software: 'none' } };
     const buffer = Buffer.from(await res.arrayBuffer());
     const metadata = await sharp(buffer).metadata();
     const exif = metadata.exif as ExifData | undefined;
 
     if (!exif) {
-      return { valid: false, penalty: 30, flags: ['NO_EXIF'], reason: 'No EXIF data — possible screenshot, edited image, or downloaded from web', exif: { gps: false, timestamp: false, software: 'none' } };
+      return { valid: false, penalty: 30, flags: ['MISSING_EXIF_DATA'], reason: 'No EXIF data — possible screenshot, edited image, or downloaded from web', exif: { gps: false, timestamp: false, software: 'none' } };
     }
 
     const flags: string[] = [];
@@ -63,11 +59,11 @@ export async function validateImageAuthenticity(
     if (gpsLat !== null && gpsLng !== null) {
       const distance = haversine(gpsLat, gpsLng, reportLat, reportLng);
       if (distance > 1.0) {
-        flags.push(`GPS_MISMATCH_${distance.toFixed(1)}km`);
+        flags.push(`PHOTO_LOCATION_MISMATCH_${distance.toFixed(1)}km`);
         penalty += 20;
       }
     } else {
-      flags.push('NO_GPS');
+      flags.push('MISSING_GPS_LOCATION');
       penalty += 15;
     }
 
@@ -75,23 +71,23 @@ export async function validateImageAuthenticity(
     if (takenAt) {
       const hoursAgo = (Date.now() - takenAt) / 3.6e6;
       if (hoursAgo > 48) {
-        flags.push(`OLD_PHOTO_${Math.round(hoursAgo)}h`);
+        flags.push(`PHOTO_TOO_OLD_${Math.round(hoursAgo)}h`);
         penalty += 10;
       }
     } else {
-      flags.push('NO_TIMESTAMP');
+      flags.push('MISSING_TIMESTAMP');
       penalty += 5;
     }
 
     const software = exif.Software || '';
     if (/screenshot|edit|photoshop|snapseed|lightroom|picsart|vsco|afterlight/i.test(software)) {
-      flags.push('EDITED_SOFTWARE');
+      flags.push('EDITED_WITH_SOFTWARE');
       penalty += 15;
     }
 
     return { valid: penalty < 30, penalty, flags, exif: { gps: gpsLat !== null, timestamp: !!takenAt, software: software || 'unknown' } };
   } catch (e) {
-    return { valid: false, penalty: 50, flags: ['ANALYSIS_ERROR'], reason: e instanceof Error ? e.message : String(e), exif: { gps: false, timestamp: false, software: 'error' } };
+    return { valid: false, penalty: 20, flags: ['ANALYSIS_ERROR'], reason: e instanceof Error ? e.message : String(e), exif: { gps: false, timestamp: false, software: 'error' } };
   }
 }
 

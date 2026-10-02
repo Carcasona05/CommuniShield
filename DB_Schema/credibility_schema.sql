@@ -11,7 +11,7 @@ create table if not exists public.user_credibility (
 create or replace function public.set_credibility_level()
 returns trigger language plpgsql as $$
 begin
-  if new.score >= 80 then
+  if new.score = 100 then
     new.level := 4;
     new.level_label := 'All good';
   elsif new.score >= 60 then
@@ -59,7 +59,7 @@ create table if not exists public.credibility_events (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   event_type text not null
-    check (event_type in ('report_submitted', 'report_verified', 'report_rejected', 'report_resolved', 'penalty', 'admin_adjustment', 'system')),
+    check (event_type in ('report_submitted', 'report_verified', 'report_rejected', 'report_marked_fake', 'report_resolved', 'penalty', 'admin_adjustment', 'system')),
   points numeric(5,2) not null,
   reason text not null default '',
   report_id uuid references public.reports(id) on delete set null,

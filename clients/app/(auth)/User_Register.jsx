@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -21,6 +21,8 @@ import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
 import { checkTermsAccepted } from "../../services/termsBus";
 import { isValidEmail, passwordPolicyError } from "../../services/validation";
+
+const REGISTER_FORM_STORAGE_KEY = "@register_form_data";
 
 const validatePassword = (value) => {
   if (!value) return "Password is required.";
@@ -60,6 +62,50 @@ function RegisterInner() {
   const [acceptedTermsVersion, setAcceptedTermsVersion] = useState("");
   const [termsError, setTermsError] = useState(false);
   const [loading, setLoading] = useState(false);
+  const formSavedRef = useRef(false);
+
+  const saveFormData = async () => {
+    const formData = {
+      userName,
+      email,
+      password,
+      confirmPassword,
+      termsAccepted,
+      acceptedTermsVersion,
+    };
+    try {
+      await AsyncStorage.setItem(REGISTER_FORM_STORAGE_KEY, JSON.stringify(formData));
+      formSavedRef.current = true;
+    } catch (e) {
+      console.warn("Failed to save register form data:", e);
+    }
+  };
+
+  const restoreFormData = async () => {
+    try {
+      const raw = await AsyncStorage.getItem(REGISTER_FORM_STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data.userName) setUserName(data.userName);
+        if (data.email) setEmail(data.email);
+        if (data.password) setPassword(data.password);
+        if (data.confirmPassword) setConfirmPassword(data.confirmPassword);
+        if (data.termsAccepted) setTermsAccepted(data.termsAccepted);
+        if (data.acceptedTermsVersion) setAcceptedTermsVersion(data.acceptedTermsVersion);
+      }
+    } catch (e) {
+      console.warn("Failed to restore register form data:", e);
+    }
+  };
+
+  const clearFormData = async () => {
+    try {
+      await AsyncStorage.removeItem(REGISTER_FORM_STORAGE_KEY);
+      formSavedRef.current = false;
+    } catch (e) {
+      console.warn("Failed to clear register form data:", e);
+    }
+  };
 
   useFocusEffect(
     React.useCallback(() => {
@@ -72,6 +118,10 @@ function RegisterInner() {
       });
     }, [])
   );
+
+  useEffect(() => {
+    restoreFormData();
+  }, []);
 
   useEffect(() => {
     if (Platform.OS === "web") {
@@ -154,6 +204,7 @@ function RegisterInner() {
       }
 
       toast.success("Registration successful!");
+      await clearFormData();
       setTimeout(() => {
         router.replace("/(tabs)/User_Home");
       }, 1000);
@@ -350,6 +401,7 @@ function RegisterInner() {
                   if (termsAccepted) {
                     setTermsAccepted(false);
                   } else {
+                    saveFormData();
                     router.push("/(auth)/TermsAndConditions");
                   }
                 }}
