@@ -1115,7 +1115,7 @@ const styles = {
 
   yAxisTitle: {
     position: "absolute",
-    left: -83,
+    left: -70,
     top: 56,
     transform: [{ rotate: "-90deg" }],
     fontSize: 12,
