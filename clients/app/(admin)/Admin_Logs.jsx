@@ -18,7 +18,7 @@ import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import { ListSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
-import { getCache, setCache, toReportCode, hashReportIdsInText } from "../../services/dataStore";
+import { toReportCode, hashReportIdsInText } from "../../services/dataStore";
 
 const formatLogTime = (iso) => {
   if (!iso) return "";
@@ -104,7 +104,12 @@ const mapLogs = (list) =>
 const PAGE_SIZE = 10;
 
 export default function Admin_Logs() {
-  const [loading, setLoading] = useState(() => getCache("api:/admin/logs") === undefined);
+  const searchParams = useLocalSearchParams();
+  const activityParam = Array.isArray(searchParams?.activity)
+    ? searchParams.activity[0]
+    : searchParams?.activity;
+  const actorRole = activityParam === "super_admin" ? "super_admin" : "admin";
+  const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState("");
   const [selectedFilter, setSelectedFilter] = useState("All");
 
@@ -114,12 +119,8 @@ export default function Admin_Logs() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const [logs, setLogs] = useState(() => {
-    const cached = getCache("api:/admin/logs");
-    return Array.isArray(cached?.logs) ? mapLogs(cached.logs) : [];
-  });
+  const [logs, setLogs] = useState([]);
 
-  const searchParams = useLocalSearchParams();
   const highlightParam = Array.isArray(searchParams?.highlightReport)
     ? searchParams.highlightReport[0]
     : searchParams?.highlightReport;
@@ -140,25 +141,20 @@ export default function Admin_Logs() {
 
       const applyLogs = (list) => setLogs(mapLogs(list));
 
-      const cached = getCache("api:/admin/logs");
-      if (cached && Array.isArray(cached.logs)) {
-        applyLogs(cached.logs);
-      }
-
       const res = await apiClient.get("/admin/logs", {
+        params: { actorRole },
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      setCache("api:/admin/logs", res.data ?? {});
       applyLogs(res.data?.logs || []);
     } catch {
       // keep last loaded data on failure
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [actorRole]);
 
-  useAutoRefresh(loadLogs, 60000);
+  useAutoRefresh(loadLogs, actorRole === "super_admin" ? 60001 : 60000);
 
   const filters = [
     "All",

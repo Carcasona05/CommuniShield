@@ -723,18 +723,75 @@ export const reportService = {
     return { data: announcement.id };
   },
 
-  async listAuditLogs() {
-    const { data, error } = await supabaseAdmin
+  async listAdminAnnouncements(filters: { from?: string; to?: string } = {}) {
+    let announcementsQuery = supabaseAdmin
+      .from("admin_announcement")
+      .select("id, type, title, location, details, admin_id, created_at");
+    if (filters.from) {
+      announcementsQuery = announcementsQuery.gte("created_at", filters.from);
+    }
+    if (filters.to) {
+      announcementsQuery = announcementsQuery.lte("created_at", filters.to);
+    }
+
+    const { data, error } = await announcementsQuery.order("created_at", {
+      ascending: false,
+    });
+    if (error) return { data: null, error: error.message };
+
+    return {
+      data: (data || []).map((announcement) => ({
+        id: announcement.id,
+        type: announcement.type,
+        title: announcement.title,
+        location: announcement.location ?? "",
+        details: announcement.details ?? "",
+        adminId: announcement.admin_id,
+        created_at: announcement.created_at,
+      })),
+      error: null,
+    };
+  },
+
+  async listAuditLogs(
+    actorRole?: string,
+    filters: { from?: string; to?: string } = {}
+  ) {
+    let auditQuery = supabaseAdmin
       .from("audit_logs")
       .select(
-        "id, actor_name, action_type, title, details, report_id, old_value, new_value, created_at"
-      )
+        "id, actor_id, actor_name, action_type, title, details, report_id, old_value, new_value, created_at"
+      );
+    if (filters.from) auditQuery = auditQuery.gte("created_at", filters.from);
+    if (filters.to) auditQuery = auditQuery.lte("created_at", filters.to);
+
+    const { data, error } = await auditQuery
       .order("created_at", { ascending: false })
       .limit(200);
 
     if (error) return { data: null, error: error.message };
 
-    const logs = (data || []).map((l) => ({
+    let filteredData = data || [];
+    if (actorRole === "admin" || actorRole === "super_admin") {
+      const actorIds = [
+        ...new Set(filteredData.map((log) => log.actor_id).filter(Boolean)),
+      ];
+      const { data: profiles, error: profileError } = actorIds.length
+        ? await supabaseAdmin
+            .from("profiles")
+            .select("id, role")
+            .in("id", actorIds)
+        : { data: [], error: null };
+      if (profileError) return { data: null, error: profileError.message };
+      const rolesByActor = new Map(
+        (profiles || []).map((profile) => [profile.id, profile.role])
+      );
+      filteredData = filteredData.filter(
+        (log) => rolesByActor.get(log.actor_id) === actorRole
+      );
+    }
+
+    const logs = filteredData.map((l) => ({
       id: l.id,
       actionType: l.action_type,
       title: l.title ?? "",
@@ -749,7 +806,12 @@ export const reportService = {
     return { data: logs, error: null };
   },
 
-  async getAdminDashboard() {
+  async getAdminDashboard(filters: {
+    status?: string;
+    source?: string;
+    from?: string;
+    to?: string;
+  } = {}) {
     const { data: types, error: typesError } = await supabaseAdmin
       .from("incident_types")
       .select("id, name, incident_categories(id, name)");
@@ -769,12 +831,22 @@ export const reportService = {
       });
     });
 
-    const { data: reports, error: reportError } = await supabaseAdmin
+    let reportQuery = supabaseAdmin
       .from("reports")
       .select(
         "id, user_id, location, latitude, longitude, details, poster_name, status, is_verified, created_at, incident_type_id, role"
-      )
-      .order("created_at", { ascending: false });
+      );
+    if (filters.status) reportQuery = reportQuery.eq("status", filters.status);
+    if (filters.source?.toLowerCase() === "admin") {
+      reportQuery = reportQuery.in("role", ["admin", "super_admin"]);
+    }
+    if (filters.from) reportQuery = reportQuery.gte("created_at", filters.from);
+    if (filters.to) reportQuery = reportQuery.lte("created_at", filters.to);
+
+    const { data: reports, error: reportError } = await reportQuery.order(
+      "created_at",
+      { ascending: false }
+    );
 
     if (reportError) return { data: null, error: reportError.message };
 

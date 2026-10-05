@@ -16,6 +16,7 @@ import {
   getAdminAnalytics,
   createAdminAnnouncement,
   getAdminLogs,
+  getAdminAnnouncements,
 } from "../controllers/reportController.js";
 import { authenticate, requireRole } from "../middlewares/authMiddleware.js";
 
@@ -34,6 +35,7 @@ router.put("/reports/:id", authenticate, updateReport);
 router.delete("/reports/:id", authenticate, deleteReport);
 router.get("/incidents/options", authenticate, getIncidentOptions);
 router.get("/admin/posts", authenticate, adminOnly, getAdminPosts);
+router.get("/admin/announcements", authenticate, adminOnly, getAdminAnnouncements);
 router.get("/admin/dashboard", authenticate, adminOnly, getAdminDashboard);
 router.get("/admin/analytics", authenticate, adminOnly, getAdminAnalytics);
 router.post("/admin/announcements", authenticate, adminOnly, createAdminAnnouncement);

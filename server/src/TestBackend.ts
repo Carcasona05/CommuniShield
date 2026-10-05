@@ -617,6 +617,7 @@ describe("API", () => {
       { method: "GET", path: "/api/admin/dashboard" },
       { method: "GET", path: "/api/admin/analytics" },
       { method: "POST", path: "/api/admin/announcements" },
+      { method: "GET", path: "/api/admin/announcements" },
       { method: "GET", path: "/api/admin/logs" },
 
       { method: "GET", path: "/api/notifications" },

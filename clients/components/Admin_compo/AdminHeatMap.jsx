@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+﻿import React, { useEffect, useRef, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
 
@@ -101,6 +101,17 @@ const MAP_HTML = `
       return best;
     }
 
+    function emitSelection(report) {
+      if (!report) return;
+      try {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({ type: "report-select", report: report })
+          );
+        }
+      } catch (err) {}
+    }
+
     var markerLayer = L.layerGroup().addTo(map);
     var heatLayer = null;
     var groups = {};
@@ -111,7 +122,7 @@ const MAP_HTML = `
       var report = group.list[group.idx];
       var sev = severityOf(report);
       var color = SEVERITY_COLOR[sev] || "#294880";
-      var score = report.ai_score != null ? report.ai_score + "%" : "\u2014";
+      var score = report.ai_score != null ? report.ai_score + "%" : "—";
       var html =
         '<div class="cs-pop">' +
           '<div class="cs-pop-top">' +
@@ -152,6 +163,7 @@ const MAP_HTML = `
       group.idx = (group.idx + dir + group.list.length) % group.list.length;
       group.marker.setPopupContent(popupHtml(key));
       if (!group.marker.isPopupOpen()) group.marker.openPopup();
+      emitSelection(group.list[group.idx]);
     };
 
     document.getElementById("map").addEventListener("click", function (e) {
@@ -204,6 +216,9 @@ const MAP_HTML = `
           }
         );
         marker.bindPopup(popupHtml(key));
+        marker.on("click", function () {
+          emitSelection(group.list[group.idx]);
+        });
         group.marker = marker;
         markerLayer.addLayer(marker);
       });
@@ -234,12 +249,23 @@ const MAP_HTML = `
 </html>
 `;
 
-const AdminHeatMap = ({ style, reports = [] }) => {
+const AdminHeatMap = ({ style, reports = [], onReportSelect }) => {
   const mapRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
   const isWeb = Platform.OS === "web";
   const reportsRef = useRef(reports);
   reportsRef.current = reports;
+
+  const handleMessage = (event) => {
+    try {
+      const payload = JSON.parse(event.nativeEvent.data);
+      if (payload?.type === "report-select" && payload.report && onReportSelect) {
+        onReportSelect(payload.report);
+      }
+    } catch {
+      // ignore unsupported messages
+    }
+  };
 
   const pushInit = () => {
     if (!mapRef.current) return;
@@ -276,6 +302,7 @@ const AdminHeatMap = ({ style, reports = [] }) => {
         source={{ html: MAP_HTML }}
         style={styles.fill}
         onLoadEnd={() => setLoaded(true)}
+        onMessage={handleMessage}
         javaScriptEnabled
         originWhitelist={["*"]}
       />

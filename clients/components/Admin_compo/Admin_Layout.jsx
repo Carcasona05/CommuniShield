@@ -8,7 +8,7 @@ import {
   Modal,
 } from "react-native";
 import { Ionicons, Feather } from "@expo/vector-icons";
-import { useRouter, usePathname } from "expo-router";
+import { useRouter, usePathname, useLocalSearchParams } from "expo-router";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { clearAuth } from "../../services/auth";
@@ -55,6 +55,7 @@ function Admin_Layout({ children }) {
   const toast = useToast();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useLocalSearchParams();
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
@@ -67,7 +68,7 @@ function Admin_Layout({ children }) {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const navItems = [
+  const navGroups = [
     {
       label: "Dashboard",
       route: "/(admin)/Admin_Dashboard",
@@ -77,31 +78,52 @@ function Admin_Layout({ children }) {
       description: "Overview of incidents, hotspots, and system activity",
     },
     {
-      label: "Analytics",
-      route: "/(admin)/Admin_Analytics",
-      path: "/Admin_Analytics",
-      icon: "bar-chart-outline",
-      iconType: "Ionicons",
-      description: "View trends, metrics, and incident intelligence",
+      label: "Incident Intelligence",
+      icon: "analytics-outline",
+      children: [
+        { label: "Incident Mapping", route: "/(admin)/Admin_Ince_Map", path: "/Admin_Ince_Map", icon: "map-outline", description: "Map reported incidents and their locations" },
+        { label: "Hotspot Detection", route: "/(admin)/Admin_Hotspot_Detection", path: "/Admin_Hotspot_Detection", icon: "flame-outline", description: "Review high-severity incident clusters" },
+        { label: "Incident Analytics", route: "/(admin)/Admin_ince_Anaytics", path: "/Admin_ince_Anaytics", icon: "bar-chart-outline", description: "View trends and incident metrics" },
+        { label: "Risk Prediction", route: "/(admin)/Admin_Risk_Prediction", path: "/Admin_Risk_Prediction", icon: "trending-up-outline", description: "Review predicted risk zones and time windows" },
+      ],
     },
     {
-      label: "Validation",
+      label: "Incident Management",
       route: "/(admin)/Admin_Validation",
       path: "/Admin_Validation",
+      view: "incidents",
       icon: "shield-checkmark-outline",
+      description: "Review and filter submitted incident reports",
+    },
+    {
+      label: "Report Management",
+      route: "/(admin)/Admin_ReportManagement",
+      path: "/Admin_ReportManagement",
+      icon: "documents-outline",
       iconType: "Ionicons",
-      description:
-        "Manage reports, validate submissions, and review AI credibility",
+      description: "Manage, filter, and export incident reports",
     },
     {
       label: "Logs",
-      route: "/(admin)/Admin_Logs",
-      path: "/Admin_Logs",
       icon: "list-outline",
-      iconType: "Ionicons",
-      description: "Track system logs and recent admin activities",
+      children: [
+        { label: "Admin Activities", route: "/(admin)/Admin_Logs", path: "/Admin_Logs", activity: "admin", icon: "person-outline", description: "Track recent admin activities" },
+        { label: "Super Admin Activities", route: "/(admin)/Admin_Logs", path: "/Admin_Logs", activity: "super_admin", icon: "people-outline", description: "Review system audit activity" },
+      ],
     },
   ];
+  const [expandedSections, setExpandedSections] = useState({
+    "Incident Intelligence":
+      pathname.includes("Admin_Analytics") ||
+      pathname.includes("Admin_Ince_Map") ||
+      pathname.includes("Admin_Hotspot_Detection") ||
+      pathname.includes("Admin_ince_Anaytics") ||
+      pathname.includes("Admin_Risk_Prediction"),
+    Logs: pathname.includes("Admin_Logs"),
+  });
+  const navItems = navGroups.flatMap((group) =>
+    group.children || [group]
+  );
 
   const [notifications, setNotifications] = useState(() => {
     const cached = getCache("api:/admin/notifications");
@@ -278,11 +300,27 @@ function Admin_Layout({ children }) {
   }
 
   const isRouteActive = (item) => {
-    return (
+    const getParam = (key) =>
+      Array.isArray(searchParams[key]) ? searchParams[key][0] : searchParams[key];
+    if (item.view) {
+      const selectedView = getParam("view");
+      return (
+        pathname.includes("Admin_Validation") &&
+        (selectedView === item.view ||
+          (item.view === "incidents" && !selectedView))
+      );
+    }
+    const matchesPath =
       pathname === item.path ||
       pathname === item.route ||
-      pathname.includes(item.path.replace("/", ""))
-    );
+      (item.path && pathname.includes(item.path.replace("/", "")));
+    const selectedActivity = Array.isArray(searchParams.activity)
+      ? searchParams.activity[0]
+      : searchParams.activity;
+    if (item.activity) {
+      return matchesPath && (selectedActivity || "admin") === item.activity;
+    }
+    return matchesPath;
   };
 
   const getCurrentPage = () => {
@@ -561,28 +599,88 @@ function Admin_Layout({ children }) {
         <View style={styles.navSection}>
           <Text style={styles.navSectionTitle}>MAIN MENU</Text>
 
+          <ScrollView style={styles.navScroll} showsVerticalScrollIndicator={false}>
           <View style={styles.navList}>
-            {navItems.map((item, index) => {
-              const isActive = isRouteActive(item);
+                    {navGroups.map((group) => {
+                      if (!group.children) {
+                        const isActive = isRouteActive(group);
+                        return (
+                          <TouchableOpacity
+                            key={group.label}
+                            style={[styles.navItem, isActive && styles.activeNavItem]}
+                            onPress={() =>
+                              handleNavPress(
+                                group.view
+                                  ? {
+                                      pathname: group.route,
+                                      params: { view: group.view },
+                                    }
+                                  : group.route
+                              )
+                            }
+                            activeOpacity={0.75}
+                          >
+                            <View style={styles.navIcon}>{getIcon(group, isActive)}</View>
+                            <Text style={[styles.navText, isActive && styles.activeNavText]}>
+                              {group.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      }
 
-              return (
-                <TouchableOpacity
-                  key={index}
-                  style={[styles.navItem, isActive && styles.activeNavItem]}
-                  onPress={() => handleNavPress(item.route)}
-                  activeOpacity={0.75}
-                >
-                  <View style={styles.navIcon}>{getIcon(item, isActive)}</View>
-
-                  <Text
-                    style={[styles.navText, isActive && styles.activeNavText]}
-                  >
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                      const groupActive = group.children.some(isRouteActive);
+                      const expanded = Boolean(expandedSections[group.label]);
+                      return (
+                        <View key={group.label}>
+                          <TouchableOpacity
+                            style={[styles.navItem, groupActive && styles.activeNavItem]}
+                            onPress={() =>
+                              setExpandedSections((current) => ({
+                                ...current,
+                                [group.label]: !current[group.label],
+                              }))
+                            }
+                            activeOpacity={0.75}
+                          >
+                            <View style={styles.navIcon}>
+                              <Ionicons name={group.icon} size={22} color={groupActive ? COMMUNISHIELD_BLUE : "#5F6F8C"} />
+                            </View>
+                            <Text style={[styles.navText, groupActive && styles.activeNavText, styles.navGroupLabel]}>
+                              {group.label}
+                            </Text>
+                            <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={15} color="#71809A" />
+                          </TouchableOpacity>
+                          {expanded && group.children.map((item) => {
+                            const isActive = isRouteActive(item);
+                            const params = item.view
+                              ? { view: item.view }
+                              : item.activity
+                                ? { activity: item.activity }
+                                : undefined;
+                            const route = params
+                              ? { pathname: item.route, params }
+                              : item.route;
+                            return (
+                              <TouchableOpacity
+                                key={item.label}
+                                style={[styles.navItem, styles.nestedNavItem, isActive && styles.activeNavItem]}
+                                onPress={() => handleNavPress(route)}
+                                activeOpacity={0.75}
+                              >
+                                <View style={styles.navIcon}>
+                                  <Ionicons name={item.icon} size={18} color={isActive ? COMMUNISHIELD_BLUE : "#71809A"} />
+                                </View>
+                                <Text style={[styles.navText, styles.nestedNavText, isActive && styles.activeNavText]}>
+                                  {item.label}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      );
+                    })}
           </View>
+          </ScrollView>
         </View>
       </View>
 
@@ -963,6 +1061,10 @@ const styles = {
     flex: 1,
   },
 
+  navScroll: {
+    flex: 1,
+  },
+
   navSectionTitle: {
     fontSize: 13,
     color: "#8A98B3",
@@ -1000,6 +1102,22 @@ const styles = {
     fontSize: 17,
     fontFamily: "PoppinsMedium",
     color: "#5F6F8C",
+  },
+
+  navGroupLabel: {
+    flex: 1,
+    fontSize: 15,
+  },
+
+  nestedNavItem: {
+    marginLeft: 12,
+    height: 44,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+
+  nestedNavText: {
+    fontSize: 13,
   },
 
   activeNavText: {
