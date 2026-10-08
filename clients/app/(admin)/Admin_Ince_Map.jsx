@@ -1,20 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Platform,
   ScrollView,
   Text,
-  TouchableOpacity,
   useWindowDimensions,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import { useFonts } from "expo-font";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
-import Dropdown from "../../components/Dropdown";
+import {
+  BatchFilterDropdown,
+  BatchDateRangeDropdown,
+} from "../../components/Admin_compo/AdminBatchFilters";
 import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import apiClient from "../../services/apiClient";
@@ -84,44 +84,6 @@ const getSeverityColors = (severity) => {
     default: return { color: "#856000", background: "#FFF6D8" };
   }
 };
-
-function DateFilter({ label, value, onChange }) {
-  const [showPicker, setShowPicker] = useState(false);
-  const pickerValue = value ? new Date(`${value}T12:00:00`) : new Date();
-
-  return (
-    <View style={styles.dateField}>
-      <Text style={styles.filterLabel}>{label}</Text>
-      {Platform.OS === "web" ? (
-        <input
-          type="date"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          style={styles.webDateInput}
-          aria-label={label}
-        />
-      ) : (
-        <>
-          <TouchableOpacity style={styles.dateButton} onPress={() => setShowPicker(true)} activeOpacity={0.8}>
-            <Text style={[styles.dateButtonText, !value && styles.datePlaceholder]}>{value || "Select date"}</Text>
-            <Ionicons name="calendar-outline" size={18} color="#23675D" />
-          </TouchableOpacity>
-          {showPicker ? (
-            <DateTimePicker
-              value={pickerValue}
-              mode="date"
-              display="default"
-              onChange={(event, selectedDate) => {
-                setShowPicker(false);
-                if (selectedDate && event.type !== "dismissed") onChange(selectedDate.toISOString().slice(0, 10));
-              }}
-            />
-          ) : null}
-        </>
-      )}
-    </View>
-  );
-}
 
 export default function Admin_Ince_Map() {
   const { width } = useWindowDimensions();
@@ -213,7 +175,7 @@ export default function Admin_Ince_Map() {
     <Admin_Layout>
       <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
         <View style={styles.heading}>
-          <View style={styles.headingIcon}><Ionicons name="map-outline" size={21} color="#23675D" /></View>
+          
           <View style={{ flex: 1 }}>
             <Text style={styles.headingTitle}>Incident Mapping</Text>
             <Text style={styles.headingSubtitle}>{filteredReports.length} mapped reports in Argao</Text>
@@ -221,30 +183,34 @@ export default function Admin_Ince_Map() {
         </View>
 
         <View style={[styles.filters, isNarrow && styles.filtersNarrow]}>
-          <View style={styles.filterField}>
-            <Text style={styles.filterLabel}>Location</Text>
-            <Dropdown
-              options={[{ value: "All", label: "All Barangays" }, ...ARGAO_BARANGAYS.map(({ name }) => ({ value: name, label: name }))]}
-              selectedValue={selectedBarangay}
-              placeholder="Barangay in Argao"
-              onChange={setSelectedBarangay}
-            />
-          </View>
-          <View style={styles.filterField}>
-            <Text style={styles.filterLabel}>Incident Category</Text>
-            <Dropdown
-              options={[{ value: "All", label: "All Categories" }, ...INCIDENT_CATEGORIES.map(({ category }) => ({ value: category, label: category }))]}
-              selectedValue={selectedCategory}
-              placeholder="Select Category"
-              onChange={setSelectedCategory}
-            />
-          </View>
-          <View style={styles.filterField}>
-            <Text style={styles.filterLabel}>Incident Type</Text>
-            <Dropdown options={incidentTypeOptions} selectedValue={selectedIncidentType} placeholder="Select Incident Type" onChange={setSelectedIncidentType} />
-          </View>
-          <DateFilter label="From" value={fromDate} onChange={setFromDate} />
-          <DateFilter label="Until" value={toDate} onChange={setToDate} />
+          <BatchFilterDropdown
+            label="Location"
+            value={selectedBarangay}
+            options={[{ value: "All", label: "All Barangays" }, ...ARGAO_BARANGAYS.map(({ name }) => ({ value: name, label: name }))]}
+            onChange={setSelectedBarangay}
+            width={isNarrow ? "100%" : 220}
+          />
+          <BatchFilterDropdown
+            label="Incident Category"
+            value={selectedCategory}
+            options={[{ value: "All", label: "All Categories" }, ...INCIDENT_CATEGORIES.map(({ category }) => ({ value: category, label: category }))]}
+            onChange={setSelectedCategory}
+            width={isNarrow ? "100%" : 260}
+          />
+          <BatchFilterDropdown
+            label="Incident Type"
+            value={selectedIncidentType}
+            options={incidentTypeOptions}
+            onChange={setSelectedIncidentType}
+            width={isNarrow ? "100%" : 235}
+          />
+          <BatchDateRangeDropdown
+            from={fromDate}
+            to={toDate}
+            onChangeFrom={setFromDate}
+            onChangeTo={setToDate}
+            width={isNarrow ? "100%" : 260}
+          />
         </View>
 
         <View style={[styles.workspace, isNarrow && styles.workspaceNarrow]}>
@@ -324,15 +290,17 @@ const styles = {
   headingIcon: { width: 42, height: 42, borderRadius: 10, backgroundColor: "#E5F1EC", alignItems: "center", justifyContent: "center" },
   headingTitle: { fontFamily: "PoppinsSemiBold", fontSize: 21, color: "#183C36" },
   headingSubtitle: { fontFamily: "PoppinsRegular", fontSize: 13, color: "#647B75", marginTop: 2 },
-  filters: { flexDirection: "row", flexWrap: "wrap", gap: 12, padding: 16, backgroundColor: "#F5F8F6", borderWidth: 1, borderColor: "#DEE8E2", borderRadius: 10 },
+  filters: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    padding: 14,
+    backgroundColor: "#F7F9FD",
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    borderRadius: 14,
+  },
   filtersNarrow: { padding: 12 },
-  filterField: { flex: 1, minWidth: 180, maxWidth: 280 },
-  dateField: { flex: 1, minWidth: 140, maxWidth: 200 },
-  filterLabel: { fontFamily: "PoppinsSemiBold", fontSize: 11, color: "#59716B", textTransform: "uppercase", marginBottom: 7 },
-  dateButton: { height: 52, borderWidth: 1, borderColor: "#D8E0DB", borderRadius: 10, backgroundColor: "#FFFFFF", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  dateButtonText: { color: "#20312D", fontFamily: "PoppinsRegular", fontSize: 14 },
-  datePlaceholder: { color: "#83909D" },
-  webDateInput: { height: 52, width: "100%", boxSizing: "border-box", border: "1px solid #D8E0DB", borderRadius: 10, backgroundColor: "#FFFFFF", padding: "0 12px", color: "#20312D", fontFamily: "PoppinsRegular", fontSize: 14 },
   workspace: { flexDirection: "row", alignItems: "stretch", gap: 16 },
   workspaceNarrow: { flexDirection: "column" },
   mapPanel: { flex: 7, minWidth: 0, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DDE6E1", borderRadius: 10, overflow: "hidden" },

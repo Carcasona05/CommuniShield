@@ -14,6 +14,7 @@ import { useFonts } from "expo-font";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import Admin_AddReportModal from "../../components/Admin_compo/Admin_AddReportModal";
 import Admin_AddAnnouncementModal from "../../components/Admin_compo/Admin_AddAnnouncementModal";
+import Admin_AddBlotterModal from "../../components/Admin_compo/Admin_AddBlotterModal";
 import {
   BatchDateRangeDropdown,
   BatchFilterDropdown,
@@ -56,6 +57,9 @@ function Admin_ReportManagement() {
   const [postBy, setPostBy] = useState("All");
   const [addReportVisible, setAddReportVisible] = useState(false);
   const [addAnnouncementVisible, setAddAnnouncementVisible] = useState(false);
+  const [addBlotterVisible, setAddBlotterVisible] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewRecord, setPreviewRecord] = useState(null);
   const initialLoadRef = useRef(true);
 
   const [fontsLoaded] = useFonts({
@@ -168,6 +172,40 @@ function Admin_ReportManagement() {
     });
   }, [from, postBy, reportType, status, to, visibleRecords]);
 
+  const openRecordPreview = (record, successMessage) => {
+    setPreviewRecord(record);
+    setPreviewVisible(true);
+    showSuccess(successMessage);
+  };
+
+  const handleAddReport = async (payload) => {
+    const record = {
+      id: payload?.id || `incident-${Date.now()}`,
+      kind: "Incident",
+      reportType: "Incident",
+      title: payload?.incident_type
+        ? `${payload.incident_type}${payload.location ? ` in ${payload.location}` : ""}`
+        : "New incident report",
+      location: payload?.location || "",
+      status: payload?.status || "Pending Review",
+      severity: payload?.severity || "Medium",
+      created_at: payload?.created_at || new Date().toISOString(),
+      details: payload?.details || "",
+      actor: payload?.poster_name || "Admin",
+      actorRole: "admin",
+      ...payload,
+    };
+
+    try {
+      setAddReportVisible(false);
+      openRecordPreview(record, "Incident saved successfully.");
+      loadRecords();
+      return record;
+    } catch (error) {
+      throw new Error(error?.message || "Could not save the incident.");
+    }
+  };
+
   const handleAddAnnouncement = async (announcement) => {
     try {
       const token = await AsyncStorage.getItem("access_token");
@@ -181,11 +219,51 @@ function Admin_ReportManagement() {
         details: announcement.details,
         pic_url: picUrl,
       }, { headers: { Authorization: `Bearer ${token}` } });
+      const record = {
+        id: announcement.id || `announcement-${Date.now()}`,
+        kind: "Announcement",
+        reportType: "Announcement",
+        title: announcement.title,
+        location: announcement.location,
+        status: "Published",
+        severity: "",
+        created_at: announcement.createdAt || new Date().toISOString(),
+        details: announcement.details,
+        actor: "Admin",
+        actorRole: "admin",
+        ...announcement,
+      };
       setAddAnnouncementVisible(false);
-      showSuccess("Announcement published.");
+      openRecordPreview(record, "Announcement published successfully.");
       loadRecords();
     } catch (error) {
       throw new Error(error?.response?.data?.error || error?.message || "Could not publish the announcement.");
+    }
+  };
+
+  const handleAddBlotter = async (blotter) => {
+    try {
+      const record = {
+        id: blotter.id || `blotter-${Date.now()}`,
+        kind: "Blotter",
+        reportType: "Blotter",
+        title: blotter.title || `${blotter.incidentType || "Blotter report"} • ${blotter.location || "Location unspecified"}`,
+        location: blotter.location || "",
+        barangay: blotter.barangay || "",
+        status: blotter.status || "Pending Review",
+        severity: blotter.severity || "Medium",
+        created_at: blotter.created_at || new Date().toISOString(),
+        details: blotter.details || blotter.incidentDescription || "",
+        actor: blotter.reportedBy || "Admin",
+        actorRole: "admin",
+        ...blotter,
+      };
+      setAddBlotterVisible(false);
+      openRecordPreview(record, "Blotter report saved successfully.");
+      loadRecords();
+      return record;
+    } catch (error) {
+      throw new Error(error?.message || "Could not save the blotter report.");
     }
   };
 
@@ -215,6 +293,14 @@ function Admin_ReportManagement() {
     }
 
     await Share.share({ title: "CommuniShield admin records CSV", message: content });
+  };
+
+  const handlePrintPreview = () => {
+    if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.print === "function") {
+      window.print();
+      return;
+    }
+    showError("Print/export is available from the web version of the app.");
   };
 
   if (!fontsLoaded) return null;
@@ -293,9 +379,9 @@ function Admin_ReportManagement() {
                 <Ionicons name="megaphone-outline" size={18} color="#294880" />
                 <Text style={styles.secondaryButtonText}>Add Announcement</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => setAddReportVisible(true)} activeOpacity={0.85}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => setAddBlotterVisible(true)} activeOpacity={0.85}>
                 <Ionicons name="document-text-outline" size={18} color="#294880" />
-                <Text style={styles.secondaryButtonText}>Add Report (Blotter)</Text>
+                <Text style={styles.secondaryButtonText}>Add Blotter Report</Text>
               </TouchableOpacity>
             </View>
 
@@ -390,13 +476,83 @@ function Admin_ReportManagement() {
       <Admin_AddReportModal
         visible={addReportVisible}
         onClose={() => setAddReportVisible(false)}
-        onSubmit={() => { setAddReportVisible(false); loadRecords(); }}
+        onSubmit={handleAddReport}
       />
       <Admin_AddAnnouncementModal
         visible={addAnnouncementVisible}
         onClose={() => setAddAnnouncementVisible(false)}
         onSubmit={handleAddAnnouncement}
       />
+      <Admin_AddBlotterModal
+        visible={addBlotterVisible}
+        onClose={() => setAddBlotterVisible(false)}
+        onSubmit={handleAddBlotter}
+      />
+
+      {previewVisible && previewRecord ? (
+        <>
+          <View style={styles.previewOverlay} />
+          <View style={styles.previewModalOuter}>
+            <View style={styles.previewModal}>
+              <View style={styles.previewHeader}>
+                <Text style={styles.previewTitle}>Posted Record</Text>
+                <TouchableOpacity onPress={() => setPreviewVisible(false)} hitSlop={10}>
+                  <Ionicons name="close" size={24} color="#4B5D7A" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.previewScroll} showsVerticalScrollIndicator={false}>
+                <View style={styles.previewSection}>
+                  <Text style={styles.previewSectionTitle}>System Details</Text>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Record Type</Text><Text style={styles.previewValue}>{previewRecord.kind}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Blotter No.</Text><Text style={styles.previewValue}>{previewRecord.blotterNo || previewRecord.id || "—"}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Date/Time Reported</Text><Text style={styles.previewValue}>{previewRecord.dateReported || formatDate(previewRecord.created_at) || "—"}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Barangay</Text><Text style={styles.previewValue}>{previewRecord.barangay || "—"}</Text></View>
+                </View>
+
+                <View style={styles.previewSection}>
+                  <Text style={styles.previewSectionTitle}>Incident Info</Text>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Location</Text><Text style={styles.previewValue}>{previewRecord.location || "—"}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Type of Incident</Text><Text style={styles.previewValue}>{previewRecord.incidentType || previewRecord.incident_type || "—"}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Date & Time of Incident</Text><Text style={styles.previewValue}>{previewRecord.incidentDateTime || "—"}</Text></View>
+                </View>
+
+                <View style={styles.previewSection}>
+                  <Text style={styles.previewSectionTitle}>Parties Involved</Text>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Complainant Name</Text><Text style={styles.previewValue}>{previewRecord.complainantName || previewRecord.poster_name || "—"}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Age</Text><Text style={styles.previewValue}>{previewRecord.complainantAge || "—"}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Contact No.</Text><Text style={styles.previewValue}>{previewRecord.complainantContact || "—"}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Respondent</Text><Text style={styles.previewValue}>{previewRecord.respondent || "—"}</Text></View>
+                </View>
+
+                <View style={styles.previewSection}>
+                  <Text style={styles.previewSectionTitle}>Narrative & Actions</Text>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Incident Description</Text><Text style={styles.previewValue}>{previewRecord.details || previewRecord.incidentDescription || "—"}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Action Taken</Text><Text style={styles.previewValue}>{previewRecord.actionTaken || "—"}</Text></View>
+                </View>
+
+                <View style={styles.previewSection}>
+                  <Text style={styles.previewSectionTitle}>Administrative Tracking</Text>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Status</Text><Text style={styles.previewValue}>{previewRecord.status || "—"}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Reported By</Text><Text style={styles.previewValue}>{previewRecord.reportedBy || previewRecord.actor || "—"}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Blotter Officer</Text><Text style={styles.previewValue}>{previewRecord.blotterOfficer || "—"}</Text></View>
+                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Date Recorded</Text><Text style={styles.previewValue}>{previewRecord.dateRecorded || formatDate(previewRecord.created_at) || "—"}</Text></View>
+                </View>
+              </ScrollView>
+
+              <View style={styles.previewFooter}>
+                <TouchableOpacity style={styles.previewPrimaryButton} onPress={handlePrintPreview} activeOpacity={0.85}>
+                  <Ionicons name="print-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.previewPrimaryButtonText}>Print / Export PDF</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.previewSecondaryButton} onPress={() => setPreviewVisible(false)} activeOpacity={0.85}>
+                  <Text style={styles.previewSecondaryButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </>
+      ) : null}
     </Admin_Layout>
   );
 }
@@ -424,6 +580,23 @@ const styles = StyleSheet.create({
   secondaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 12, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D9E2F0", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
   buttonText: { fontSize: 13, fontFamily: "PoppinsSemiBold", color: "#FFFFFF" },
   secondaryButtonText: { fontSize: 13, fontFamily: "PoppinsSemiBold", color: "#294880" },
+  previewOverlay: { position: "absolute", inset: 0, backgroundColor: "rgba(15, 30, 55, 0.25)", zIndex: 20 },
+  previewModalOuter: { position: "absolute", inset: 0, justifyContent: "center", alignItems: "center", zIndex: 21, padding: 20 },
+  previewModal: { width: "100%", maxWidth: 760, maxHeight: "85%", backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#D9E2F0", overflow: "hidden" },
+  previewModalHidden: { opacity: 0, pointerEvents: "none" },
+  previewHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
+  previewTitle: { fontSize: 18, fontFamily: "PoppinsSemiBold", color: "#294880" },
+  previewScroll: { maxHeight: 560, paddingHorizontal: 18, paddingVertical: 16 },
+  previewSection: { marginBottom: 14, backgroundColor: "#F9FAFB", borderWidth: 1, borderColor: "#E7ECF3", borderRadius: 12, padding: 14 },
+  previewSectionTitle: { fontSize: 13, fontFamily: "PoppinsSemiBold", color: "#294880", marginBottom: 10 },
+  previewPair: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 8 },
+  previewLabel: { flex: 1, fontSize: 12, color: "#5D6F92", fontFamily: "PoppinsMedium" },
+  previewValue: { flex: 1.25, fontSize: 12, color: "#1F2A37", fontFamily: "PoppinsRegular", textAlign: "right" },
+  previewFooter: { flexDirection: "row", justifyContent: "flex-end", gap: 10, paddingHorizontal: 18, paddingVertical: 14, borderTopWidth: 1, borderTopColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
+  previewPrimaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#294880", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  previewPrimaryButtonText: { color: "#FFFFFF", fontFamily: "PoppinsSemiBold", fontSize: 13 },
+  previewSecondaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#EEF2F8", alignItems: "center", justifyContent: "center" },
+  previewSecondaryButtonText: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 13 },
   batchFilterRow: { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingBottom: 2 },
   criteriaInput: { flexGrow: 1, minWidth: 145, height: 42, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 8, backgroundColor: "#FFFFFF", paddingHorizontal: 12, color: "#2F4267", fontFamily: "PoppinsRegular", fontSize: 13 },
   searchInput: { flexGrow: 2, minWidth: 220 },

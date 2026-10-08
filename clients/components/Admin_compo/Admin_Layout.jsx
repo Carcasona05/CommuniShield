@@ -92,7 +92,7 @@ function Admin_Layout({ children }) {
       description: "Review high-severity incident clusters",
     },
     {
-      label: "Incident Analytics",
+      label: "Sentiment Analysis",
       route: "/(admin)/Admin_ince_Anaytics",
       path: "/Admin_ince_Anaytics",
       icon: "bar-chart-outline",
@@ -608,8 +608,6 @@ function Admin_Layout({ children }) {
         <View style={styles.sidebarDivider} />
 
         <View style={styles.navSection}>
-          <Text style={styles.navSectionTitle}>MAIN MENU</Text>
-
           <ScrollView style={styles.navScroll} showsVerticalScrollIndicator={false}>
           <View style={styles.navList}>
                     {navGroups.map((group) => {
@@ -1057,8 +1055,8 @@ const styles = {
   },
 
   logoTextImage: {
-    width: 150,
-    height: 150,
+    width: 130,
+    height: 130,
   },
 
   sidebarDivider: {
