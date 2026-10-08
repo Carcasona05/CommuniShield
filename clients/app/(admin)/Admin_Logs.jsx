@@ -4,10 +4,10 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   StyleSheet,
   Platform,
   Pressable,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
@@ -99,19 +99,90 @@ const mapLogs = (list) =>
     reportId: toReportCode(log.reportId || log.id),
     details: hashReportIdsInText(log.details || ""),
     dateTime: formatLogTime(log.dateTime),
+    rawDateTime: log.dateTime || null,
+    actorRole: log.actorRole || "system",
   }));
 
 const PAGE_SIZE = 10;
 
+const STATUS_OPTIONS = [
+  "All",
+  "Report Verified",
+  "Report Mapped",
+  "Report Rejected",
+  "Report Deleted",
+  "AI Analysis Completed",
+  "Admin Added",
+  "Admin Updated",
+  "Admin Disabled",
+  "Admin Deleted",
+  "System Settings Updated",
+  "Announcement Created",
+  "Notification Sent",
+];
+
+const POST_BY_OPTIONS = ["All", "User", "Admin", "Super Admin"];
+const DATE_OPTIONS = ["All Time", "Today", "Last 7 Days", "Last 30 Days", "This Month"];
+
+function DropdownFilter({ label, value, options, onChange }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <View style={styles.dropdownWrapper}>
+      <Text style={styles.dropdownLabel}>{label}</Text>
+      <TouchableOpacity
+        style={styles.dropdownButton}
+        onPress={() => setIsOpen(true)}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.dropdownButtonText}>{value}</Text>
+        <Ionicons name="chevron-down" size={16} color="#5D6F92" />
+      </TouchableOpacity>
+
+      <Modal
+        visible={isOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsOpen(false)}
+      >
+        <Pressable style={styles.dropdownOverlay} onPress={() => setIsOpen(false)}>
+          <View style={styles.dropdownMenu}>
+            {options.map((option) => (
+              <TouchableOpacity
+                key={option}
+                style={[
+                  styles.dropdownOption,
+                  value === option && styles.dropdownOptionActive,
+                ]}
+                onPress={() => {
+                  onChange(option);
+                  setIsOpen(false);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.dropdownOptionText,
+                    value === option && styles.dropdownOptionTextActive,
+                  ]}
+                >
+                  {option}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
 export default function Admin_Logs() {
   const searchParams = useLocalSearchParams();
-  const activityParam = Array.isArray(searchParams?.activity)
-    ? searchParams.activity[0]
-    : searchParams?.activity;
-  const actorRole = activityParam === "super_admin" ? "super_admin" : "admin";
   const [loading, setLoading] = useState(true);
-  const [searchText, setSearchText] = useState("");
-  const [selectedFilter, setSelectedFilter] = useState("All");
+  const [selectedStatus, setSelectedStatus] = useState("All");
+  const [selectedPostBy, setSelectedPostBy] = useState("All");
+  const [selectedDate, setSelectedDate] = useState("All Time");
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -142,7 +213,6 @@ export default function Admin_Logs() {
       const applyLogs = (list) => setLogs(mapLogs(list));
 
       const res = await apiClient.get("/admin/logs", {
-        params: { actorRole },
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -152,51 +222,70 @@ export default function Admin_Logs() {
     } finally {
       setLoading(false);
     }
-  }, [actorRole]);
+  }, []);
 
-  useAutoRefresh(loadLogs, actorRole === "super_admin" ? 60001 : 60000);
+  useAutoRefresh(loadLogs, 60000);
 
-  const filters = [
-    "All",
-    "Report Verified",
-    "Report Mapped",
-    "Report Rejected",
-    "Report Deleted",
-    "AI Analysis Completed",
-    "Admin Added",
-    "Admin Updated",
-    "Admin Disabled",
-    "Admin Deleted",
-    "System Settings Updated",
-    "Announcement Created",
-    "Notification Sent",
-  ];
+  const matchesDateRange = (dateValue, option) => {
+    if (!dateValue || option === "All Time") return true;
+
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return false;
+
+    const today = new Date();
+    const startOfToday = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate()
+    );
+
+    if (option === "Today") {
+      return date >= startOfToday;
+    }
+
+    if (option === "Last 7 Days") {
+      const start = new Date(startOfToday);
+      start.setDate(start.getDate() - 6);
+      return date >= start;
+    }
+
+    if (option === "Last 30 Days") {
+      const start = new Date(startOfToday);
+      start.setDate(start.getDate() - 29);
+      return date >= start;
+    }
+
+    if (option === "This Month") {
+      return (
+        date.getFullYear() === today.getFullYear() &&
+        date.getMonth() === today.getMonth()
+      );
+    }
+
+    return true;
+  };
 
   const filteredLogs = useMemo(() => {
-    const query = searchText.trim().toLowerCase();
-
     return logs.filter((log) => {
-      const matchesFilter =
-        selectedFilter === "All" || log.actionType === selectedFilter;
+      const matchesStatus =
+        selectedStatus === "All" || log.actionType === selectedStatus;
 
-      const matchesSearch =
-        !query ||
-        log.id.toLowerCase().includes(query) ||
-        log.title.toLowerCase().includes(query) ||
-        log.actor.toLowerCase().includes(query) ||
-        log.reportId.toLowerCase().includes(query) ||
-        log.actionType.toLowerCase().includes(query) ||
-        log.details.toLowerCase().includes(query);
+      const matchesPostBy =
+        selectedPostBy === "All" ||
+        (selectedPostBy === "User" && log.actorRole === "user") ||
+        (selectedPostBy === "Admin" && log.actorRole === "admin") ||
+        (selectedPostBy === "Super Admin" && log.actorRole === "super_admin");
 
-      return matchesFilter && matchesSearch;
+      const matchesDate = matchesDateRange(log.rawDateTime, selectedDate);
+      return matchesStatus && matchesPostBy && matchesDate;
     });
-  }, [searchText, selectedFilter, logs]);
+  }, [selectedStatus, selectedPostBy, selectedDate, logs]);
 
   const visibleLogs = filteredLogs.slice(0, visibleCount);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [searchText, selectedFilter]);
+  }, [selectedStatus, selectedPostBy, selectedDate]);
 
   const handleScroll = (e) => {
     const next = e.nativeEvent.contentOffset.y > 300;
@@ -443,47 +532,29 @@ export default function Admin_Logs() {
           </View>
 
           <View style={styles.filterCard}>
-            <View style={styles.searchBox}>
-              <Ionicons name="search-outline" size={21} color="#5D6F92" />
-
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search by report ID, action, actor, or details..."
-                placeholderTextColor="#8A98B3"
-                value={searchText}
-                onChangeText={setSearchText}
-              />
-            </View>
-
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.filterRow}
             >
-              {filters.map((filter) => {
-                const isActive = selectedFilter === filter;
-
-                return (
-                  <TouchableOpacity
-                    key={filter}
-                    style={[
-                      styles.filterPill,
-                      isActive && styles.activeFilterPill,
-                    ]}
-                    onPress={() => setSelectedFilter(filter)}
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.filterPillText,
-                        isActive && styles.activeFilterPillText,
-                      ]}
-                    >
-                      {filter}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+              <DropdownFilter
+                label="Post by"
+                value={selectedPostBy}
+                options={POST_BY_OPTIONS}
+                onChange={setSelectedPostBy}
+              />
+              <DropdownFilter
+                label="Status"
+                value={selectedStatus}
+                options={STATUS_OPTIONS}
+                onChange={setSelectedStatus}
+              />
+              <DropdownFilter
+                label="Date"
+                value={selectedDate}
+                options={DATE_OPTIONS}
+                onChange={setSelectedDate}
+              />
             </ScrollView>
           </View>
 
@@ -495,10 +566,9 @@ export default function Admin_Logs() {
           >
             <View style={styles.listHeader}>
               <View>
-                <Text style={styles.sectionTitle}>Recent Admin Activity</Text>
+                <Text style={styles.sectionTitle}>Recent Activity</Text>
                 <Text style={styles.sectionSubtitle}>
-                  These logs show report-related actions for normal admin
-                  workflow.
+                  Unified admin and super admin activity across the system.
                 </Text>
               </View>
 
@@ -757,33 +827,78 @@ const styles = StyleSheet.create({
   },
 
   filterRow: {
-    gap: 10,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 12,
   },
 
-  filterPill: {
-    height: 40,
-    paddingHorizontal: 16,
-    borderRadius: 999,
+  dropdownWrapper: {
+    flex: 1,
+    minWidth: 180,
+  },
+
+  dropdownLabel: {
+    fontSize: 12,
+    color: "#5D6F92",
+    fontFamily: "PoppinsMedium",
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+
+  dropdownButton: {
+    height: 46,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#D9E2F0",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F7F9FD",
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
   },
 
-  activeFilterPill: {
-    backgroundColor: "#294880",
-    borderColor: "#294880",
-  },
-
-  filterPillText: {
+  dropdownButtonText: {
     fontSize: 14,
-    fontFamily: "PoppinsMedium",
     color: "#294880",
+    fontFamily: "PoppinsMedium",
   },
 
-  activeFilterPillText: {
-    color: "#FFFFFF",
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(17, 24, 39, 0.25)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 18,
+  },
+
+  dropdownMenu: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+  },
+
+  dropdownOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+
+  dropdownOptionActive: {
+    backgroundColor: "#EAF2FF",
+  },
+
+  dropdownOptionText: {
+    fontSize: 15,
+    color: "#294880",
+    fontFamily: "PoppinsRegular",
+  },
+
+  dropdownOptionTextActive: {
+    fontFamily: "PoppinsSemiBold",
   },
 
   logsCard: {

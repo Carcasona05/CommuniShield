@@ -78,14 +78,32 @@ function Admin_Layout({ children }) {
       description: "Overview of incidents, hotspots, and system activity",
     },
     {
-      label: "Incident Intelligence",
-      icon: "analytics-outline",
-      children: [
-        { label: "Incident Mapping", route: "/(admin)/Admin_Ince_Map", path: "/Admin_Ince_Map", icon: "map-outline", description: "Map reported incidents and their locations" },
-        { label: "Hotspot Detection", route: "/(admin)/Admin_Hotspot_Detection", path: "/Admin_Hotspot_Detection", icon: "flame-outline", description: "Review high-severity incident clusters" },
-        { label: "Incident Analytics", route: "/(admin)/Admin_ince_Anaytics", path: "/Admin_ince_Anaytics", icon: "bar-chart-outline", description: "View trends and incident metrics" },
-        { label: "Risk Prediction", route: "/(admin)/Admin_Risk_Prediction", path: "/Admin_Risk_Prediction", icon: "trending-up-outline", description: "Review predicted risk zones and time windows" },
-      ],
+      label: "Incident Mapping",
+      route: "/(admin)/Admin_Ince_Map",
+      path: "/Admin_Ince_Map",
+      icon: "map-outline",
+      description: "Map reported incidents and their locations",
+    },
+    {
+      label: "Hotspot Detection",
+      route: "/(admin)/Admin_Hotspot_Detection",
+      path: "/Admin_Hotspot_Detection",
+      icon: "flame-outline",
+      description: "Review high-severity incident clusters",
+    },
+    {
+      label: "Incident Analytics",
+      route: "/(admin)/Admin_ince_Anaytics",
+      path: "/Admin_ince_Anaytics",
+      icon: "bar-chart-outline",
+      description: "View trends and incident metrics",
+    },
+    {
+      label: "Risk Prediction",
+      route: "/(admin)/Admin_Risk_Prediction",
+      path: "/Admin_Risk_Prediction",
+      icon: "trending-up-outline",
+      description: "Review predicted risk zones and time windows",
     },
     {
       label: "Incident Management",
@@ -105,20 +123,13 @@ function Admin_Layout({ children }) {
     },
     {
       label: "Logs",
+      route: "/(admin)/Admin_Logs",
+      path: "/Admin_Logs",
       icon: "list-outline",
-      children: [
-        { label: "Admin Activities", route: "/(admin)/Admin_Logs", path: "/Admin_Logs", activity: "admin", icon: "person-outline", description: "Track recent admin activities" },
-        { label: "Super Admin Activities", route: "/(admin)/Admin_Logs", path: "/Admin_Logs", activity: "super_admin", icon: "people-outline", description: "Review system audit activity" },
-      ],
+      description: "Review recent admin and super admin activity",
     },
   ];
   const [expandedSections, setExpandedSections] = useState({
-    "Incident Intelligence":
-      pathname.includes("Admin_Analytics") ||
-      pathname.includes("Admin_Ince_Map") ||
-      pathname.includes("Admin_Hotspot_Detection") ||
-      pathname.includes("Admin_ince_Anaytics") ||
-      pathname.includes("Admin_Risk_Prediction"),
     Logs: pathname.includes("Admin_Logs"),
   });
   const navItems = navGroups.flatMap((group) =>

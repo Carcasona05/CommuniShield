@@ -5,7 +5,6 @@ import {
   Share,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -15,13 +14,18 @@ import { useFonts } from "expo-font";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import Admin_AddReportModal from "../../components/Admin_compo/Admin_AddReportModal";
 import Admin_AddAnnouncementModal from "../../components/Admin_compo/Admin_AddAnnouncementModal";
+import {
+  BatchDateRangeDropdown,
+  BatchFilterDropdown,
+} from "../../components/Admin_compo/AdminBatchFilters";
 import ToastProvider, { useToast } from "../../components/Toast";
 import apiClient from "../../services/apiClient";
 import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 
 const FILTER_STATUSES = ["All", "Pending Review", "Under Verification", "Resolved", "Rejected", "Marked Fake"];
-const FILTER_SEVERITIES = ["All", "Critical", "High", "Medium", "Low"];
+const REPORT_TYPES = ["All", "Incident", "Announcement", "Blotter"];
+const POST_BY_OPTIONS = ["All", "Admin", "Super Admin"];
 
 const csvValue = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
 
@@ -45,12 +49,11 @@ function Admin_ReportManagement() {
   const [announcements, setAnnouncements] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [status, setStatus] = useState("All");
-  const [severity, setSeverity] = useState("All");
+  const [reportType, setReportType] = useState("All");
+  const [postBy, setPostBy] = useState("All");
   const [addReportVisible, setAddReportVisible] = useState(false);
   const [addAnnouncementVisible, setAddAnnouncementVisible] = useState(false);
   const initialLoadRef = useRef(true);
@@ -68,17 +71,17 @@ function Admin_ReportManagement() {
       const headers = { Authorization: `Bearer ${token}` };
       const params = {
         source: "Admin",
-        search: search.trim() || undefined,
-        category: category.trim() || undefined,
         from: from.trim() || undefined,
         to: to.trim() || undefined,
         status: status === "All" ? undefined : status,
-        severity: severity === "All" ? undefined : severity,
       };
       const [reportResponse, announcementResponse, logResponse] = await Promise.all([
         apiClient.get("/admin/dashboard", { headers, params }),
         apiClient.get("/admin/announcements", { headers, params }),
-        apiClient.get("/admin/logs", { headers, params: { ...params, actorRole: "admin" } }),
+        apiClient.get("/admin/logs", {
+          headers,
+          params: { from: params.from, to: params.to },
+        }),
       ]);
       setReports(Array.isArray(reportResponse.data?.reports) ? reportResponse.data.reports : []);
       setAnnouncements(Array.isArray(announcementResponse.data?.announcements) ? announcementResponse.data.announcements : []);
@@ -88,7 +91,7 @@ function Admin_ReportManagement() {
     } finally {
       setLoading(false);
     }
-  }, [category, from, search, severity, status, to, showError]);
+  }, [from, status, to, showError]);
 
   useEffect(() => {
     if (initialLoadRef.current) {
@@ -100,17 +103,7 @@ function Admin_ReportManagement() {
   useAutoRefresh(loadRecords, 60000);
 
   const activityRecords = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return logs
-      .filter((item) => {
-        if (status !== "All" || severity !== "All" || category.trim()) return false;
-        const date = new Date(item.dateTime);
-        if (from && Number.isFinite(date.getTime()) && date < new Date(from)) return false;
-        if (to && Number.isFinite(date.getTime()) && date > new Date(`${to}T23:59:59`)) return false;
-        const searchable = [item.title, item.actor, item.actionType, item.details].join(" ").toLowerCase();
-        return !query || searchable.includes(query);
-      })
-      .map((item) => ({
+    return (status === "All" ? logs : []).map((item) => ({
         id: `activity-${item.id}`,
         kind: "Activity",
         title: item.title || item.actionType || "Admin activity",
@@ -120,13 +113,14 @@ function Admin_ReportManagement() {
         created_at: item.dateTime,
         details: item.details,
         actor: item.actor,
-      }));
-  }, [category, from, logs, search, severity, status, to]);
+        actorRole: item.actorRole || "system",
+    }));
+  }, [logs, status]);
 
   const visibleRecords = useMemo(() => [
     ...reports.map((item) => ({
       id: item.id,
-      kind: "Report",
+      kind: [item.reportType, item.report_type, item.kind].includes("Blotter") ? "Blotter" : "Incident",
       title: `${item.incident_type || "Incident"}${item.location ? ` in ${item.location}` : ""}`,
       location: item.location || "",
       status: item.status || "Pending Review",
@@ -134,8 +128,9 @@ function Admin_ReportManagement() {
       created_at: item.created_at,
       details: item.details || "",
       actor: item.reporter_name || "Admin",
+      actorRole: String(item.actorRole || item.role || item.source || "admin").toLowerCase(),
     })),
-    ...(status === "All" && severity === "All" && !category.trim()
+    ...(status === "All"
       ? announcements.map((item) => ({
           id: `announcement-${item.id}`,
           kind: "Announcement",
@@ -146,10 +141,32 @@ function Admin_ReportManagement() {
           created_at: item.created_at,
           details: item.details || "",
           actor: "Admin",
+          actorRole: String(item.actorRole || item.role || "admin").toLowerCase(),
         }))
       : []),
     ...activityRecords,
-  ].sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime()), [activityRecords, announcements, category, reports, severity, status]);
+  ].sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime()), [activityRecords, announcements, reports, status]);
+
+  const filteredRecords = useMemo(() => {
+    const start = from ? new Date(`${from}T00:00:00`) : null;
+    const end = to ? new Date(`${to}T23:59:59.999`) : null;
+
+    return visibleRecords.filter((record) => {
+      const recordDate = new Date(record.created_at);
+      const role = String(record.actorRole || "").toLowerCase();
+      const matchesPostBy =
+        postBy === "All" ||
+        (postBy === "Admin" && role === "admin") ||
+        (postBy === "Super Admin" && role === "super_admin");
+      const matchesType = reportType === "All" || record.kind === reportType;
+      const matchesStatus = status === "All" || record.status === status;
+      const matchesDate =
+        (!start || (Number.isFinite(recordDate.getTime()) && recordDate >= start)) &&
+        (!end || (Number.isFinite(recordDate.getTime()) && recordDate <= end));
+
+      return matchesPostBy && matchesType && matchesStatus && matchesDate;
+    });
+  }, [from, postBy, reportType, status, to, visibleRecords]);
 
   const handleAddAnnouncement = async (announcement) => {
     try {
@@ -174,7 +191,7 @@ function Admin_ReportManagement() {
 
   const exportCsv = async () => {
     const columns = ["Record type", "Title", "Location", "Status / action", "Severity", "Date", "Actor", "Details"];
-    const rows = visibleRecords.map((record) => [
+    const rows = filteredRecords.map((record) => [
       record.kind,
       record.title,
       record.location,
@@ -205,21 +222,21 @@ function Admin_ReportManagement() {
   const recordMetrics = [
     {
       title: "Reports",
-      value: visibleRecords.filter((record) => record.kind === "Report").length,
+      value: filteredRecords.filter((record) => ["Incident", "Blotter"].includes(record.kind)).length,
       icon: "document-text-outline",
       color: "#294880",
       background: "#EAF2FF",
     },
     {
       title: "Announcements",
-      value: visibleRecords.filter((record) => record.kind === "Announcement").length,
+      value: filteredRecords.filter((record) => record.kind === "Announcement").length,
       icon: "megaphone-outline",
       color: "#25845C",
       background: "#EAF8F1",
     },
     {
       title: "Admin Activities",
-      value: visibleRecords.filter((record) => record.kind === "Activity").length,
+      value: filteredRecords.filter((record) => record.kind === "Activity").length,
       icon: "list-outline",
       color: "#B96A18",
       background: "#FFF4E5",
@@ -257,7 +274,7 @@ function Admin_ReportManagement() {
                 <View style={styles.filterTitleText}>
                   <Text style={styles.filterMainTitle}>Filter Admin Records</Text>
                   <Text style={styles.filterMainSubtitle}>
-                    Search, filter, and export database records
+                    Filter and export database records
                   </Text>
                 </View>
               </View>
@@ -282,60 +299,60 @@ function Admin_ReportManagement() {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.criteriaRow}>
-              <TextInput style={[styles.criteriaInput, styles.searchInput]} value={search} onChangeText={setSearch} placeholder="Search records" placeholderTextColor="#7A8BA8" />
-              <TextInput style={styles.criteriaInput} value={category} onChangeText={setCategory} placeholder="Category" placeholderTextColor="#7A8BA8" />
-              <TextInput style={styles.criteriaInput} value={from} onChangeText={setFrom} placeholder="From YYYY-MM-DD" placeholderTextColor="#7A8BA8" />
-              <TextInput style={styles.criteriaInput} value={to} onChangeText={setTo} placeholder="To YYYY-MM-DD" placeholderTextColor="#7A8BA8" />
-            </View>
-
-            <View style={styles.filterBody}>
-              {[
-                { label: "Status", values: FILTER_STATUSES, selected: status, onSelect: setStatus, icon: "funnel-outline" },
-                { label: "Severity", values: FILTER_SEVERITIES, selected: severity, onSelect: setSeverity, icon: "warning-outline" },
-              ].map((filter) => (
-                <View key={filter.label} style={styles.filterColumn}>
-                  <View style={styles.filterHeaderRow}>
-                    <View style={styles.filterTitleBox}>
-                      <Ionicons name={filter.icon} size={17} color="#294880" />
-                      <Text style={styles.filterTitle}>{filter.label}</Text>
-                    </View>
-                    <Text style={styles.filterSelectedText}>{filter.selected}</Text>
-                  </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pills}>
-                    {filter.values.map((item) => (
-                      <TouchableOpacity
-                        key={item}
-                        style={[styles.filterPill, filter.selected === item && styles.activeFilterPill]}
-                        onPress={() => filter.onSelect(item)}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={[styles.filterPillText, filter.selected === item && styles.activeFilterPillText]}>{item}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              ))}
-            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.batchFilterRow}
+            >
+              <BatchFilterDropdown
+                label="Post by"
+                value={postBy}
+                options={POST_BY_OPTIONS}
+                onChange={setPostBy}
+                width={180}
+              />
+              <BatchFilterDropdown
+                label="Type of Report"
+                value={reportType}
+                options={REPORT_TYPES}
+                onChange={setReportType}
+                width={200}
+              />
+              <BatchFilterDropdown
+                label="Status"
+                value={status}
+                options={FILTER_STATUSES}
+                onChange={setStatus}
+                width={210}
+                chips
+              />
+              <BatchDateRangeDropdown
+                from={from}
+                to={to}
+                onChangeFrom={setFrom}
+                onChangeTo={setTo}
+                width={250}
+              />
+            </ScrollView>
           </View>
 
           <View style={styles.recordsCard}>
             <View style={styles.listHeader}>
               <Text style={styles.listTitle}>Admin-Created Records</Text>
-              <Text style={styles.count}>{visibleRecords.length} records</Text>
+              <Text style={styles.count}>{filteredRecords.length} records</Text>
             </View>
             {loading ? (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyText}>Loading records...</Text>
               </View>
-            ) : visibleRecords.length === 0 ? (
+            ) : filteredRecords.length === 0 ? (
               <View style={styles.emptyState}>
                 <Ionicons name="document-text-outline" size={40} color="#5D6F92" />
                 <Text style={styles.emptyTitle}>No records found</Text>
                 <Text style={styles.emptyText}>Try changing the selected filters.</Text>
               </View>
-            ) : visibleRecords.map((record, index) => {
-              const icon = record.kind === "Report"
+            ) : filteredRecords.map((record, index) => {
+              const icon = ["Incident", "Blotter"].includes(record.kind)
                 ? "document-text-outline"
                 : record.kind === "Announcement"
                   ? "megaphone-outline"
@@ -407,7 +424,7 @@ const styles = StyleSheet.create({
   secondaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 12, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D9E2F0", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
   buttonText: { fontSize: 13, fontFamily: "PoppinsSemiBold", color: "#FFFFFF" },
   secondaryButtonText: { fontSize: 13, fontFamily: "PoppinsSemiBold", color: "#294880" },
-  criteriaRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 },
+  batchFilterRow: { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingBottom: 2 },
   criteriaInput: { flexGrow: 1, minWidth: 145, height: 42, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 8, backgroundColor: "#FFFFFF", paddingHorizontal: 12, color: "#2F4267", fontFamily: "PoppinsRegular", fontSize: 13 },
   searchInput: { flexGrow: 2, minWidth: 220 },
   filterBody: { flexDirection: "row", flexWrap: "wrap", gap: 18 },

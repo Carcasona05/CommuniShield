@@ -772,20 +772,22 @@ export const reportService = {
     if (error) return { data: null, error: error.message };
 
     let filteredData = data || [];
+    const actorIds = [
+      ...new Set(filteredData.map((log) => log.actor_id).filter(Boolean)),
+    ];
+    const { data: profiles, error: profileError } = actorIds.length
+      ? await supabaseAdmin
+          .from("profiles")
+          .select("id, role")
+          .in("id", actorIds)
+      : { data: [], error: null };
+    if (profileError) return { data: null, error: profileError.message };
+
+    const rolesByActor = new Map(
+      (profiles || []).map((profile) => [profile.id, profile.role])
+    );
+
     if (actorRole === "admin" || actorRole === "super_admin") {
-      const actorIds = [
-        ...new Set(filteredData.map((log) => log.actor_id).filter(Boolean)),
-      ];
-      const { data: profiles, error: profileError } = actorIds.length
-        ? await supabaseAdmin
-            .from("profiles")
-            .select("id, role")
-            .in("id", actorIds)
-        : { data: [], error: null };
-      if (profileError) return { data: null, error: profileError.message };
-      const rolesByActor = new Map(
-        (profiles || []).map((profile) => [profile.id, profile.role])
-      );
       filteredData = filteredData.filter(
         (log) => rolesByActor.get(log.actor_id) === actorRole
       );
@@ -796,6 +798,7 @@ export const reportService = {
       actionType: l.action_type,
       title: l.title ?? "",
       actor: l.actor_name ?? "System",
+      actorRole: rolesByActor.get(l.actor_id) ?? "system",
       reportId: l.report_id ?? "",
       details: l.details ?? "",
       oldStatus: l.old_value ?? "",

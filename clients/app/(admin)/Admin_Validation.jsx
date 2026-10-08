@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   View,
   Text,
-  TextInput,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -16,7 +15,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import { ListSkeleton } from "../../components/PageSkeletons";
 import Admin_ViewSimilarReportsModal from "../../components/Admin_compo/Admin_ViewSimilarReportsModal";
-import Dropdown from "../../components/Dropdown";
+import {
+  BatchDateRangeDropdown,
+  BatchFilterDropdown,
+} from "../../components/Admin_compo/AdminBatchFilters";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
@@ -79,6 +81,14 @@ const mapValidationReports = (list) =>
   }));
 
 const PAGE_SIZE = 10;
+const INCIDENT_TYPES_BY_CATEGORY = {
+  "Public Safety Incidents": ["Public Disturbance", "Harassment", "Loitering / Suspicious Presence", "Trespassing"],
+  "Property-Related Incidents": ["Theft", "Lost Property", "Vandalism / Property Damage", "Shoplifting"],
+  "Traffic and Road Incidents": ["Vehicular Accident", "Reckless Driving", "Illegal Parking", "Road Obstruction"],
+  "Community and Environmental Concerns": ["Fire Incident", "Flooding", "Blocked Drainage", "Garbage / Sanitation Issues", "Streetlight Outage"],
+  "Suspicious Activities": ["Suspicious Person", "Suspicious Vehicle", "Unattended / Abandoned Object", "Unusual Behavior", "Loitering / Suspicious Presence"],
+  "Public Assistance / Community Reports": ["Missing Pet", "Lost Item", "Request for Assistance", "General Safety Concern"],
+};
 const BARANGAY_FILTER_OPTIONS = [
   { value: "All", label: "All Barangays" },
   ...ARGAO_BARANGAYS.map((barangay) => ({
@@ -117,11 +127,9 @@ function Admin_Validation() {
   const viewStatus = VALIDATION_VIEW_STATUSES[viewParam];
   const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
   const [selectedStatus, setSelectedStatus] = useState(viewStatus || "All");
-  const [selectedWeekRange, setSelectedWeekRange] = useState("All Weeks");
-  const [searchText, setSearchText] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedIncidentType, setSelectedIncidentType] = useState("All");
   const [selectedBarangay, setSelectedBarangay] = useState("All");
-  const [selectedSeverity, setSelectedSeverity] = useState("All");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [selectedCompiledGroup, setSelectedCompiledGroup] = useState(null);
@@ -135,11 +143,8 @@ function Admin_Validation() {
   const scrollRef = useRef(null);
   const loadedFiltersRef = useRef({
     status: selectedStatus,
-    week: selectedWeekRange,
-    search: "",
-    category: "",
+    category: selectedCategory,
     barangay: "All",
-    severity: "All",
     from: "",
     to: "",
   });
@@ -167,31 +172,11 @@ function Admin_Validation() {
       const applyList = (list) => setReports(mapValidationReports(list));
       const params = {};
       if (selectedStatus !== "All") params.status = selectedStatus;
-      if (searchText.trim()) params.search = searchText.trim();
-      if (selectedCategory.trim()) params.category = selectedCategory.trim();
+      if (selectedCategory !== "All") params.category = selectedCategory;
       if (selectedBarangay !== "All") params.barangay = selectedBarangay;
-      if (selectedSeverity !== "All") params.severity = selectedSeverity;
 
-      let rangeStart = parseDateBoundary(fromDate);
-      let rangeEnd = parseDateBoundary(toDate, true);
-      if (selectedWeekRange !== "All Weeks") {
-        const today = new Date();
-        const startOfThisWeek = new Date(today);
-        startOfThisWeek.setDate(today.getDate() - today.getDay());
-        startOfThisWeek.setHours(0, 0, 0, 0);
-        if (selectedWeekRange === "Last Week") {
-          startOfThisWeek.setDate(startOfThisWeek.getDate() - 7);
-        }
-        const endOfSelectedWeek = new Date(startOfThisWeek);
-        endOfSelectedWeek.setDate(endOfSelectedWeek.getDate() + 7);
-        endOfSelectedWeek.setMilliseconds(-1);
-        if (!rangeStart || rangeStart < startOfThisWeek) {
-          rangeStart = startOfThisWeek;
-        }
-        if (!rangeEnd || rangeEnd > endOfSelectedWeek) {
-          rangeEnd = endOfSelectedWeek;
-        }
-      }
+      const rangeStart = parseDateBoundary(fromDate);
+      const rangeEnd = parseDateBoundary(toDate, true);
       if (rangeStart) params.from = rangeStart.toISOString();
       if (rangeEnd) params.to = rangeEnd.toISOString();
 
@@ -214,18 +199,15 @@ function Admin_Validation() {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, searchText, selectedBarangay, selectedCategory, selectedSeverity, selectedStatus, selectedWeekRange, toDate]);
+  }, [fromDate, selectedBarangay, selectedCategory, selectedStatus, toDate]);
 
   useAutoRefresh(loadValidation, 60000);
 
   useEffect(() => {
     const currentFilters = {
       status: selectedStatus,
-      week: selectedWeekRange,
-      search: searchText.trim(),
-      category: selectedCategory.trim(),
+      category: selectedCategory,
       barangay: selectedBarangay,
-      severity: selectedSeverity,
       from: fromDate.trim(),
       to: toDate.trim(),
     };
@@ -236,20 +218,21 @@ function Admin_Validation() {
     }
     loadedFiltersRef.current = currentFilters;
     loadValidation();
-  }, [fromDate, loadValidation, searchText, selectedBarangay, selectedCategory, selectedSeverity, selectedStatus, selectedWeekRange, toDate]);
+  }, [fromDate, loadValidation, selectedBarangay, selectedCategory, selectedStatus, toDate]);
 
-  const statusFilters = [
-    "All",
-    "Pending Review",
-    "Under Verification",
-    "Resolved",
-    "Rejected",
-    "Archived",
-    "Marked Fake",
-  ];
+  const statusFilters = ["All", "Pending Review", "Under Verification", "Resolved", "Rejected"];
+  const incidentTypeOptions = selectedCategory === "All"
+    ? [...new Set(Object.values(INCIDENT_TYPES_BY_CATEGORY).flat())]
+    : INCIDENT_TYPES_BY_CATEGORY[selectedCategory] || [];
 
-  const weeklyRanges = ["All Weeks", "This Week", "Last Week"];
-  const severityFilters = ["All", "Critical", "High", "Medium", "Low"];
+  useEffect(() => {
+    if (
+      selectedIncidentType !== "All" &&
+      !incidentTypeOptions.includes(selectedIncidentType)
+    ) {
+      setSelectedIncidentType("All");
+    }
+  }, [incidentTypeOptions, selectedIncidentType]);
 
   const getHighestSeverity = (currentSeverity, newSeverity) => {
     const level = {
@@ -377,49 +360,7 @@ function Admin_Validation() {
     return getGroupedReports(reports);
   }, [reports]);
 
-  const parseSubmittedDate = (submittedAt) => {
-    const datePart = submittedAt.split("•")[0]?.trim();
-    return new Date(datePart);
-  };
-
-  const isWithinWeeklyRange = (submittedAt, selectedRange) => {
-    if (selectedRange === "All Weeks") return true;
-
-    const reportDate = parseSubmittedDate(submittedAt);
-
-    if (Number.isNaN(reportDate.getTime())) return true;
-
-    const today = new Date();
-    const currentDay = today.getDay();
-
-    const startOfThisWeek = new Date(today);
-    startOfThisWeek.setDate(today.getDate() - currentDay);
-    startOfThisWeek.setHours(0, 0, 0, 0);
-
-    const endOfThisWeek = new Date(startOfThisWeek);
-    endOfThisWeek.setDate(startOfThisWeek.getDate() + 6);
-    endOfThisWeek.setHours(23, 59, 59, 999);
-
-    const startOfLastWeek = new Date(startOfThisWeek);
-    startOfLastWeek.setDate(startOfThisWeek.getDate() - 7);
-
-    const endOfLastWeek = new Date(startOfThisWeek);
-    endOfLastWeek.setMilliseconds(-1);
-
-    if (selectedRange === "This Week") {
-      return reportDate >= startOfThisWeek && reportDate <= endOfThisWeek;
-    }
-
-    if (selectedRange === "Last Week") {
-      return reportDate >= startOfLastWeek && reportDate <= endOfLastWeek;
-    }
-
-    return true;
-  };
-
   const filteredReports = useMemo(() => {
-    const query = searchText.trim().toLowerCase();
-    const categoryQuery = selectedCategory.trim().toLowerCase();
     const rangeStart = parseDateBoundary(fromDate);
     const rangeEnd = parseDateBoundary(toDate, true);
 
@@ -437,42 +378,25 @@ function Admin_Validation() {
         selectedStatus === "All" ||
         group.reports.some((report) => report.status === selectedStatus);
 
-      const matchesWeek =
-        selectedWeekRange === "All Weeks" ||
-        group.reports.some((report) =>
-          isWithinWeeklyRange(report.submittedAt, selectedWeekRange)
-        );
-
       const matchesCriteria = group.reports.some((report) => {
         const createdAt = report.createdAt ? new Date(report.createdAt) : null;
         const locationParts = [
           report.barangay,
           ...String(report.location || "").split(","),
         ].map((part) => String(part || "").trim().toLowerCase());
-        const searchable = [
-          report.title,
-          report.type,
-          report.category,
-          report.location,
-          report.barangay,
-          report.details,
-          report.submittedBy,
-          report.status,
-        ].join(" ").toLowerCase();
         return (
-          (!query || searchable.includes(query)) &&
-          (!categoryQuery || report.category.toLowerCase().includes(categoryQuery)) &&
+          (selectedCategory === "All" || report.category === selectedCategory) &&
+          (selectedIncidentType === "All" || report.type === selectedIncidentType) &&
           (selectedBarangay === "All" ||
             locationParts.includes(selectedBarangay.toLowerCase())) &&
-          (selectedSeverity === "All" || report.severity === selectedSeverity) &&
           (!rangeStart || (createdAt && createdAt >= rangeStart)) &&
           (!rangeEnd || (createdAt && createdAt <= rangeEnd))
         );
       });
 
-      return matchesStatus && matchesWeek && matchesCriteria;
+      return matchesStatus && matchesCriteria;
     });
-  }, [fromDate, groupedReports, searchText, selectedBarangay, selectedCategory, selectedSeverity, selectedStatus, selectedWeekRange, toDate, viewParam]);
+  }, [fromDate, groupedReports, selectedBarangay, selectedCategory, selectedIncidentType, selectedStatus, toDate, viewParam]);
 
   const visibleReports = filteredReports.slice(0, visibleCount);
   const exportValidationCsv = async () => {
@@ -535,7 +459,7 @@ function Admin_Validation() {
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [fromDate, searchText, selectedBarangay, selectedCategory, selectedSeverity, selectedStatus, selectedWeekRange, toDate, viewParam]);
+  }, [fromDate, selectedBarangay, selectedCategory, selectedIncidentType, selectedStatus, toDate, viewParam]);
 
   const handleScroll = (e) => {
     const next = e.nativeEvent.contentOffset.y > 300;
@@ -897,7 +821,7 @@ function Admin_Validation() {
                 <View>
                   <Text style={styles.filterMainTitle}>Filter Reports</Text>
                   <Text style={styles.filterMainSubtitle}>
-                    Filter database reports by text, category, status, severity, and date
+                    Filter incidents by location, category, type, status, and date
                   </Text>
                 </View>
               </View>
@@ -920,173 +844,57 @@ function Admin_Validation() {
 
             </View>
 
-            <View style={styles.filterCriteriaRow}>
-              <TextInput
-                style={[styles.criteriaInput, styles.searchCriteriaInput]}
-                value={searchText}
-                onChangeText={setSearchText}
-                placeholder="Search reports"
-                placeholderTextColor="#7A8BA8"
-                autoCapitalize="none"
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.batchFilterRow}
+            >
+              <BatchFilterDropdown
+                label="Location"
+                value={selectedBarangay}
+                options={BARANGAY_FILTER_OPTIONS}
+                onChange={setSelectedBarangay}
+                width={190}
               />
-              <TextInput
-                style={styles.criteriaInput}
+              <BatchFilterDropdown
+                label="Incident Category"
                 value={selectedCategory}
-                onChangeText={setSelectedCategory}
-                placeholder="Category"
-                placeholderTextColor="#7A8BA8"
+                options={["All", ...Object.keys(INCIDENT_TYPES_BY_CATEGORY)].map((category) => ({
+                  value: category,
+                  label: category === "All" ? "All Categories" : category,
+                }))}
+                onChange={(category) => {
+                  setSelectedCategory(category);
+                  setSelectedIncidentType("All");
+                }}
+                width={250}
               />
-              <View style={styles.barangayFilter}>
-                <Dropdown
-                  options={BARANGAY_FILTER_OPTIONS}
-                  selectedValue={selectedBarangay}
-                  placeholder="Argao Barangay"
-                  onChange={setSelectedBarangay}
-                />
-              </View>
-              <TextInput
-                style={styles.criteriaInput}
-                value={fromDate}
-                onChangeText={setFromDate}
-                placeholder="From YYYY-MM-DD"
-                placeholderTextColor="#7A8BA8"
+              <BatchFilterDropdown
+                label="Incident Type"
+                value={selectedIncidentType}
+                options={[
+                  { value: "All", label: "All Incident Types" },
+                  ...incidentTypeOptions.map((type) => ({ value: type, label: type })),
+                ]}
+                onChange={setSelectedIncidentType}
+                width={230}
               />
-              <TextInput
-                style={styles.criteriaInput}
-                value={toDate}
-                onChangeText={setToDate}
-                placeholder="To YYYY-MM-DD"
-                placeholderTextColor="#7A8BA8"
+              <BatchDateRangeDropdown
+                from={fromDate}
+                to={toDate}
+                onChangeFrom={setFromDate}
+                onChangeTo={setToDate}
+                width={250}
               />
-            </View>
-
-            <View style={styles.filterBody}>
-              <View style={styles.filterColumn}>
-                <View style={styles.filterHeaderRow}>
-                  <View style={styles.filterTitleBox}>
-                    <Ionicons name="funnel-outline" size={17} color={COMMUNISHIELD_BLUE} />
-                    <Text style={styles.filterTitle}>Status</Text>
-                  </View>
-
-                  <Text style={styles.filterSelectedText}>{selectedStatus}</Text>
-                </View>
-
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.filterRow}
-                >
-                  {statusFilters.map((status) => {
-                    const isActive = selectedStatus === status;
-
-                    return (
-                      <TouchableOpacity
-                        key={status}
-                        style={[
-                          styles.filterPill,
-                          isActive && styles.activeFilterPill,
-                        ]}
-                        onPress={() => setSelectedStatus(status)}
-                        activeOpacity={0.8}
-                      >
-                        <Text
-                          style={[
-                            styles.filterPillText,
-                            isActive && styles.activeFilterPillText,
-                          ]}
-                        >
-                          {status}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              <View style={styles.filterColumn}>
-                <View style={styles.filterHeaderRow}>
-                  <View style={styles.filterTitleBox}>
-                    <Ionicons
-                      name="calendar-outline"
-                      size={17}
-                      color={COMMUNISHIELD_BLUE}
-                    />
-                    <Text style={styles.filterTitle}>Date Range</Text>
-                  </View>
-
-                  <Text style={styles.filterSelectedText}>
-                    {fromDate || toDate ? "Custom + weekly" : "Any date"}
-                  </Text>
-                </View>
-
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.filterRow}
-                >
-                  {weeklyRanges.map((range) => {
-                    const isActive = selectedWeekRange === range;
-
-                    return (
-                      <TouchableOpacity
-                        key={range}
-                        style={[
-                          styles.datePill,
-                          isActive && styles.activeDatePill,
-                        ]}
-                        onPress={() => setSelectedWeekRange(range)}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons
-                          name={isActive ? "calendar" : "calendar-outline"}
-                          size={15}
-                          color={isActive ? "#FFFFFF" : COMMUNISHIELD_BLUE}
-                        />
-
-                        <Text
-                          style={[
-                            styles.datePillText,
-                            isActive && styles.activeDatePillText,
-                          ]}
-                        >
-                          {range}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-              <View style={styles.filterColumn}>
-                <View style={styles.filterHeaderRow}>
-                  <View style={styles.filterTitleBox}>
-                    <Ionicons name="warning-outline" size={17} color={COMMUNISHIELD_BLUE} />
-                    <Text style={styles.filterTitle}>Severity</Text>
-                  </View>
-                  <Text style={styles.filterSelectedText}>{selectedSeverity}</Text>
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.filterRow}
-                >
-                  {severityFilters.map((severity) => {
-                    const isActive = selectedSeverity === severity;
-                    return (
-                      <TouchableOpacity
-                        key={severity}
-                        style={[styles.filterPill, isActive && styles.activeFilterPill]}
-                        onPress={() => setSelectedSeverity(severity)}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={[styles.filterPillText, isActive && styles.activeFilterPillText]}>
-                          {severity}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            </View>
+              <BatchFilterDropdown
+                label="Status"
+                value={selectedStatus}
+                options={statusFilters}
+                onChange={setSelectedStatus}
+                width={190}
+                chips
+              />
+            </ScrollView>
           </View>
 
           <View style={styles.reportsCard}>
@@ -1426,6 +1234,13 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 10,
     marginBottom: 16,
+  },
+
+  batchFilterRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
+    paddingBottom: 2,
   },
 
   criteriaInput: {
