@@ -376,11 +376,11 @@ function Admin_ReportManagement() {
                 <Text style={styles.buttonText}>Add Incident</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.secondaryButton} onPress={() => setAddAnnouncementVisible(true)} activeOpacity={0.85}>
-                <Ionicons name="megaphone-outline" size={18} color="#294880" />
+                <Ionicons name="megaphone-outline" size={18} color="#FFFFFF" />
                 <Text style={styles.secondaryButtonText}>Add Announcement</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.secondaryButton} onPress={() => setAddBlotterVisible(true)} activeOpacity={0.85}>
-                <Ionicons name="document-text-outline" size={18} color="#294880" />
+                <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
                 <Text style={styles.secondaryButtonText}>Add Blotter Report</Text>
               </TouchableOpacity>
             </View>
@@ -395,21 +395,18 @@ function Admin_ReportManagement() {
                 value={postBy}
                 options={POST_BY_OPTIONS}
                 onChange={setPostBy}
-                width={180}
               />
               <BatchFilterDropdown
                 label="Type of Report"
                 value={reportType}
                 options={REPORT_TYPES}
                 onChange={setReportType}
-                width={200}
               />
               <BatchFilterDropdown
                 label="Status"
                 value={status}
                 options={FILTER_STATUSES}
                 onChange={setStatus}
-                width={210}
                 chips
               />
               <BatchDateRangeDropdown
@@ -417,7 +414,6 @@ function Admin_ReportManagement() {
                 to={to}
                 onChangeFrom={setFrom}
                 onChangeTo={setTo}
-                width={250}
               />
             </ScrollView>
           </View>
@@ -577,9 +573,9 @@ const styles = StyleSheet.create({
   exportButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 12, backgroundColor: "#25845C", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 14 },
   primaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 12, backgroundColor: "#294880", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
-  secondaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 12, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D9E2F0", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+  secondaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 12, backgroundColor: "#294880", borderWidth: 1, borderColor: "#294880", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
   buttonText: { fontSize: 13, fontFamily: "PoppinsSemiBold", color: "#FFFFFF" },
-  secondaryButtonText: { fontSize: 13, fontFamily: "PoppinsSemiBold", color: "#294880" },
+  secondaryButtonText: { fontSize: 13, fontFamily: "PoppinsSemiBold", color: "#FFFFFF" },
   previewOverlay: { position: "absolute", inset: 0, backgroundColor: "rgba(15, 30, 55, 0.25)", zIndex: 20 },
   previewModalOuter: { position: "absolute", inset: 0, justifyContent: "center", alignItems: "center", zIndex: 21, padding: 20 },
   previewModal: { width: "100%", maxWidth: 760, maxHeight: "85%", backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#D9E2F0", overflow: "hidden" },
@@ -597,7 +593,7 @@ const styles = StyleSheet.create({
   previewPrimaryButtonText: { color: "#FFFFFF", fontFamily: "PoppinsSemiBold", fontSize: 13 },
   previewSecondaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#EEF2F8", alignItems: "center", justifyContent: "center" },
   previewSecondaryButtonText: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 13 },
-  batchFilterRow: { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingBottom: 2 },
+  batchFilterRow: { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingBottom: 2, width: "100%" },
   criteriaInput: { flexGrow: 1, minWidth: 145, height: 42, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 8, backgroundColor: "#FFFFFF", paddingHorizontal: 12, color: "#2F4267", fontFamily: "PoppinsRegular", fontSize: 13 },
   searchInput: { flexGrow: 2, minWidth: 220 },
   filterBody: { flexDirection: "row", flexWrap: "wrap", gap: 18 },

@@ -854,7 +854,6 @@ function Admin_Validation() {
                 value={selectedBarangay}
                 options={BARANGAY_FILTER_OPTIONS}
                 onChange={setSelectedBarangay}
-                width={190}
               />
               <BatchFilterDropdown
                 label="Incident Category"
@@ -867,7 +866,6 @@ function Admin_Validation() {
                   setSelectedCategory(category);
                   setSelectedIncidentType("All");
                 }}
-                width={250}
               />
               <BatchFilterDropdown
                 label="Incident Type"
@@ -877,21 +875,18 @@ function Admin_Validation() {
                   ...incidentTypeOptions.map((type) => ({ value: type, label: type })),
                 ]}
                 onChange={setSelectedIncidentType}
-                width={230}
               />
               <BatchDateRangeDropdown
                 from={fromDate}
                 to={toDate}
                 onChangeFrom={setFromDate}
                 onChangeTo={setToDate}
-                width={250}
               />
               <BatchFilterDropdown
                 label="Status"
                 value={selectedStatus}
                 options={statusFilters}
                 onChange={setSelectedStatus}
-                width={190}
                 chips
               />
             </ScrollView>
@@ -1241,6 +1236,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     gap: 10,
     paddingBottom: 2,
+    width: "100%",
   },
 
   criteriaInput: {

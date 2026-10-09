@@ -1,9 +1,10 @@
 import React, { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts } from "expo-font";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
+import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
@@ -19,6 +20,26 @@ const EMPTY_FORECAST = {
   priorCount: 0,
 };
 
+const ARGAO_BARANGAYS = [
+  "All Barangays",
+  "Binlod",
+  "Bulasa",
+  "Canbanua",
+  "Carungay",
+  "Casay",
+  "Catang",
+  "Cansuje",
+  "Guiwanon",
+  "Jijon",
+  "Lamacan",
+  "Langtad",
+  "Mantalungon",
+  "Poblacion",
+  "Taboot",
+  "Talaga",
+  "Ubaub",
+];
+
 export default function Admin_Risk_Prediction() {
   const [forecastSummary, setForecastSummary] = useState(() => ({
     ...EMPTY_FORECAST,
@@ -27,9 +48,17 @@ export default function Admin_Risk_Prediction() {
   const [forecast, setForecast] = useState(() =>
     getCache("api:/admin/analytics")?.forecast || []
   );
+  const [reports, setReports] = useState(() =>
+    getCache("api:/admin/dashboard")?.reports || []
+  );
   const [loading, setLoading] = useState(
     () => getCache("api:/admin/analytics") === undefined
   );
+  
+  const [selectedBarangay, setSelectedBarangay] = useState("All Barangays");
+  const [selectedMarkerReport, setSelectedMarkerReport] = useState(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
     PoppinsMedium: require("../../assets/fonts/Poppins-Medium.ttf"),
@@ -40,15 +69,24 @@ export default function Admin_Risk_Prediction() {
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
-      const response = await apiClient.get("/admin/analytics", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = response.data ?? {};
-      setCache("api:/admin/analytics", data);
-      setForecastSummary({ ...EMPTY_FORECAST, ...(data.forecastSummary || {}) });
-      setForecast(Array.isArray(data.forecast) ? data.forecast : []);
+      const headers = { Authorization: `Bearer ${token}` };
+      const [analyticsResult, dashboardResult] = await Promise.allSettled([
+        apiClient.get("/admin/analytics", { headers }),
+        apiClient.get("/admin/dashboard", { headers }),
+      ]);
+      if (analyticsResult.status === "fulfilled") {
+        const data = analyticsResult.value.data ?? {};
+        setCache("api:/admin/analytics", data);
+        setForecastSummary({ ...EMPTY_FORECAST, ...(data.forecastSummary || {}) });
+        setForecast(Array.isArray(data.forecast) ? data.forecast : []);
+      }
+      if (dashboardResult.status === "fulfilled") {
+        const dashboardData = dashboardResult.value.data ?? {};
+        setCache("api:/admin/dashboard", dashboardData);
+        setReports(Array.isArray(dashboardData.reports) ? dashboardData.reports : []);
+      }
     } catch {
-      // Keep the most recent prediction available when refresh fails.
+      // Keep recent predictions on error
     } finally {
       setLoading(false);
     }
@@ -66,14 +104,46 @@ export default function Admin_Risk_Prediction() {
     maxLikelihood >= 80 ? "Elevated" : maxLikelihood >= 60 ? "Moderate" : "Low";
   const weeklyChange =
     Number(forecastSummary.recentCount) - Number(forecastSummary.priorCount);
+  
+  const zones = Array.isArray(forecastSummary.zones) ? forecastSummary.zones : [];
+  const crimeTypes = Array.isArray(forecastSummary.crimeTypes) ? forecastSummary.crimeTypes : [];
+  
+  const normalizedZones = new Set(
+    zones.map((zone) => String(zone.location || "").trim().toLowerCase())
+  );
+
+  const forecastMapReports = reports.filter((report) => {
+    const location = String(report.location || "").trim().toLowerCase();
+    const matchesZone = normalizedZones.has(location);
+    const matchesBarangay =
+      selectedBarangay === "All Barangays" ||
+      location.includes(selectedBarangay.toLowerCase());
+    
+    return (
+      matchesZone &&
+      matchesBarangay &&
+      report.latitude != null &&
+      report.longitude != null &&
+      Number.isFinite(Number(report.latitude)) &&
+      Number.isFinite(Number(report.longitude)) &&
+      ["Pending Review", "Under Verification"].includes(report.status)
+    );
+  });
+
+  const handleMarkerSelect = (report) => {
+    setSelectedMarkerReport(report);
+  };
+
+  const activeCrimeType = selectedMarkerReport?.crime_type || crimeTypes[0]?.label || "Suspicious Person";
+  const activeLocation = selectedMarkerReport?.location || zones[0]?.location || "Argao Area";
+  const activeTimeWindow = forecastSummary.timeWindow || "8:00 AM – 12:00 PM";
+
+  const possibleScenario = `${activeCrimeType} may remain a concern around ${activeLocation} during ${activeTimeWindow}, based on recent high-severity reports. This is a planning estimate, not a confirmed incident.`;
 
   return (
     <Admin_Layout>
       <ScrollView contentContainerStyle={styles.page}>
-        <View style={styles.heading}>
-          <Text style={styles.title}>Risk Prediction</Text>
-          <Text style={styles.subtitle}>Forecast from recent report patterns and active incident severity</Text>
-        </View>
+        
 
         <View style={styles.overview}>
           <View style={styles.likelihood}>
@@ -94,58 +164,153 @@ export default function Admin_Risk_Prediction() {
           </View>
         </View>
 
-        <View style={styles.columns}>
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="location-outline" size={18} color="#294880" />
-              <Text style={styles.sectionTitle}>Predicted High-Risk Zones</Text>
+        {/* 60% (Map) / 40% (Overview) Split Layout Section */}
+        <View style={styles.splitMainRow}>
+          
+          {/* Left Column: Map Box (60%) */}
+          <View style={styles.leftBox60}>
+            <View style={styles.boxHeader}>
+              <Ionicons name="map-outline" size={18} color="#294880" />
+              <Text style={styles.boxHeaderTitle}>Possible Crime Forecast Map</Text>
             </View>
-            {forecastSummary.zones.length ? forecastSummary.zones.map((zone, index) => (
-              <View key={`${zone.location}-${index}`} style={styles.listRow}>
-                <View style={styles.zoneMarker}><Text style={styles.zoneMarkerText}>{index + 1}</Text></View>
-                <Text style={styles.listPrimary}>{zone.location || "Unspecified location"}</Text>
-                <Text style={styles.listValue}>{zone.count} reports</Text>
+
+            <View style={styles.filterSection}>
+              <Text style={styles.filterLabel}>Filter by Barangay (Argao):</Text>
+              <TouchableOpacity 
+                style={styles.dropdownBox} 
+                onPress={() => setShowDropdown(!showDropdown)}
+              >
+                <Text style={styles.dropdownText}>{selectedBarangay}</Text>
+                <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={16} color="#63728A" />
+              </TouchableOpacity>
+
+              {showDropdown && (
+                <View style={styles.dropdownListContainer}>
+                  <ScrollView style={{ maxHeight: 160 }} nestedScrollEnabled>
+                    {ARGAO_BARANGAYS.map((brgy) => (
+                      <TouchableOpacity
+                        key={brgy}
+                        style={[styles.dropdownItem, selectedBarangay === brgy && styles.dropdownItemActive]}
+                        onPress={() => {
+                          setSelectedBarangay(brgy);
+                          setShowDropdown(false);
+                        }}
+                      >
+                        <Text style={[styles.dropdownItemText, selectedBarangay === brgy && styles.dropdownItemTextActive]}>
+                          {brgy}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+
+            <Text style={styles.mapNote}>
+              Click any marker on the map to inspect specific report details.
+            </Text>
+
+            {forecastMapReports.length ? (
+              <View style={styles.mapFrame}>
+                <AdminHeatMap reports={forecastMapReports} onMarkerPress={handleMarkerSelect} />
               </View>
-            )) : <Text style={styles.emptyText}>{loading ? "Loading zone estimates..." : "Insufficient incident data for a zone estimate."}</Text>}
-            {!!forecastSummary.timeWindow && (
-              <View style={styles.window}>
-                <Text style={styles.windowLabel}>Estimated time window</Text>
-                <Text style={styles.windowValue}>{forecastSummary.timeWindow}</Text>
-              </View>
+            ) : (
+              <Text style={styles.emptyText}>
+                {loading ? "Loading mapped reports..." : "No active reports match this Barangay filter."}
+              </Text>
             )}
           </View>
 
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="alert-circle-outline" size={18} color="#B96A18" />
-              <Text style={styles.sectionTitle}>Predicted Incident Types</Text>
+          {/* Right Column: Details, Recommendations, and Results Box (40%) */}
+          <View style={styles.rightBox40}>
+            <View style={styles.boxHeader}>
+              <Ionicons name="analytics-outline" size={18} color="#223149" />
+              <Text style={styles.boxHeaderTitle}>Intelligence & Action Overview</Text>
             </View>
-            {forecastSummary.crimeTypes.length ? forecastSummary.crimeTypes.map((item, index) => (
-              <View key={`${item.label}-${index}`} style={styles.listRow}>
-                <View style={[styles.typeDot, { backgroundColor: item.color || "#B96A18" }]} />
-                <Text style={styles.listPrimary}>{item.label}</Text>
-                <Text style={styles.listValue}>{item.value}</Text>
+
+            {/* SECTION 1: Detail of Report Selected in Map */}
+            <View style={styles.contentSection}>
+              <View style={styles.subHeader}>
+                <Ionicons name="alert-circle-outline" size={16} color="#B96A18" />
+                <Text style={styles.sectionSubTitle}>
+                  {selectedMarkerReport ? `Selected Report Details (${selectedMarkerReport.id || "Marker"})` : "Why it was High Risk (Select a marker)"}
+                </Text>
               </View>
-            )) : <Text style={styles.emptyText}>No high-severity reports to base an incident-type estimate on yet.</Text>}
-            <View style={styles.window}>
-              <Text style={styles.windowLabel}>Recent reports vs. prior week</Text>
-              <Text style={styles.windowValue}>{forecastSummary.recentCount} vs. {forecastSummary.priorCount}</Text>
+              {selectedMarkerReport ? (
+                <View style={styles.selectedReportBox}>
+                  <Text style={styles.listPrimary}>Type: {selectedMarkerReport.crime_type}</Text>
+                  <Text style={styles.listValue}>Location: {selectedMarkerReport.location}</Text>
+                  <Text style={styles.listValue}>Status: {selectedMarkerReport.status}</Text>
+                  <TouchableOpacity onPress={() => setSelectedMarkerReport(null)} style={styles.clearSelectionBtn}>
+                    <Text style={styles.clearSelectionText}>Reset selection</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                crimeTypes.length ? (
+                  crimeTypes.map((item, index) => (
+                    <View key={`${item.label}-${index}`} style={styles.miniListRow}>
+                      <View style={[styles.typeDot, { backgroundColor: item.color || "#B96A18" }]} />
+                      <Text style={styles.listPrimary}>{item.label}</Text>
+                      <Text style={styles.listValue}>{item.value}</Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.emptyText}>No high-severity reports available.</Text>
+                )
+              )}
             </View>
+
+            {/* SECTION 2: Recommendation / Actions Needed */}
+            <View style={styles.contentSection}>
+              <View style={styles.subHeader}>
+                <Ionicons name="shield-checkmark-outline" size={16} color="#25845C" />
+                <Text style={styles.sectionSubTitle}>Recommended Action to Take</Text>
+              </View>
+              {forecastSummary.recommendedActions.length ? (
+                forecastSummary.recommendedActions.map((action, index) => (
+                  <View key={`${action}-${index}`} style={styles.miniListRow}>
+                    <Ionicons name="checkmark-circle-outline" size={14} color="#25845C" />
+                    <Text style={styles.actionText}>{action}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyText}>Recommendations will appear when data is sufficient.</Text>
+              )}
+            </View>
+
+            {/* SECTION 3: Result */}
+            <View style={styles.contentSectionLast}>
+              <View style={styles.subHeader}>
+                <Ionicons name="eye-outline" size={16} color="#294880" />
+                <Text style={styles.sectionSubTitle}>Possible Result for the Action</Text>
+              </View>
+              <Text style={styles.scenarioText}>{possibleScenario}</Text>
+            </View>
+
           </View>
         </View>
 
-        <View style={styles.actions}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="shield-checkmark-outline" size={18} color="#25845C" />
-            <Text style={styles.sectionTitle}>Recommended Actions</Text>
+        {/* Below the Map: Predicted High Risk Zone */}
+        <View style={styles.bottomSection}>
+          <View style={styles.boxHeader}>
+            <Ionicons name="location-outline" size={18} color="#294880" />
+            <Text style={styles.boxHeaderTitle}>List of Predicted High Risk Zones</Text>
           </View>
-          {forecastSummary.recommendedActions.length ? forecastSummary.recommendedActions.map((action, index) => (
-            <View key={`${action}-${index}`} style={styles.actionRow}>
-              <Ionicons name="checkmark-circle-outline" size={18} color="#25845C" />
-              <Text style={styles.actionText}>{action}</Text>
-            </View>
-          )) : <Text style={styles.emptyText}>Recommendations will appear when there is enough incident data.</Text>}
+          {zones.length ? (
+            zones.map((zone, index) => (
+              <View key={`${zone.location}-${index}`} style={styles.listRow}>
+                <View style={styles.zoneMarker}>
+                  <Text style={styles.zoneMarkerText}>{index + 1}</Text>
+                </View>
+                <Text style={styles.listPrimary}>{zone.location || "Unspecified location"}</Text>
+                <Text style={styles.listValue}>{zone.count} reports</Text>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.emptyText}>{loading ? "Loading zone estimates..." : "Insufficient incident data."}</Text>
+          )}
         </View>
+
       </ScrollView>
     </Admin_Layout>
   );
@@ -177,21 +342,45 @@ const styles = StyleSheet.create({
   metric: { flex: 1, justifyContent: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 18, borderRightWidth: 1, borderRightColor: "#E8EDF3" },
   metricValue: { color: "#25354C", fontFamily: "PoppinsSemiBold", fontSize: 19 },
   metricLabel: { color: "#6B788C", fontFamily: "PoppinsRegular", fontSize: 10 },
-  columns: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 14 },
-  section: { flex: 1, minWidth: 280, paddingHorizontal: 16, borderWidth: 1, borderColor: "#DCE3ED", borderRadius: 6, backgroundColor: "#FFFFFF" },
-  sectionHeader: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 9, borderBottomWidth: 1, borderBottomColor: "#E8EDF3" },
-  sectionTitle: { color: "#223149", fontFamily: "PoppinsSemiBold", fontSize: 14 },
-  listRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: "#EDF0F4" },
-  zoneMarker: { width: 25, height: 25, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#FFF0ED" },
+
+  splitMainRow: { flexDirection: "row", flexWrap: "wrap", gap: 14, alignItems: "stretch" },
+  leftBox60: { flex: 6, minWidth: 340, padding: 16, borderWidth: 1, borderColor: "#DCE3ED", borderRadius: 8, backgroundColor: "#FFFFFF", gap: 12 },
+  rightBox40: { flex: 4, minWidth: 280, padding: 16, borderWidth: 1, borderColor: "#DCE3ED", borderRadius: 8, backgroundColor: "#FFFFFF", gap: 12 },
+
+  boxHeader: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderBottomColor: "#E8EDF3", paddingBottom: 8 },
+  boxHeaderTitle: { color: "#223149", fontFamily: "PoppinsSemiBold", fontSize: 14 },
+
+  filterSection: { gap: 6, position: "relative", zIndex: 10 },
+  filterLabel: { color: "#3B4A5F", fontFamily: "PoppinsMedium", fontSize: 12 },
+  dropdownBox: { height: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, borderWidth: 1, borderColor: "#E8EDF3", borderRadius: 4, backgroundColor: "#FAFBFC" },
+  dropdownText: { color: "#607087", fontFamily: "PoppinsRegular", fontSize: 12 },
+  dropdownListContainer: { position: "absolute", top: 65, left: 0, right: 0, borderWidth: 1, borderColor: "#DCE3ED", borderRadius: 6, backgroundColor: "#FFFFFF", elevation: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, zIndex: 99 },
+  dropdownItem: { paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: "#F0F3F7" },
+  dropdownItemActive: { backgroundColor: "#FFF0ED" },
+  dropdownItemText: { color: "#3B4A5F", fontFamily: "PoppinsRegular", fontSize: 12 },
+  dropdownItemTextActive: { color: "#B33A36", fontFamily: "PoppinsSemiBold" },
+
+  mapNote: { color: "#718096", fontFamily: "PoppinsRegular", fontSize: 11 },
+  mapFrame: { height: 450, overflow: "hidden", borderRadius: 6, marginTop: -2 },
+
+  contentSection: { paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: "#EDF0F4", gap: 6 },
+  contentSectionLast: { paddingBottom: 4, gap: 6 },
+  sectionSubTitle: { color: "#223149", fontFamily: "PoppinsSemiBold", fontSize: 12 },
+
+  subHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  selectedReportBox: { gap: 4, paddingVertical: 4 },
+  clearSelectionBtn: { marginTop: 4 },
+  clearSelectionText: { color: "#B33A36", fontFamily: "PoppinsMedium", fontSize: 11, textDecorationLine: "underline" },
+
+  bottomSection: { padding: 16, borderWidth: 1, borderColor: "#DCE3ED", borderRadius: 8, backgroundColor: "#FFFFFF", gap: 8 },
+  listRow: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: "#EDF0F4" },
+  miniListRow: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 8 },
+  zoneMarker: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#FFF0ED" },
   zoneMarkerText: { color: "#A7433B", fontFamily: "PoppinsSemiBold", fontSize: 11 },
-  typeDot: { width: 9, height: 9, borderRadius: 5 },
+  typeDot: { width: 8, height: 8, borderRadius: 4 },
   listPrimary: { flex: 1, color: "#3B4A5F", fontFamily: "PoppinsMedium", fontSize: 12 },
   listValue: { color: "#607087", fontFamily: "PoppinsMedium", fontSize: 11 },
-  window: { paddingVertical: 13, gap: 3 },
-  windowLabel: { color: "#738096", fontFamily: "PoppinsRegular", fontSize: 10 },
-  windowValue: { color: "#25354C", fontFamily: "PoppinsSemiBold", fontSize: 14 },
-  emptyText: { paddingVertical: 18, color: "#718096", fontFamily: "PoppinsRegular", fontSize: 12 },
-  actions: { paddingHorizontal: 16, paddingBottom: 10, borderWidth: 1, borderColor: "#DCE3ED", borderRadius: 6, backgroundColor: "#FFFFFF" },
-  actionRow: { flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#EDF0F4" },
+  scenarioText: { color: "#43536A", fontFamily: "PoppinsRegular", fontSize: 12, lineHeight: 18, paddingTop: 2 },
+  emptyText: { paddingVertical: 8, color: "#718096", fontFamily: "PoppinsRegular", fontSize: 12 },
   actionText: { flex: 1, color: "#43536A", fontFamily: "PoppinsRegular", fontSize: 12 },
 });

@@ -174,13 +174,7 @@ export default function Admin_Ince_Map() {
   return (
     <Admin_Layout>
       <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
-        <View style={styles.heading}>
-          
-          <View style={{ flex: 1 }}>
-            <Text style={styles.headingTitle}>Incident Mapping</Text>
-            <Text style={styles.headingSubtitle}>{filteredReports.length} mapped reports in Argao</Text>
-          </View>
-        </View>
+        
 
         <View style={[styles.filters, isNarrow && styles.filtersNarrow]}>
           <BatchFilterDropdown
@@ -188,28 +182,24 @@ export default function Admin_Ince_Map() {
             value={selectedBarangay}
             options={[{ value: "All", label: "All Barangays" }, ...ARGAO_BARANGAYS.map(({ name }) => ({ value: name, label: name }))]}
             onChange={setSelectedBarangay}
-            width={isNarrow ? "100%" : 220}
           />
           <BatchFilterDropdown
             label="Incident Category"
             value={selectedCategory}
             options={[{ value: "All", label: "All Categories" }, ...INCIDENT_CATEGORIES.map(({ category }) => ({ value: category, label: category }))]}
             onChange={setSelectedCategory}
-            width={isNarrow ? "100%" : 260}
           />
           <BatchFilterDropdown
             label="Incident Type"
             value={selectedIncidentType}
             options={incidentTypeOptions}
             onChange={setSelectedIncidentType}
-            width={isNarrow ? "100%" : 235}
           />
           <BatchDateRangeDropdown
             from={fromDate}
             to={toDate}
             onChangeFrom={setFromDate}
             onChangeTo={setToDate}
-            width={isNarrow ? "100%" : 260}
           />
         </View>
 

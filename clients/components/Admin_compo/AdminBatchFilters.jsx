@@ -33,16 +33,17 @@ export function BatchFilterDropdown({
   value,
   options,
   onChange,
-  width = 190,
+  width,
   chips = false,
 }) {
   const [open, setOpen] = useState(false);
   const normalizedOptions = normalizeOptions(options);
   const selectedLabel =
     normalizedOptions.find((option) => option.value === value)?.label || value;
+  const fieldStyle = width ? [styles.field, { width }] : [styles.field, styles.flexField];
 
   return (
-    <View style={[styles.field, { width }]}>
+    <View style={fieldStyle}>
       <Text style={styles.label} numberOfLines={1}>{label}</Text>
       <TouchableOpacity
         style={styles.trigger}
@@ -122,11 +123,12 @@ export function BatchDateRangeDropdown({
   to,
   onChangeFrom,
   onChangeTo,
-  width = 260,
+  width,
 }) {
   const [open, setOpen] = useState(false);
   const [activePicker, setActivePicker] = useState(null);
   const [pickerValue, setPickerValue] = useState(new Date());
+  const fieldStyle = width ? [styles.field, { width }] : [styles.field, styles.flexField];
 
   const openNativePicker = (field, value) => {
     const parsed = value ? new Date(`${value}T12:00:00`) : new Date();
@@ -144,7 +146,7 @@ export function BatchDateRangeDropdown({
   const rangeLabel = from || to ? `${from || "Any"} - ${to || "Any"}` : "Any date";
 
   return (
-    <View style={[styles.field, { width }]}>
+    <View style={fieldStyle}>
       <Text style={styles.label} numberOfLines={1}>Date</Text>
       <TouchableOpacity
         style={styles.trigger}
@@ -223,6 +225,10 @@ export function BatchDateRangeDropdown({
 const styles = StyleSheet.create({
   field: {
     flexShrink: 0,
+  },
+  flexField: {
+    flex: 1,
+    minWidth: 170,
   },
   label: {
     color: "#5D6F92",
