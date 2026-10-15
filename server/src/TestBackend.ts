@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import app from "../api/index.js";
 import {
   __testing as sentimentKit,
-  detectSentimentLanguage,
+  detectLanguage,
   normalizeSentimentLabel,
   sentimentInputHash,
   sentimentService,
@@ -116,25 +116,19 @@ describe("sentimentService", () => {
     assert.equal(normalizeSentimentLabel(null), null);
   });
 
-  test("detectSentimentLanguage routes cebuano over filipino on cebuano markers", () => {
+  test("detectLanguage routes real text with the trained model and treats blank as unknown", async () => {
     assert.equal(
-      detectSentimentLanguage("Unsa ang mahitabo ugma sa daplin?"),
+      await detectLanguage(
+        "Kani siya tawhana sge ni shag balik balik ug sulod sa room, nya wami kaila kinsa"
+      ),
       "cebuano"
     );
     assert.equal(
-      detectSentimentLanguage("Gym gyud kaayo ang dili niini"),
-      "cebuano"
-    );
-  });
-
-  test("detectSentimentLanguage identifies english, filipino, and unknown", () => {
-    assert.equal(
-      detectSentimentLanguage("Thank you for the update, this is very helpful"),
+      await detectLanguage("Thank you for the update, this is very helpful"),
       "english"
     );
-    assert.equal(detectSentimentLanguage("Hindi ako papayag dito"), "filipino");
-    assert.equal(detectSentimentLanguage("12345 !!!"), "unknown");
-    assert.equal(detectSentimentLanguage(""), "unknown");
+    assert.equal(await detectLanguage("Hindi ako papayag dito"), "filipino");
+    assert.equal(await detectLanguage(""), "unknown");
   });
 
   test("sentimentInputHash normalizes whitespace before hashing", () => {

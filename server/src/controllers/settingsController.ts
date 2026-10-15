@@ -37,8 +37,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   ai_temperature: "0.1",
   ai_timeout: "30000",
   sentiment_local_model_enabled: "true",
-  sentiment_gemini_enabled: "true",
-  sentiment_cebuano_mode: "gemini",
+  sentiment_gemini_enabled: "false",
+  sentiment_cebuano_mode: "local",
 };
 
 const BOOLEAN_KEYS = [
@@ -188,7 +188,7 @@ export const getSettings = async (req: AuthRequest, res: Response) => {
 
     const cebuanoMode = merged.sentiment_cebuano_mode;
     if (!cebuanoMode || !["gemini", "local", "disabled"].includes(cebuanoMode)) {
-      merged.sentiment_cebuano_mode = DEFAULT_SETTINGS.sentiment_cebuano_mode ?? "gemini";
+      merged.sentiment_cebuano_mode = DEFAULT_SETTINGS.sentiment_cebuano_mode ?? "local";
     }
 
     res.json({ settings: merged });

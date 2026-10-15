@@ -1,8 +1,9 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 
 export const CREDIBILITY_POINTS = {
-  report_rejected: -5,
-  report_verified: 10,
+  report_submitted: 5,
+  report_verified: 5,
+  report_rejected: -10,
   report_marked_fake: -30,
 } as const;
 

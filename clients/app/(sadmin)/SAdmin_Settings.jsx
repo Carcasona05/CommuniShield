@@ -285,7 +285,7 @@ function SAdmin_SettingsContent() {
         setApiEndpoint(s.ai_api_endpoint || "");
         setLocalModelEnabled(s.sentiment_local_model_enabled !== "false");
         setGeminiEnabled(s.sentiment_gemini_enabled !== "false");
-        setCebuanoMode(s.sentiment_cebuano_mode || "gemini");
+        setCebuanoMode(s.sentiment_cebuano_mode || "local");
       }
 
       const [profileRes, settingsRes] = await Promise.all([
@@ -335,7 +335,7 @@ function SAdmin_SettingsContent() {
       setApiEndpoint(settings.ai_api_endpoint || "");
       setLocalModelEnabled(settings.sentiment_local_model_enabled !== "false");
       setGeminiEnabled(settings.sentiment_gemini_enabled !== "false");
-      setCebuanoMode(settings.sentiment_cebuano_mode || "gemini");
+      setCebuanoMode(settings.sentiment_cebuano_mode || "local");
     } catch {
       // keep existing defaults on failure
     } finally {
@@ -388,6 +388,13 @@ function SAdmin_SettingsContent() {
     if (confirmData) {
       confirmData.setter(false);
       saveSetting(confirmData.key, false);
+      if (
+        confirmData.key === "sentiment_gemini_enabled" &&
+        cebuanoMode === "gemini"
+      ) {
+        setCebuanoMode("local");
+        saveSetting("sentiment_cebuano_mode", "local");
+      }
       setConfirmData(null);
     }
   };
@@ -1011,7 +1018,7 @@ function SAdmin_SettingsContent() {
                 <SettingRow
                   icon="hardware-chip-outline"
                   title="Local Sentiment Model"
-                  description="Run the built-in English and Filipino sentiment model on-device. Cebuano text never uses this model."
+                  description="Run the on-device sentiment models for reports and comments in all three languages."
                   rightContent={
                     <Switch
                       value={localModelEnabled}
@@ -1032,7 +1039,7 @@ function SAdmin_SettingsContent() {
                 <SettingRow
                   icon="cloud-outline"
                   title="Gemini Sentiment"
-                  description="Use Gemini as a fallback for English and Filipino, and as the provider for Cebuano text."
+                  description="Optional cloud second opinion for sentiment. Off by default; all languages use the local models unless enabled."
                   rightContent={
                     <Switch
                       value={geminiEnabled}
@@ -1057,7 +1064,7 @@ function SAdmin_SettingsContent() {
                     cebuanoMode === "disabled"
                       ? "Cebuano text is marked unavailable instead of analyzed."
                       : cebuanoMode === "local"
-                        ? "Cebuano text uses the local Cebuano model, with Gemini as assist."
+                        ? "Cebuano text uses the local Cebuano model."
                         : "Cebuano text is sent to Gemini only; the local model is never used."
                   }
                   isLast
@@ -1066,8 +1073,11 @@ function SAdmin_SettingsContent() {
                       style={styles.secondaryButton}
                       activeOpacity={0.85}
                       onPress={() => {
-                        const next =
-                          cebuanoMode === "gemini"
+                        const next = !geminiEnabled
+                          ? cebuanoMode === "disabled"
+                            ? "local"
+                            : "disabled"
+                          : cebuanoMode === "gemini"
                             ? "local"
                             : cebuanoMode === "local"
                               ? "disabled"
