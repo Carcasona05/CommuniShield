@@ -5,6 +5,8 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
+  Platform,
+  Share,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
@@ -13,13 +15,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import { ListSkeleton } from "../../components/PageSkeletons";
 import Admin_ViewSimilarReportsModal from "../../components/Admin_compo/Admin_ViewSimilarReportsModal";
-import Admin_AddReportModal from "../../components/Admin_compo/Admin_AddReportModal";
-import Admin_AddAnnouncementModal from "../../components/Admin_compo/Admin_AddAnnouncementModal";
+import {
+  BatchDateRangeDropdown,
+  BatchFilterDropdown,
+} from "../../components/Admin_compo/AdminBatchFilters";
 import apiClient from "../../services/apiClient";
-import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
 import ToastProvider, { useToast } from "../../components/Toast";
+import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
 
 
 const COMMUNISHIELD_BLUE = "#294880";
@@ -68,6 +72,7 @@ const mapValidationReports = (list) =>
     submittedBy: r.reporter_name || r.poster_name || "Anonymous User",
     submittedRole: r.source === "Admin" ? "Admin" : "User",
     submittedAt: formatSubmittedAt(r.created_at),
+    createdAt: r.created_at,
     verifiedBy: r.is_verified ? "System" : "",
     remarks: "",
     is_verified: r.is_verified,
@@ -76,6 +81,34 @@ const mapValidationReports = (list) =>
   }));
 
 const PAGE_SIZE = 10;
+const INCIDENT_TYPES_BY_CATEGORY = {
+  "Public Safety Incidents": ["Public Disturbance", "Harassment", "Loitering / Suspicious Presence", "Trespassing"],
+  "Property-Related Incidents": ["Theft", "Lost Property", "Vandalism / Property Damage", "Shoplifting"],
+  "Traffic and Road Incidents": ["Vehicular Accident", "Reckless Driving", "Illegal Parking", "Road Obstruction"],
+  "Community and Environmental Concerns": ["Fire Incident", "Flooding", "Blocked Drainage", "Garbage / Sanitation Issues", "Streetlight Outage"],
+  "Suspicious Activities": ["Suspicious Person", "Suspicious Vehicle", "Unattended / Abandoned Object", "Unusual Behavior", "Loitering / Suspicious Presence"],
+  "Public Assistance / Community Reports": ["Missing Pet", "Lost Item", "Request for Assistance", "General Safety Concern"],
+};
+const BARANGAY_FILTER_OPTIONS = [
+  { value: "All", label: "All Barangays" },
+  ...ARGAO_BARANGAYS.map((barangay) => ({
+    value: barangay.name,
+    label: barangay.name,
+  })),
+];
+const csvValue = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+const parseDateBoundary = (value, endOfDay = false) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return null;
+  const time = endOfDay ? "23:59:59.999" : "00:00:00.000";
+  const date = new Date(`${value.trim()}T${time}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+const VALIDATION_VIEW_STATUSES = {
+  pending: "Pending Review",
+  verified: "Resolved",
+  rejected: "Rejected",
+  suspicious: "Marked Fake",
+};
 
 export default function Admin_ValidationWrapper() {
   return (
@@ -87,36 +120,44 @@ export default function Admin_ValidationWrapper() {
 
 function Admin_Validation() {
   const toast = useToast();
+  const searchParams = useLocalSearchParams();
+  const viewParam = Array.isArray(searchParams.view)
+    ? searchParams.view[0]
+    : searchParams.view;
+  const viewStatus = VALIDATION_VIEW_STATUSES[viewParam];
   const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
-  const [selectedStatus, setSelectedStatus] = useState("All");
-  const [selectedWeekRange, setSelectedWeekRange] = useState("All Weeks");
+  const [selectedStatus, setSelectedStatus] = useState(viewStatus || "All");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedIncidentType, setSelectedIncidentType] = useState("All");
+  const [selectedBarangay, setSelectedBarangay] = useState("All");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [selectedCompiledGroup, setSelectedCompiledGroup] = useState(null);
   const [viewVisible, setViewVisible] = useState(false);
-  const [addReportVisible, setAddReportVisible] = useState(false);
   const [validating, setValidating] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
 
-  const [addAnnouncementVisible, setAddAnnouncementVisible] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
   const scrollRef = useRef(null);
+  const loadedFiltersRef = useRef({
+    status: selectedStatus,
+    category: selectedCategory,
+    barangay: "All",
+    from: "",
+    to: "",
+  });
+
+  useEffect(() => {
+    setSelectedStatus(viewStatus || "All");
+  }, [viewStatus]);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
     PoppinsMedium: require("../../assets/fonts/Poppins-Medium.ttf"),
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
-
-  const handleAddReport = () => {
-    setAddReportVisible(true);
-};
-
-const handleAddAnnouncement = () => {
-    setAddAnnouncementVisible(true);
-  };
-
-
 
   const [reports, setReports] = useState(() => {
     const cached = getCache("api:/admin/dashboard");
@@ -129,37 +170,69 @@ const handleAddAnnouncement = () => {
       if (!token) return;
 
       const applyList = (list) => setReports(mapValidationReports(list));
+      const params = {};
+      if (selectedStatus !== "All") params.status = selectedStatus;
+      if (selectedCategory !== "All") params.category = selectedCategory;
+      if (selectedBarangay !== "All") params.barangay = selectedBarangay;
+
+      const rangeStart = parseDateBoundary(fromDate);
+      const rangeEnd = parseDateBoundary(toDate, true);
+      if (rangeStart) params.from = rangeStart.toISOString();
+      if (rangeEnd) params.to = rangeEnd.toISOString();
 
       const cached = getCache("api:/admin/dashboard");
-      if (cached && Array.isArray(cached.reports)) {
+      if (Object.keys(params).length === 0 && cached && Array.isArray(cached.reports)) {
         applyList(cached.reports);
       }
 
       const res = await apiClient.get("/admin/dashboard", {
+        params,
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      setCache("api:/admin/dashboard", res.data ?? {});
+      if (Object.keys(params).length === 0) {
+        setCache("api:/admin/dashboard", res.data ?? {});
+      }
       applyList(res.data?.reports || []);
     } catch {
       // keep last loaded data on failure
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fromDate, selectedBarangay, selectedCategory, selectedStatus, toDate]);
 
   useAutoRefresh(loadValidation, 60000);
 
-  const statusFilters = [
-    "All",
-    "Pending Review",
-    "Under Verification",
-    "Resolved",
-    "Rejected",
-    "Archived",
-  ];
+  useEffect(() => {
+    const currentFilters = {
+      status: selectedStatus,
+      category: selectedCategory,
+      barangay: selectedBarangay,
+      from: fromDate.trim(),
+      to: toDate.trim(),
+    };
+    if (Object.keys(currentFilters).every(
+      (key) => loadedFiltersRef.current[key] === currentFilters[key]
+    )) {
+      return;
+    }
+    loadedFiltersRef.current = currentFilters;
+    loadValidation();
+  }, [fromDate, loadValidation, selectedBarangay, selectedCategory, selectedStatus, toDate]);
 
-  const weeklyRanges = ["All Weeks", "This Week", "Last Week"];
+  const statusFilters = ["All", "Pending Review", "Under Verification", "Resolved", "Rejected"];
+  const incidentTypeOptions = selectedCategory === "All"
+    ? [...new Set(Object.values(INCIDENT_TYPES_BY_CATEGORY).flat())]
+    : INCIDENT_TYPES_BY_CATEGORY[selectedCategory] || [];
+
+  useEffect(() => {
+    if (
+      selectedIncidentType !== "All" &&
+      !incidentTypeOptions.includes(selectedIncidentType)
+    ) {
+      setSelectedIncidentType("All");
+    }
+  }, [incidentTypeOptions, selectedIncidentType]);
 
   const getHighestSeverity = (currentSeverity, newSeverity) => {
     const level = {
@@ -287,67 +360,106 @@ const handleAddAnnouncement = () => {
     return getGroupedReports(reports);
   }, [reports]);
 
-  const parseSubmittedDate = (submittedAt) => {
-    const datePart = submittedAt.split("•")[0]?.trim();
-    return new Date(datePart);
-  };
-
-  const isWithinWeeklyRange = (submittedAt, selectedRange) => {
-    if (selectedRange === "All Weeks") return true;
-
-    const reportDate = parseSubmittedDate(submittedAt);
-
-    if (Number.isNaN(reportDate.getTime())) return true;
-
-    const today = new Date();
-    const currentDay = today.getDay();
-
-    const startOfThisWeek = new Date(today);
-    startOfThisWeek.setDate(today.getDate() - currentDay);
-    startOfThisWeek.setHours(0, 0, 0, 0);
-
-    const endOfThisWeek = new Date(startOfThisWeek);
-    endOfThisWeek.setDate(startOfThisWeek.getDate() + 6);
-    endOfThisWeek.setHours(23, 59, 59, 999);
-
-    const startOfLastWeek = new Date(startOfThisWeek);
-    startOfLastWeek.setDate(startOfThisWeek.getDate() - 7);
-
-    const endOfLastWeek = new Date(startOfThisWeek);
-    endOfLastWeek.setMilliseconds(-1);
-
-    if (selectedRange === "This Week") {
-      return reportDate >= startOfThisWeek && reportDate <= endOfThisWeek;
-    }
-
-    if (selectedRange === "Last Week") {
-      return reportDate >= startOfLastWeek && reportDate <= endOfLastWeek;
-    }
-
-    return true;
-  };
-
   const filteredReports = useMemo(() => {
+    const rangeStart = parseDateBoundary(fromDate);
+    const rangeEnd = parseDateBoundary(toDate, true);
+
     return groupedReports.filter((group) => {
+      if (viewParam === "clustered" && group.reportCount < 2) return false;
+      if (
+        viewParam === "credibility" &&
+        !group.reports.some(
+          (report) => report.aiScore > 0 || report.credibilityReview
+        )
+      ) {
+        return false;
+      }
       const matchesStatus =
         selectedStatus === "All" ||
         group.reports.some((report) => report.status === selectedStatus);
 
-      const matchesWeek =
-        selectedWeekRange === "All Weeks" ||
-        group.reports.some((report) =>
-          isWithinWeeklyRange(report.submittedAt, selectedWeekRange)
+      const matchesCriteria = group.reports.some((report) => {
+        const createdAt = report.createdAt ? new Date(report.createdAt) : null;
+        const locationParts = [
+          report.barangay,
+          ...String(report.location || "").split(","),
+        ].map((part) => String(part || "").trim().toLowerCase());
+        return (
+          (selectedCategory === "All" || report.category === selectedCategory) &&
+          (selectedIncidentType === "All" || report.type === selectedIncidentType) &&
+          (selectedBarangay === "All" ||
+            locationParts.includes(selectedBarangay.toLowerCase())) &&
+          (!rangeStart || (createdAt && createdAt >= rangeStart)) &&
+          (!rangeEnd || (createdAt && createdAt <= rangeEnd))
         );
+      });
 
-      return matchesStatus && matchesWeek;
+      return matchesStatus && matchesCriteria;
     });
-  }, [groupedReports, selectedStatus, selectedWeekRange]);
+  }, [fromDate, groupedReports, selectedBarangay, selectedCategory, selectedIncidentType, selectedStatus, toDate, viewParam]);
 
   const visibleReports = filteredReports.slice(0, visibleCount);
+  const exportValidationCsv = async () => {
+    const columns = [
+      "Report ID",
+      "Incident Type",
+      "Category",
+      "Barangay",
+      "Location",
+      "Status",
+      "Severity",
+      "AI Score",
+      "Submitted By",
+      "Submitted At",
+      "Details",
+    ];
+    const rows = filteredReports.flatMap((group) =>
+      group.reports.map((report) => [
+        report.id,
+        report.type,
+        report.category,
+        report.barangay,
+        report.location,
+        report.status,
+        report.severity,
+        report.aiScore,
+        report.submittedBy,
+        report.createdAt || report.submittedAt,
+        report.details,
+      ])
+    );
+    const csv = [columns, ...rows]
+      .map((row) => row.map(csvValue).join(","))
+      .join("\r\n");
+
+    if (Platform.OS === "web") {
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "communishield-validation-reports.csv";
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      return;
+    }
+
+    await Share.share({
+      title: "CommuniShield validation reports CSV",
+      message: csv,
+    });
+  };
+  const validationViewTitle = {
+    clustered: "Clustered Reports",
+    pending: "Pending Reports",
+    verified: "Verified Reports",
+    rejected: "Rejected Reports",
+    suspicious: "Suspicious Reports",
+    credibility: "User Credibility",
+  }[viewParam] || "Reports for Validation";
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [selectedStatus, selectedWeekRange]);
+  }, [fromDate, selectedBarangay, selectedCategory, selectedIncidentType, selectedStatus, toDate, viewParam]);
 
   const handleScroll = (e) => {
     const next = e.nativeEvent.contentOffset.y > 300;
@@ -357,7 +469,6 @@ const handleAddAnnouncement = () => {
     }
   };
 
-  const searchParams = useLocalSearchParams();
   const openReportParam = searchParams?.openReport;
   const openReportNonce = searchParams?.notifNonce;
   const consumedOpenReport = useRef(null);
@@ -626,51 +737,6 @@ const handleAddAnnouncement = () => {
     }
   };
 
-  const handleAnnouncementSubmit = async (announcement) => {
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) {
-        throw new Error("Please sign in before posting an announcement.");
-      }
-
-      let picUrl = null;
-      if (announcement.image?.uri) {
-        try {
-          picUrl = await uploadImage(announcement.image.uri);
-        } catch {
-          // keep null on upload failure
-        }
-      }
-
-      await apiClient.post(
-        "/admin/announcements",
-        {
-          type: announcement.type,
-          title: announcement.title,
-          location: announcement.location,
-          details: announcement.details,
-          pic_url: picUrl,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      setAddAnnouncementVisible(false);
-      toast.success("The announcement has been posted.");
-    } catch (error) {
-      throw new Error(
-        error?.response?.data?.error ||
-          error?.message ||
-          "Could not publish the announcement."
-      );
-    }
-  };
-
-  const handleReportSubmit = () => {
-    setAddReportVisible(false);
-    loadValidation();
-  };
-
-
   const StatCard = ({ icon, title, value, color, bg }) => (
     <View style={styles.statCard}>
       <View style={[styles.statIcon, { backgroundColor: bg }]}>
@@ -755,27 +821,18 @@ const handleAddAnnouncement = () => {
                 <View>
                   <Text style={styles.filterMainTitle}>Filter Reports</Text>
                   <Text style={styles.filterMainSubtitle}>
-                    Filter by status and weekly date range
+                    Filter incidents by location, category, type, status, and date
                   </Text>
                 </View>
               </View>
 
               <TouchableOpacity
-                style={styles.addReportButton}
-                onPress={handleAddReport}
+                style={[styles.addReportButton, styles.exportCsvButton]}
+                onPress={exportValidationCsv}
                 activeOpacity={0.85}
               >
-                <Ionicons name="add-circle-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.addReportButtonText}>Add Report</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.addReportButton}
-                onPress={handleAddAnnouncement}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="add-circle-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.addReportButtonText}>Add Announcement</Text>
+                <Ionicons name="download-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.addReportButtonText}>Export CSV</Text>
               </TouchableOpacity>
 
 
@@ -787,107 +844,58 @@ const handleAddAnnouncement = () => {
 
             </View>
 
-            <View style={styles.filterBody}>
-              <View style={styles.filterColumn}>
-                <View style={styles.filterHeaderRow}>
-                  <View style={styles.filterTitleBox}>
-                    <Ionicons name="funnel-outline" size={17} color={COMMUNISHIELD_BLUE} />
-                    <Text style={styles.filterTitle}>Status</Text>
-                  </View>
-
-                  <Text style={styles.filterSelectedText}>{selectedStatus}</Text>
-                </View>
-
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.filterRow}
-                >
-                  {statusFilters.map((status) => {
-                    const isActive = selectedStatus === status;
-
-                    return (
-                      <TouchableOpacity
-                        key={status}
-                        style={[
-                          styles.filterPill,
-                          isActive && styles.activeFilterPill,
-                        ]}
-                        onPress={() => setSelectedStatus(status)}
-                        activeOpacity={0.8}
-                      >
-                        <Text
-                          style={[
-                            styles.filterPillText,
-                            isActive && styles.activeFilterPillText,
-                          ]}
-                        >
-                          {status}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              <View style={styles.filterColumn}>
-                <View style={styles.filterHeaderRow}>
-                  <View style={styles.filterTitleBox}>
-                    <Ionicons
-                      name="calendar-outline"
-                      size={17}
-                      color={COMMUNISHIELD_BLUE}
-                    />
-                    <Text style={styles.filterTitle}>Date Range</Text>
-                  </View>
-
-                  <Text style={styles.filterSelectedText}>Weekly only</Text>
-                </View>
-
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.filterRow}
-                >
-                  {weeklyRanges.map((range) => {
-                    const isActive = selectedWeekRange === range;
-
-                    return (
-                      <TouchableOpacity
-                        key={range}
-                        style={[
-                          styles.datePill,
-                          isActive && styles.activeDatePill,
-                        ]}
-                        onPress={() => setSelectedWeekRange(range)}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons
-                          name={isActive ? "calendar" : "calendar-outline"}
-                          size={15}
-                          color={isActive ? "#FFFFFF" : COMMUNISHIELD_BLUE}
-                        />
-
-                        <Text
-                          style={[
-                            styles.datePillText,
-                            isActive && styles.activeDatePillText,
-                          ]}
-                        >
-                          {range}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.batchFilterRow}
+            >
+              <BatchFilterDropdown
+                label="Location"
+                value={selectedBarangay}
+                options={BARANGAY_FILTER_OPTIONS}
+                onChange={setSelectedBarangay}
+              />
+              <BatchFilterDropdown
+                label="Incident Category"
+                value={selectedCategory}
+                options={["All", ...Object.keys(INCIDENT_TYPES_BY_CATEGORY)].map((category) => ({
+                  value: category,
+                  label: category === "All" ? "All Categories" : category,
+                }))}
+                onChange={(category) => {
+                  setSelectedCategory(category);
+                  setSelectedIncidentType("All");
+                }}
+              />
+              <BatchFilterDropdown
+                label="Incident Type"
+                value={selectedIncidentType}
+                options={[
+                  { value: "All", label: "All Incident Types" },
+                  ...incidentTypeOptions.map((type) => ({ value: type, label: type })),
+                ]}
+                onChange={setSelectedIncidentType}
+              />
+              <BatchDateRangeDropdown
+                from={fromDate}
+                to={toDate}
+                onChangeFrom={setFromDate}
+                onChangeTo={setToDate}
+              />
+              <BatchFilterDropdown
+                label="Status"
+                value={selectedStatus}
+                options={statusFilters}
+                onChange={setSelectedStatus}
+                chips
+              />
+            </ScrollView>
           </View>
 
           <View style={styles.reportsCard}>
             <View style={styles.listHeader}>
               <View style={styles.listHeaderTextBox}>
-                <Text style={styles.sectionTitle}>Reports for Validation</Text>
+                <Text style={styles.sectionTitle}>{validationViewTitle}</Text>
               </View>
 
               <Text style={styles.resultText}>
@@ -905,7 +913,7 @@ const handleAddAnnouncement = () => {
                 />
                 <Text style={styles.emptyTitle}>No reports found</Text>
                 <Text style={styles.emptyText}>
-                  Try changing the status or weekly date range.
+                  Try changing the search text or report filters.
                 </Text>
               </View>
             ) : (
@@ -1082,18 +1090,6 @@ const handleAddAnnouncement = () => {
         validating={validating}
     />
 
-        <Admin_AddReportModal
-        visible={addReportVisible}
-        onClose={() => setAddReportVisible(false)}
-        onSubmit={handleReportSubmit}
-    />
-
-    <Admin_AddAnnouncementModal
-      visible={addAnnouncementVisible}
-      onClose={() => setAddAnnouncementVisible(false)}
-      onSubmit={handleAnnouncementSubmit}
-    />
-            
       </View>
     </Admin_Layout>
   );
@@ -1171,6 +1167,7 @@ const styles = StyleSheet.create({
 
   filterTopRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 14,
@@ -1221,6 +1218,49 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "PoppinsSemiBold",
     color: "#FFFFFF",
+  },
+
+  exportCsvButton: {
+    backgroundColor: "#25845C",
+  },
+
+  filterCriteriaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 16,
+  },
+
+  batchFilterRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
+    paddingBottom: 2,
+    width: "100%",
+  },
+
+  criteriaInput: {
+    flexGrow: 1,
+    minWidth: 145,
+    height: 42,
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    color: "#2F4267",
+    fontFamily: "PoppinsRegular",
+    fontSize: 13,
+  },
+
+  searchCriteriaInput: {
+    flexGrow: 2,
+    minWidth: 220,
+  },
+
+  barangayFilter: {
+    flexGrow: 1,
+    minWidth: 220,
   },
 
   filterBody: {

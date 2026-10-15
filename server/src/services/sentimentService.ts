@@ -75,57 +75,6 @@ const VALID_LANGUAGES = new Set<SentimentLanguage>([
   "cebuano",
   "unknown",
 ]);
-const FILIPINO_TERMS = [
-  "ako",
-  "akin",
-  "amin",
-  "ating",
-  "buong",
-  "ganda",
-  "hindi",
-  "ikaw",
-  "inyo",
-  "kami",
-  "kanila",
-  "kayo",
-  "mahal",
-  "masyado",
-  "nang",
-  "ng",
-  "po",
-  "salamat",
-  "sobrang",
-  "tayo",
-];
-const CEBUANO_TERMS = [
-  "ako",
-  "akong",
-  "among",
-  "apoy",
-  "ato",
-  "ayo",
-  "basang",
-  "dili",
-  "gyud",
-  "kaayo",
-  "kami",
-  "kana",
-  "lang",
-  "mga",
-  "naa",
-  "ni",
-  "nila",
-  "nimo",
-  "okay",
-  "pag",
-  "pwede",
-  "sama",
-  "silak",
-  "tanan",
-  "tugot",
-  "ugma",
-  "unsa",
-];
 const resolveModelDirectory = (): string => {
   const fromEnv = process.env.SENTIMENT_MODEL_DIR?.trim();
   const here = dirname(fileURLToPath(import.meta.url));
@@ -173,25 +122,48 @@ export const normalizeSentimentLabel = (value: unknown): SentimentLabel | null =
   return null;
 };
 
-export const detectSentimentLanguage = (text: string): SentimentLanguage => {
-  const normalized = text.toLocaleLowerCase();
-  const words = normalized.match(/[a-z]+/g) || [];
-  if (words.length === 0) return "unknown";
+const LANGID_LABELS = ["cebuano", "english", "filipino"];
+const LANGID_MIN_CONFIDENCE = 0.5;
+let languageSession: Promise<InferenceSession> | null = null;
 
-  const cebuanocount = words.filter((word) => CEBUANO_TERMS.includes(word)).length;
-  const filipinocount = words.filter((word) => FILIPINO_TERMS.includes(word)).length;
-  if (cebuanocount > 0 && cebuanocount > filipinocount) return "cebuano";
-  if (filipinocount > 0) return "filipino";
+const loadLanguageSession = (): Promise<InferenceSession> => {
+  if (languageSession) return languageSession;
+  languageSession = (async () => {
+    const path = join(modelDirectory, "language_id.onnx");
+    if (!existsSync(path)) {
+      throw new Error(`Language id model is missing: ${path}`);
+    }
+    return InferenceSession.create(path);
+  })();
+  return languageSession;
+};
 
-  if (
-    /(^|\s)(the|and|is|are|was|were|to|of|this|that|with|for|not|very|thanks|thank|please)(\s|$)/i.test(
-      normalized
-    )
-  ) {
-    return "english";
+export const detectLanguage = async (
+  text: string
+): Promise<SentimentLanguage> => {
+  const normalized = normalizeText(text);
+  if (!normalized) return "unknown";
+  try {
+    const session = await loadLanguageSession();
+    const input = new Tensor("string", [normalized], [1, 1]);
+    const output = await session.run({ text: input });
+    const probabilities = output.probabilities?.data;
+    if (!probabilities || probabilities.length < LANGID_LABELS.length) {
+      throw new Error("Language id model returned invalid probabilities");
+    }
+    let bestIndex = 0;
+    for (let index = 1; index < LANGID_LABELS.length; index += 1) {
+      if (Number(probabilities[index]) > Number(probabilities[bestIndex])) {
+        bestIndex = index;
+      }
+    }
+    if (Number(probabilities[bestIndex]) < LANGID_MIN_CONFIDENCE) {
+      return "unknown";
+    }
+    return (LANGID_LABELS[bestIndex] as SentimentLanguage) ?? "unknown";
+  } catch {
+    return "unknown";
   }
-
-  return "unknown";
 };
 
 export const sentimentInputHash = (text: string): string =>
@@ -502,10 +474,10 @@ const predict = async (
   }
 
   const config = await settings();
-  const detectedLanguage = detectSentimentLanguage(text);
+  const detectedLanguage = await detectLanguage(text);
   const localEnabled = parseBooleanSetting(config.sentiment_local_model_enabled, true);
-  const geminiEnabled = parseBooleanSetting(config.sentiment_gemini_enabled, true);
-  const cebuanoMode = config.sentiment_cebuano_mode || "gemini";
+  const geminiEnabled = parseBooleanSetting(config.sentiment_gemini_enabled, false);
+  const cebuanoMode = config.sentiment_cebuano_mode || "local";
   const localLanguage =
     detectedLanguage === "english" ||
     detectedLanguage === "filipino" ||
@@ -588,6 +560,26 @@ const predict = async (
         ),
         errorCode: `gemini:${asErrorMessage(error)}`,
       };
+    }
+  }
+
+  if (detectedLanguage === "unknown" && localEnabled) {
+    const fallbackLanguages: LocalModelLanguage[] = ["english", "filipino"];
+    if (cebuanoMode !== "disabled") fallbackLanguages.push("cebuano");
+    const fallbackResults = await Promise.all(
+      fallbackLanguages.map((language) =>
+        attempt(() => runLocalPrediction(language, text))
+      )
+    );
+    let best: SentimentPrediction | null = null;
+    for (const result of fallbackResults) {
+      if (!result.ok) continue;
+      if (!best || result.value.confidence > best.confidence) {
+        best = result.value;
+      }
+    }
+    if (best) {
+      return { prediction: best, errorCode: "" };
     }
   }
 
@@ -966,7 +958,7 @@ export const sentimentService = {
         );
       }
 
-      const language = detectSentimentLanguage(subject.text);
+      const language = await detectLanguage(subject.text);
       const inputHash = sentimentInputHash(subject.text);
       lastInputHash = inputHash;
       const existingRow = await getExistingAnalysis(subjectType, subjectId);

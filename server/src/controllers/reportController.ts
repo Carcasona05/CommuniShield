@@ -487,12 +487,77 @@ export const getAdminDashboard = async (req: AuthRequest, res: Response) => {
     return res.status(403).json({ error: "Admin access only" });
   }
 
-  const { data, error } = await reportService.getAdminDashboard();
+  const query = (value: unknown) =>
+    typeof value === "string" ? value.trim() : "";
+  const status = query(req.query.status);
+  const source = query(req.query.source).toLowerCase();
+  const severity = query(req.query.severity).toLowerCase();
+  const category = query(req.query.category).toLowerCase();
+  const barangay = query(req.query.barangay).toLowerCase();
+  const search = query(req.query.search).toLowerCase();
+  const from = query(req.query.from);
+  const to = query(req.query.to);
+  const fromTime = from ? Date.parse(from) : Number.NaN;
+  const toTime = to
+    ? Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(to) ? `${to}T23:59:59.999Z` : to)
+    : Number.NaN;
+  const { data, error } = await reportService.getAdminDashboard({
+    ...(status ? { status } : {}),
+    ...(source ? { source } : {}),
+    ...(Number.isFinite(fromTime)
+      ? { from: new Date(fromTime).toISOString() }
+      : {}),
+    ...(Number.isFinite(toTime) ? { to: new Date(toTime).toISOString() } : {}),
+  });
 
   if (error) return res.status(500).json({ error });
   if (!data) return res.status(500).json({ error: "No dashboard data" });
 
-  res.json({ summary: data.summary, reports: data.reports });
+  const reports = data.reports.filter((report) => {
+    const createdAt = Date.parse(report.created_at || "");
+    if (status && report.status !== status) return false;
+    if (source && String(report.source || "").toLowerCase() !== source) {
+      return false;
+    }
+    if (severity && String(report.severity || "").toLowerCase() !== severity) {
+      return false;
+    }
+    if (
+      category &&
+      !String(report.incident_category || "").toLowerCase().includes(category)
+    ) {
+      return false;
+    }
+    if (barangay) {
+      const locationParts = [
+        report.barangay,
+        ...String(report.location || "").split(","),
+      ].map((part) => String(part || "").trim().toLowerCase());
+      if (!locationParts.includes(barangay)) return false;
+    }
+    if (Number.isFinite(fromTime) && (!Number.isFinite(createdAt) || createdAt < fromTime)) {
+      return false;
+    }
+    if (Number.isFinite(toTime) && (!Number.isFinite(createdAt) || createdAt > toTime)) {
+      return false;
+    }
+    if (search) {
+      const searchable = [
+        report.incident_type,
+        report.incident_category,
+        report.location,
+        report.barangay,
+        report.details,
+        report.reporter_name,
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!searchable.includes(search)) return false;
+    }
+    return true;
+  });
+
+  res.json({ summary: data.summary, reports });
 };
 
 export const getAdminLogs = async (req: AuthRequest, res: Response) => {
@@ -504,12 +569,71 @@ export const getAdminLogs = async (req: AuthRequest, res: Response) => {
     return res.status(403).json({ error: "Admin access only" });
   }
 
-  const { data, error } = await reportService.listAuditLogs();
+  const query = (value: unknown) =>
+    typeof value === "string" ? value.trim() : "";
+  const actorRole =
+    typeof req.query.actorRole === "string" ? req.query.actorRole : undefined;
+  const from = query(req.query.from);
+  const to = query(req.query.to);
+  const search = query(req.query.search).toLowerCase();
+  const fromTime = from ? Date.parse(from) : Number.NaN;
+  const toTime = to
+    ? Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(to) ? `${to}T23:59:59.999Z` : to)
+    : Number.NaN;
+  const { data, error } = await reportService.listAuditLogs(actorRole, {
+    ...(Number.isFinite(fromTime)
+      ? { from: new Date(fromTime).toISOString() }
+      : {}),
+    ...(Number.isFinite(toTime) ? { to: new Date(toTime).toISOString() } : {}),
+  });
 
   if (error) return res.status(500).json({ error });
   if (!data) return res.status(500).json({ error: "No log data" });
 
-  res.json({ logs: data });
+  const logs = (data || []).filter((log) => {
+    if (!search) return true;
+    return [log.title, log.actor, log.actionType, log.details]
+      .join(" ")
+      .toLowerCase()
+      .includes(search);
+  });
+  res.json({ logs });
+};
+
+export const getAdminAnnouncements = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  const { data: profile } = await profileService.getProfile(user.id);
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return res.status(403).json({ error: "Admin access only" });
+  }
+
+  const query = (value: unknown) =>
+    typeof value === "string" ? value.trim() : "";
+  const from = query(req.query.from);
+  const to = query(req.query.to);
+  const search = query(req.query.search).toLowerCase();
+  const fromTime = from ? Date.parse(from) : Number.NaN;
+  const toTime = to
+    ? Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(to) ? `${to}T23:59:59.999Z` : to)
+    : Number.NaN;
+  const { data, error } = await reportService.listAdminAnnouncements({
+    ...(Number.isFinite(fromTime)
+      ? { from: new Date(fromTime).toISOString() }
+      : {}),
+    ...(Number.isFinite(toTime) ? { to: new Date(toTime).toISOString() } : {}),
+  });
+
+  if (error) return res.status(500).json({ error });
+  const announcements = (data || []).filter((announcement) => {
+    if (!search) return true;
+    return [announcement.type, announcement.title, announcement.location, announcement.details]
+      .join(" ")
+      .toLowerCase()
+      .includes(search);
+  });
+  res.json({ announcements });
 };
 
 export const createAdminAnnouncement = async (req: AuthRequest, res: Response) => {
