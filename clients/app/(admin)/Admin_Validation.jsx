@@ -1,157 +1,183 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
-  View,
-  Text,
+  ActivityIndicator,
+  Pressable,
   ScrollView,
-  TouchableOpacity,
   StyleSheet,
-  Platform,
-  Share,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useFonts } from "expo-font";
-import { useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFonts } from "expo-font";
+
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
-import { ListSkeleton } from "../../components/PageSkeletons";
-import Admin_ViewSimilarReportsModal from "../../components/Admin_compo/Admin_ViewSimilarReportsModal";
-import {
-  BatchDateRangeDropdown,
-  BatchFilterDropdown,
-} from "../../components/Admin_compo/AdminBatchFilters";
-import apiClient from "../../services/apiClient";
+import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
+import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
-import ToastProvider, { useToast } from "../../components/Toast";
-import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
 
+const CACHE_KEY = "api:/admin/dashboard";
 
-const COMMUNISHIELD_BLUE = "#294880";
-
-const formatSubmittedAt = (iso) => {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-
-  return (
-    date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "2-digit",
-      year: "numeric",
-    }) +
-    " • " +
-    date.toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    })
-  );
-};
-
-const mapValidationReports = (list) =>
-  (list || []).map((r) => ({
-    id: r.id,
-    title: `${r.incident_type || "Incident"} in ${r.barangay || "Argao"}`,
-    category: r.incident_category || "",
-    type: r.incident_type || "",
-    location: r.location || "",
-    barangay: r.barangay || "",
-    details: r.details || "",
-    status: r.status || "Pending Review",
-    aiScore: r.ai_score ?? 0,
-    severity: r.severity || "Medium",
-    sentiment: r.sentiment ?? null,
-    sentiment_status: r.sentiment_status ?? "unavailable",
-    sentiment_error: r.sentiment_error ?? "",
-    sentiment_confidence: r.sentiment_confidence ?? 0,
-    sentiment_language: r.sentiment_language ?? "unknown",
-    sentiment_provider: r.sentiment_provider ?? "none",
-    sentiment_model: r.sentiment_model ?? "none",
-    sentiment_analyzed_at: r.sentiment_analyzed_at ?? null,
-    credibilityReview: r.credibility_review || "",
-    submittedBy: r.reporter_name || r.poster_name || "Anonymous User",
-    submittedRole: r.source === "Admin" ? "Admin" : "User",
-    submittedAt: formatSubmittedAt(r.created_at),
-    createdAt: r.created_at,
-    verifiedBy: r.is_verified ? "System" : "",
-    remarks: "",
-    is_verified: r.is_verified,
-    comments: Array.isArray(r.comments) ? r.comments : [],
-    images: Array.isArray(r.images) ? r.images : [],
-  }));
-
-const PAGE_SIZE = 10;
-const INCIDENT_TYPES_BY_CATEGORY = {
-  "Public Safety Incidents": ["Public Disturbance", "Harassment", "Loitering / Suspicious Presence", "Trespassing"],
-  "Property-Related Incidents": ["Theft", "Lost Property", "Vandalism / Property Damage", "Shoplifting"],
-  "Traffic and Road Incidents": ["Vehicular Accident", "Reckless Driving", "Illegal Parking", "Road Obstruction"],
-  "Community and Environmental Concerns": ["Fire Incident", "Flooding", "Blocked Drainage", "Garbage / Sanitation Issues", "Streetlight Outage"],
-  "Suspicious Activities": ["Suspicious Person", "Suspicious Vehicle", "Unattended / Abandoned Object", "Unusual Behavior", "Loitering / Suspicious Presence"],
-  "Public Assistance / Community Reports": ["Missing Pet", "Lost Item", "Request for Assistance", "General Safety Concern"],
-};
-const BARANGAY_FILTER_OPTIONS = [
-  { value: "All", label: "All Barangays" },
-  ...ARGAO_BARANGAYS.map((barangay) => ({
-    value: barangay.name,
-    label: barangay.name,
-  })),
+const PERIODS = [
+  { label: "All time", value: "all" },
+  { label: "24 hours", value: "24h" },
+  { label: "7 days", value: "7d" },
+  { label: "30 days", value: "30d" },
 ];
-const csvValue = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-const parseDateBoundary = (value, endOfDay = false) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return null;
-  const time = endOfDay ? "23:59:59.999" : "00:00:00.000";
-  const date = new Date(`${value.trim()}T${time}Z`);
+
+const LEVELS = ["All", "High", "Moderate", "Low"];
+
+const textValue = (value) => String(value ?? "").trim();
+
+const getDate = (report) => {
+  const value =
+    report?.created_at || report?.reported_at || report?.date;
+
+  if (!value) return null;
+
+  const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 };
-const VALIDATION_VIEW_STATUSES = {
-  pending: "Pending Review",
-  verified: "Resolved",
-  rejected: "Rejected",
-  suspicious: "Marked Fake",
+
+const getLocation = (report) => {
+  const barangay = textValue(
+    report?.barangay || report?.barangay_name
+  );
+
+  if (barangay) return barangay;
+
+  const location = textValue(report?.location);
+
+  if (location) return location;
+
+  if (report?.latitude != null && report?.longitude != null) {
+    return `${Number(report.latitude).toFixed(4)}, ${Number(
+      report.longitude
+    ).toFixed(4)}`;
+  }
+
+  return "Location not specified";
 };
 
-export default function Admin_ValidationWrapper() {
+const hasCoordinates = (report) => {
+  if (report?.latitude == null || report?.longitude == null) {
+    return false;
+  }
+
+  const lat = Number(report.latitude);
+  const lng = Number(report.longitude);
+
   return (
-    <ToastProvider>
-      <Admin_Validation />
-    </ToastProvider>
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
   );
-}
+};
 
-function Admin_Validation() {
-  const toast = useToast();
-  const searchParams = useLocalSearchParams();
-  const viewParam = Array.isArray(searchParams.view)
-    ? searchParams.view[0]
-    : searchParams.view;
-  const viewStatus = VALIDATION_VIEW_STATUSES[viewParam];
-  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
-  const [selectedStatus, setSelectedStatus] = useState(viewStatus || "All");
-  const [selectedCategory, setSelectedCategory] = useState("All");
-  const [selectedIncidentType, setSelectedIncidentType] = useState("All");
-  const [selectedBarangay, setSelectedBarangay] = useState("All");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [selectedCompiledGroup, setSelectedCompiledGroup] = useState(null);
-  const [viewVisible, setViewVisible] = useState(false);
-  const [validating, setValidating] = useState(false);
-  const [reanalyzing, setReanalyzing] = useState(false);
+const getHotspotCenter = (hotspot) => {
+  const mappedReports = (hotspot?.reports || []).filter(hasCoordinates);
 
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [showScrollTop, setShowScrollTop] = useState(false);
-  const showScrollTopRef = useRef(false);
-  const scrollRef = useRef(null);
-  const loadedFiltersRef = useRef({
-    status: selectedStatus,
-    category: selectedCategory,
-    barangay: "All",
-    from: "",
-    to: "",
+  if (mappedReports.length === 0) return null;
+
+  const totals = mappedReports.reduce(
+    (sum, report) => ({
+      latitude: sum.latitude + Number(report.latitude),
+      longitude: sum.longitude + Number(report.longitude),
+    }),
+    { latitude: 0, longitude: 0 }
+  );
+
+  return {
+    latitude: totals.latitude / mappedReports.length,
+    longitude: totals.longitude / mappedReports.length,
+    zoom: 17,
+  };
+};
+
+const isExcluded = (report) => {
+  const status = textValue(report?.status).toLowerCase();
+
+  return ["rejected", "archived", "marked fake"].includes(status);
+};
+
+const getLevel = (count) => {
+  if (count >= 5) return "High";
+  if (count >= 3) return "Moderate";
+  return "Low";
+};
+
+const getColors = (level) => {
+  if (level === "High") {
+    return {
+      color: "#B93838",
+      background: "#FDEEEE",
+      dot: "#D94841",
+    };
+  }
+
+  if (level === "Moderate") {
+    return {
+      color: "#A96512",
+      background: "#FFF2E1",
+      dot: "#E58B32",
+    };
+  }
+
+  return {
+    color: "#16794B",
+    background: "#EAF8F1",
+    dot: "#37956D",
+  };
+};
+
+const getPeriodStart = (period) => {
+  const now = new Date();
+  const start = new Date(now);
+
+  if (period === "24h") {
+    start.setHours(start.getHours() - 24);
+  } else if (period === "7d") {
+    start.setDate(start.getDate() - 7);
+  } else if (period === "30d") {
+    start.setDate(start.getDate() - 30);
+  } else {
+    return null;
+  }
+
+  return start;
+};
+
+export default function Admin_Hotspot_Detection() {
+  const scrollViewRef = useRef(null);
+  const [mapY, setMapY] = useState(0);
+
+  const { width } = useWindowDimensions();
+  const isNarrow = width < 760;
+
+  const [reports, setReports] = useState(() => {
+    const cached = getCache(CACHE_KEY);
+    return Array.isArray(cached?.reports) ? cached.reports : [];
   });
 
-  useEffect(() => {
-    setSelectedStatus(viewStatus || "All");
-  }, [viewStatus]);
+  const [loading, setLoading] = useState(
+    () => getCache(CACHE_KEY) === undefined
+  );
+  const [refreshing, setRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  const [period, setPeriod] = useState("7d");
+  const [selectedLevel, setSelectedLevel] = useState("All");
+  const [search, setSearch] = useState("");
+  const [showAllHotspots, setShowAllHotspots] = useState(false);
+
+  const [selectedHotspotKey, setSelectedHotspotKey] = useState(null);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -159,1447 +185,1189 @@ function Admin_Validation() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const [reports, setReports] = useState(() => {
-    const cached = getCache("api:/admin/dashboard");
-    return Array.isArray(cached?.reports) ? mapValidationReports(cached.reports) : [];
-  });
+  const loadReports = useCallback(async () => {
+    setRefreshing(true);
 
-  const loadValidation = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
 
-      const applyList = (list) => setReports(mapValidationReports(list));
-      const params = {};
-      if (selectedStatus !== "All") params.status = selectedStatus;
-      if (selectedCategory !== "All") params.category = selectedCategory;
-      if (selectedBarangay !== "All") params.barangay = selectedBarangay;
-
-      const rangeStart = parseDateBoundary(fromDate);
-      const rangeEnd = parseDateBoundary(toDate, true);
-      if (rangeStart) params.from = rangeStart.toISOString();
-      if (rangeEnd) params.to = rangeEnd.toISOString();
-
-      const cached = getCache("api:/admin/dashboard");
-      if (Object.keys(params).length === 0 && cached && Array.isArray(cached.reports)) {
-        applyList(cached.reports);
+      if (!token) {
+        setErrorMessage("Your session is missing. Please sign in again.");
+        return;
       }
 
-      const res = await apiClient.get("/admin/dashboard", {
-        params,
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await apiClient.get("/admin/dashboard", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
-      if (Object.keys(params).length === 0) {
-        setCache("api:/admin/dashboard", res.data ?? {});
+      const data = response.data ?? {};
+
+      if (!Array.isArray(data.reports)) {
+        throw new Error(
+          "The dashboard response does not contain a reports array."
+        );
       }
-      applyList(res.data?.reports || []);
-    } catch {
-      // keep last loaded data on failure
+
+      setCache(CACHE_KEY, data);
+      setReports(data.reports);
+      setErrorMessage("");
+      setLastUpdated(new Date());
+    } catch (error) {
+      const cached = getCache(CACHE_KEY);
+
+      if (Array.isArray(cached?.reports)) {
+        setReports(cached.reports);
+      }
+
+      const status = error?.response?.status;
+
+      if (status === 401 || status === 403) {
+        setErrorMessage(
+          "Access denied. Your session may have expired or your account may not have administrator access."
+        );
+      } else {
+        setErrorMessage(
+          error?.message ||
+            "Unable to retrieve reports. Check your connection and server."
+        );
+      }
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [fromDate, selectedBarangay, selectedCategory, selectedStatus, toDate]);
+  }, []);
 
-  useAutoRefresh(loadValidation, 60000);
+  useAutoRefresh(loadReports, 60000);
 
-  useEffect(() => {
-    const currentFilters = {
-      status: selectedStatus,
-      category: selectedCategory,
-      barangay: selectedBarangay,
-      from: fromDate.trim(),
-      to: toDate.trim(),
-    };
-    if (Object.keys(currentFilters).every(
-      (key) => loadedFiltersRef.current[key] === currentFilters[key]
-    )) {
-      return;
-    }
-    loadedFiltersRef.current = currentFilters;
-    loadValidation();
-  }, [fromDate, loadValidation, selectedBarangay, selectedCategory, selectedStatus, toDate]);
+  const periodReports = useMemo(() => {
+    const start = getPeriodStart(period);
 
-  const statusFilters = ["All", "Pending Review", "Under Verification", "Resolved", "Rejected"];
-  const incidentTypeOptions = selectedCategory === "All"
-    ? [...new Set(Object.values(INCIDENT_TYPES_BY_CATEGORY).flat())]
-    : INCIDENT_TYPES_BY_CATEGORY[selectedCategory] || [];
+    return reports.filter((report) => {
+      if (isExcluded(report)) return false;
+      if (!start) return true;
 
-  useEffect(() => {
-    if (
-      selectedIncidentType !== "All" &&
-      !incidentTypeOptions.includes(selectedIncidentType)
-    ) {
-      setSelectedIncidentType("All");
-    }
-  }, [incidentTypeOptions, selectedIncidentType]);
+      const date = getDate(report);
 
-  const getHighestSeverity = (currentSeverity, newSeverity) => {
-    const level = {
-      Low: 1,
-      Medium: 2,
-      High: 3,
-      Critical: 4,
-    };
+      return date !== null && date >= start;
+    });
+  }, [reports, period]);
 
-    return level[newSeverity] > level[currentSeverity]
-      ? newSeverity
-      : currentSeverity;
-  };
+  const hotspots = useMemo(() => {
+    const groups = new Map();
 
-  const getGroupMainStatus = (groupReports) => {
-    if (groupReports.some((item) => item.status === "Pending Review")) {
-      return "Pending Review";
-    }
+    periodReports.forEach((report) => {
+      const location = getLocation(report);
 
-    if (groupReports.some((item) => item.status === "Under Verification")) {
-      return "Under Verification";
-    }
-
-    if (groupReports.every((item) => item.status === "Resolved")) {
-      return "Resolved";
-    }
-
-    if (groupReports.every((item) => item.status === "Rejected")) {
-      return "Rejected";
-    }
-
-    if (groupReports.every((item) => item.status === "Archived")) {
-      return "Archived";
-    }
-
-    return groupReports[0]?.status || "Pending Review";
-  };
-
-  const getGroupedReports = (reportsList) => {
-    const grouped = {};
-
-    const parseDate = (submittedAt) => {
-      if (!submittedAt) return null;
-      const datePart = submittedAt.split("•")?.[0]?.trim();
-      const d = new Date(datePart);
-      return Number.isNaN(d.getTime()) ? null : d;
-    };
-
-    reportsList.forEach((report) => {
-      const reportDate = parseDate(report.submittedAt);
-      const baseKey = `${report.category}-${report.type}-${report.barangay}-${report.status}`.toLowerCase();
-
-      let placed = false;
-
-      const existingKeys = Object.keys(grouped).filter((k) => k.startsWith(baseKey));
-
-      for (const key of existingKeys) {
-        const group = grouped[key];
-        const groupDate = group._earliestDate;
-        if (groupDate && reportDate) {
-          const diffMs = Math.abs(reportDate.getTime() - groupDate.getTime());
-          if (diffMs <= 24 * 60 * 60 * 1000) {
-            group.reports.push(report);
-            group.aiScore = Math.max(group.aiScore, report.aiScore);
-            group.severity = getHighestSeverity(group.severity, report.severity);
-            placed = true;
-            break;
-          }
-        }
+      if (!location || location === "Location not specified") {
+        return;
       }
 
-      if (!placed) {
-        const groupKey = existingKeys.length > 0
-          ? `${baseKey}-${existingKeys.length}`
-          : baseKey;
+      const key = location.toLowerCase();
 
-        grouped[groupKey] = {
-          id: groupKey,
-          title: `${report.type} in ${report.barangay}`,
-          category: report.category,
-          type: report.type,
-          barangay: report.barangay,
-          location: report.location,
-          status: report.status,
-          aiScore: report.aiScore,
-          severity: report.severity,
-          sentiment: report.sentiment,
-          submittedAt: report.submittedAt,
-          _earliestDate: reportDate,
-          reports: [report],
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          location,
+          reports: [],
+        });
+      }
+
+      groups.get(key).reports.push(report);
+    });
+
+    return Array.from(groups.values())
+      .map((group) => {
+        const latestDate = group.reports.reduce(
+          (latest, report) => {
+            const date = getDate(report);
+
+            if (!date) return latest;
+            if (!latest || date > latest) return date;
+
+            return latest;
+          },
+          null
+        );
+
+        const types = [
+          ...new Set(
+            group.reports
+              .map((report) =>
+                textValue(
+                  report?.incident_type ||
+                    report?.type ||
+                    report?.category
+                )
+              )
+              .filter(Boolean)
+          ),
+        ];
+
+        const mappedCount = group.reports.filter(
+          hasCoordinates
+        ).length;
+
+        return {
+          ...group,
+          count: group.reports.length,
+          mappedCount,
+          latestDate,
+          types,
+          level: getLevel(group.reports.length),
         };
-      }
-    });
+      })
+      .sort((a, b) => b.count - a.count);
+  }, [periodReports]);
 
-    return Object.values(grouped).map((group) => {
-      const statusSummary = group.reports.reduce((summary, report) => {
-        summary[report.status] = (summary[report.status] || 0) + 1;
-        return summary;
-      }, {});
+  const visibleHotspots = useMemo(() => {
+    const query = search.trim().toLowerCase();
 
-      const userReports = group.reports.filter(
-        (report) => report.submittedRole === "User"
-      );
-
-      const adminReports = group.reports.filter(
-        (report) => report.submittedRole === "Admin"
-      );
-
-      return {
-        ...group,
-        _earliestDate: undefined,
-        status: getGroupMainStatus(group.reports),
-        reportCount: group.reports.length,
-        userCount: userReports.length,
-        adminCount: adminReports.length,
-        highestAiScore: Math.max(
-          ...group.reports.map((report) => report.aiScore)
-        ),
-        statusSummary,
-      };
-    });
-  };
-
-  const groupedReports = useMemo(() => {
-    return getGroupedReports(reports);
-  }, [reports]);
-
-  const filteredReports = useMemo(() => {
-    const rangeStart = parseDateBoundary(fromDate);
-    const rangeEnd = parseDateBoundary(toDate, true);
-
-    return groupedReports.filter((group) => {
-      if (viewParam === "clustered" && group.reportCount < 2) return false;
-      if (
-        viewParam === "credibility" &&
-        !group.reports.some(
-          (report) => report.aiScore > 0 || report.credibilityReview
-        )
-      ) {
-        return false;
-      }
-      const matchesStatus =
-        selectedStatus === "All" ||
-        group.reports.some((report) => report.status === selectedStatus);
-
-      const matchesCriteria = group.reports.some((report) => {
-        const createdAt = report.createdAt ? new Date(report.createdAt) : null;
-        const locationParts = [
-          report.barangay,
-          ...String(report.location || "").split(","),
-        ].map((part) => String(part || "").trim().toLowerCase());
-        return (
-          (selectedCategory === "All" || report.category === selectedCategory) &&
-          (selectedIncidentType === "All" || report.type === selectedIncidentType) &&
-          (selectedBarangay === "All" ||
-            locationParts.includes(selectedBarangay.toLowerCase())) &&
-          (!rangeStart || (createdAt && createdAt >= rangeStart)) &&
-          (!rangeEnd || (createdAt && createdAt <= rangeEnd))
+    return hotspots.filter((hotspot) => {
+      const matchesSearch =
+        !query ||
+        hotspot.location.toLowerCase().includes(query) ||
+        hotspot.types.some((type) =>
+          type.toLowerCase().includes(query)
         );
+
+      const matchesLevel =
+        selectedLevel === "All" ||
+        hotspot.level === selectedLevel;
+
+      return matchesSearch && matchesLevel;
+    });
+  }, [hotspots, search, selectedLevel]);
+
+  const displayedHotspots = showAllHotspots
+    ? visibleHotspots
+    : visibleHotspots.slice(0, 10);
+
+  const selectedHotspot =
+    hotspots.find(
+      (item) => item.key === selectedHotspotKey
+    ) || null;
+
+  const mapReports = useMemo(() => {
+    const source = selectedHotspot
+      ? selectedHotspot.reports
+      : periodReports;
+
+    return source.filter(hasCoordinates);
+  }, [selectedHotspot, periodReports]);
+
+  const summary = useMemo(() => ({
+    totalReports: periodReports.length,
+    locations: hotspots.length,
+    high: hotspots.filter(
+      (item) => item.level === "High"
+    ).length,
+    moderate: hotspots.filter(
+      (item) => item.level === "Moderate"
+    ).length,
+    unmapped: periodReports.filter(
+      (report) => !hasCoordinates(report)
+    ).length,
+  }), [periodReports, hotspots]);
+
+  const selectHotspot = (hotspot) => {
+    setSelectedHotspotKey(hotspot.key);
+
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollTo({
+        y: Math.max(0, mapY - 12),
+        animated: true,
       });
-
-      return matchesStatus && matchesCriteria;
-    });
-  }, [fromDate, groupedReports, selectedBarangay, selectedCategory, selectedIncidentType, selectedStatus, toDate, viewParam]);
-
-  const visibleReports = filteredReports.slice(0, visibleCount);
-  const exportValidationCsv = async () => {
-    const columns = [
-      "Report ID",
-      "Incident Type",
-      "Category",
-      "Barangay",
-      "Location",
-      "Status",
-      "Severity",
-      "AI Score",
-      "Submitted By",
-      "Submitted At",
-      "Details",
-    ];
-    const rows = filteredReports.flatMap((group) =>
-      group.reports.map((report) => [
-        report.id,
-        report.type,
-        report.category,
-        report.barangay,
-        report.location,
-        report.status,
-        report.severity,
-        report.aiScore,
-        report.submittedBy,
-        report.createdAt || report.submittedAt,
-        report.details,
-      ])
-    );
-    const csv = [columns, ...rows]
-      .map((row) => row.map(csvValue).join(","))
-      .join("\r\n");
-
-    if (Platform.OS === "web") {
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "communishield-validation-reports.csv";
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-      return;
-    }
-
-    await Share.share({
-      title: "CommuniShield validation reports CSV",
-      message: csv,
     });
   };
-  const validationViewTitle = {
-    clustered: "Clustered Reports",
-    pending: "Pending Reports",
-    verified: "Verified Reports",
-    rejected: "Rejected Reports",
-    suspicious: "Suspicious Reports",
-    credibility: "User Credibility",
-  }[viewParam] || "Reports for Validation";
 
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [fromDate, selectedBarangay, selectedCategory, selectedIncidentType, selectedStatus, toDate, viewParam]);
-
-  const handleScroll = (e) => {
-    const next = e.nativeEvent.contentOffset.y > 300;
-    if (next !== showScrollTopRef.current) {
-      showScrollTopRef.current = next;
-      setShowScrollTop(next);
-    }
+  const resetMap = () => {
+    setSelectedHotspotKey(null);
   };
 
-  const openReportParam = searchParams?.openReport;
-  const openReportNonce = searchParams?.notifNonce;
-  const consumedOpenReport = useRef(null);
-
-  useEffect(() => {
-    const target = Array.isArray(openReportParam)
-      ? openReportParam[0]
-      : openReportParam;
-    const nonce = Array.isArray(openReportNonce)
-      ? openReportNonce[0]
-      : openReportNonce;
-
-    if (!target || loading) return;
-
-    const consumeKey = nonce ? `${target}:${nonce}` : target;
-    if (consumedOpenReport.current === consumeKey) return;
-
-    const group = groupedReports.find((g) =>
-      g.reports.some((report) => report.id === target)
-    );
-
-    if (!group) return;
-
-    consumedOpenReport.current = consumeKey;
-    setSelectedCompiledGroup(group);
-    setViewVisible(true);
-  }, [openReportParam, openReportNonce, groupedReports, loading]);
-
-  if (!fontsLoaded) {
-    return null;
-  }
-
-  if (loading) {
-    return (
-      <Admin_Layout>
-        <ListSkeleton />
-      </Admin_Layout>
-    );
-  }
-
-  const totalReports = reports.length;
-
-  const compiledIncidents = groupedReports.filter(
-    (group) => group.reportCount > 1
-  ).length;
-
-  const pendingReports = reports.filter(
-    (item) => item.status === "Pending Review"
-  ).length;
-
-  const verifyingReports = reports.filter(
-    (item) => item.status === "Under Verification"
-  ).length;
-
-  const resolvedReports = reports.filter(
-    (item) => item.status === "Resolved"
-  ).length;
-
-  const rejectedReports = reports.filter(
-    (item) => item.status === "Rejected"
-  ).length;
-
-  const getStatusStyle = (status) => {
-    if (status === "Resolved") {
-      return {
-        icon: "checkmark-circle-outline",
-        color: "#22A06B",
-        bg: "#EAF8F1",
-      };
-    }
-
-    if (status === "Rejected") {
-      return {
-        icon: "close-circle-outline",
-        color: "#E45757",
-        bg: "#FFF5F5",
-      };
-    }
-
-    if (status === "Under Verification") {
-      return {
-        icon: "sync-outline",
-        color: COMMUNISHIELD_BLUE,
-        bg: "#EAF2FF",
-      };
-    }
-
-    if (status === "Archived") {
-      return {
-        icon: "archive-outline",
-        color: "#6B7280",
-        bg: "#EEF1F5",
-      };
-    }
-
-    if (status === "Marked Fake") {
-      return {
-        icon: "warning-outline",
-        color: "#B42318",
-        bg: "#FFF1F0",
-      };
-    }
-
-    return {
-      icon: "time-outline",
-      color: "#C98A2E",
-      bg: "#FFF4E5",
-    };
+  const resetFilters = () => {
+    setPeriod("7d");
+    setSelectedLevel("All");
+    setSearch("");
+    setSelectedHotspotKey(null);
+    setShowAllHotspots(false);
   };
 
-  const getSeverityStyle = (severity) => {
-    if (severity === "High" || severity === "Critical") {
-      return {
-        bg: "#FFF5F5",
-        color: "#E45757",
-      };
-    }
-
-    if (severity === "Medium") {
-      return {
-        bg: "#FFF4E5",
-        color: "#C98A2E",
-      };
-    }
-
-    return {
-      bg: "#EAF8F1",
-      color: "#22A06B",
-    };
-  };
-
-  const openCompiledGroup = (group) => {
-    setSelectedCompiledGroup(group);
-    setViewVisible(true);
-  };
-
-  const closeReport = () => {
-    setViewVisible(false);
-    setSelectedCompiledGroup(null);
-  };
-
-  const applyValidation = async (target, newStatus) => {
-    if (!target || validating) return;
-
-    setValidating(true);
-    const targetIds = target.reports
-      ? target.reports.map((item) => item.id)
-      : [target.id];
-
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-
-      await Promise.all(
-        targetIds.map((id) =>
-          apiClient.post(
-            `/reports/${id}/status`,
-            {
-              status: newStatus,
-              is_verified: newStatus === "Resolved",
-            },
-            { headers: { Authorization: `Bearer ${token}` } }
-          )
-        )
-      );
-
-      setViewVisible(false);
-      setSelectedCompiledGroup(null);
-      toast.success(`Report status updated to "${newStatus}".`);
-      loadValidation();
-    } catch (error) {
-      toast.error(
-        error?.response?.data?.error || "Could not update report status."
-      );
-    } finally {
-      setValidating(false);
-    }
-  };
-
-  const handleVerify = (target) => {
-    applyValidation(target, "Under Verification");
-  };
-
-  const handleReject = (target) => {
-    applyValidation(target, "Rejected");
-  };
-
-  const handleMapAndVerify = (target) => {
-    applyValidation(target, "Resolved");
-  };
-
-  const handleMarkAsFake = (report, group) => {
-    applyValidation(group || report, "Marked Fake");
-  };
-
-  const handleReanalyze = async (group) => {
-    const targetReports = group?.reports || [];
-    if (!targetReports.length || reanalyzing) return;
-    setReanalyzing(true);
-
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const missingCommentIds = targetReports
-        .flatMap((item) => item.comments || [])
-        .filter(
-          (comment) =>
-            comment?.id && comment.sentiment_status !== "succeeded"
-        )
-        .map((comment) => comment.id);
-
-      const calls = [];
-      for (const item of targetReports) {
-        calls.push(apiClient.post(`/ai/analyze/${item.id}`, {}, { headers }));
-        calls.push(
-          apiClient.post(
-            `/ai/sentiment/reanalyze/report/${item.id}`,
-            {},
-            { headers }
-          )
-        );
-      }
-
-      if (missingCommentIds.length > 0) {
-        calls.push(
-          apiClient.post(
-            "/ai/sentiment/reanalyze",
-            { subject_type: "comment", ids: missingCommentIds },
-            { headers }
-          )
-        );
-      }
-
-      const results = await Promise.allSettled(calls);
-      const succeeded = results.filter(
-        (result) => result.status === "fulfilled"
-      ).length;
-
-      loadValidation();
-
-      if (succeeded === 0) {
-        const failure = results.find(
-          (result) => result.status === "rejected"
-        );
-        toast.error(
-          failure?.reason?.response?.data?.error ||
-            "Could not re-run AI analysis."
-        );
-      } else if (succeeded < results.length) {
-        toast.success("AI re-analysis completed with partial results.");
-      } else {
-        toast.success(
-          `AI re-analysis completed for ${targetReports.length} post(s).`
-        );
-      }
-    } catch (error) {
-      toast.error(
-        error?.response?.data?.error ||
-          error?.message ||
-          "Could not re-run AI analysis."
-      );
-    } finally {
-      setReanalyzing(false);
-    }
-  };
-
-  const StatCard = ({ icon, title, value, color, bg }) => (
-    <View style={styles.statCard}>
-      <View style={[styles.statIcon, { backgroundColor: bg }]}>
-        <Ionicons name={icon} size={24} color={color} />
-      </View>
-
-      <View style={styles.statTextBox}>
-        <Text style={styles.statValue}>{value}</Text>
-        <Text style={styles.statTitle}>{title}</Text>
-      </View>
-    </View>
-  );
+  if (!fontsLoaded) return null;
 
   return (
     <Admin_Layout>
-      <View style={styles.wrapper}>
-        <ScrollView
-          ref={scrollRef}
-          style={styles.container}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-        >
-          <View style={styles.statsRow}>
-            <StatCard
-              icon="documents-outline"
-              title="Total Reports"
-              value={totalReports}
-              color={COMMUNISHIELD_BLUE}
-              bg="#EAF2FF"
-            />
-
-            <StatCard
-              icon="copy-outline"
-              title="Similar Groups"
-              value={compiledIncidents}
-              color="#7C3AED"
-              bg="#F3E8FF"
-            />
-
-            <StatCard
-              icon="time-outline"
-              title="Pending Review"
-              value={pendingReports}
-              color="#C98A2E"
-              bg="#FFF4E5"
-            />
-
-            <StatCard
-              icon="sync-outline"
-              title="Under Verification"
-              value={verifyingReports}
-              color={COMMUNISHIELD_BLUE}
-              bg="#EAF2FF"
-            />
-
-            <StatCard
-              icon="checkmark-circle-outline"
-              title="Resolved"
-              value={resolvedReports}
-              color="#22A06B"
-              bg="#EAF8F1"
-            />
-
-            <StatCard
-              icon="close-circle-outline"
-              title="Rejected"
-              value={rejectedReports}
-              color="#E45757"
-              bg="#FFF5F5"
+      <ScrollView
+        ref={scrollViewRef}
+        contentContainerStyle={styles.page}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* MAIN HEADER */}
+        <View style={[styles.header, isNarrow && styles.headerNarrow]}>
+          <View style={styles.headerIcon}>
+            <Ionicons
+              name="navigate-circle-outline"
+              size={27}
+              color="#294880"
             />
           </View>
 
-          <View style={styles.filterCard}>
-            <View style={styles.filterTopRow}>
-              <View style={styles.filterHeaderTitleBox}>
-                <View style={styles.filterMainIconBox}>
-                  <Ionicons name="options-outline" size={20} color={COMMUNISHIELD_BLUE} />
-                </View>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>Hotspot Detection</Text>
+            <Text style={styles.subtitle}>
+              Monitor report concentrations across Argao, Cebu.
+            </Text>
+            {lastUpdated && (
+              <Text style={styles.updatedText}>
+                Updated {lastUpdated.toLocaleTimeString()}
+              </Text>
+            )}
+          </View>
 
-                <View>
-                  <Text style={styles.filterMainTitle}>Filter Reports</Text>
-                  <Text style={styles.filterMainSubtitle}>
-                    Filter incidents by location, category, type, status, and date
-                  </Text>
-                </View>
-              </View>
+          <Pressable
+            onPress={loadReports}
+            disabled={refreshing}
+            style={styles.refreshButton}
+          >
+            {refreshing ? (
+              <ActivityIndicator
+                size="small"
+                color="#294880"
+              />
+            ) : (
+              <Ionicons
+                name="refresh-outline"
+                size={17}
+                color="#294880"
+              />
+            )}
+            <Text style={styles.refreshText}>Refresh</Text>
+          </Pressable>
+        </View>
 
-              <TouchableOpacity
-                style={[styles.addReportButton, styles.exportCsvButton]}
-                onPress={exportValidationCsv}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="download-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.addReportButtonText}>Export CSV</Text>
-              </TouchableOpacity>
+        {!!errorMessage && (
+          <View style={styles.errorBox}>
+            <Ionicons
+              name="alert-circle-outline"
+              size={21}
+              color="#B93838"
+            />
+            <Text style={styles.errorText}>{errorMessage}</Text>
+          </View>
+        )}
 
+        {/* SUMMARY CARDS */}
+        <View style={styles.summaryGrid}>
+          <SummaryCard
+            icon="document-text-outline"
+            label="Total Reports"
+            value={summary.totalReports}
+            subtext="Selected period"
+            subColor="#5D6F92"
+            color="#294880"
+            background="#E8EFFB"
+          />
 
+          <SummaryCard
+            icon="location-outline"
+            label="Detected Locations"
+            value={summary.locations}
+            subtext="Identified locations"
+            subColor="#294880"
+            color="#294880"
+            background="#E8EFFB"
+          />
 
+          <SummaryCard
+            icon="warning-outline"
+            label="High Concentration"
+            value={summary.high}
+            subtext="Needs attention"
+            subColor="#E45757"
+            color="#E45757"
+            background="#FDEEEE"
+          />
 
+          <SummaryCard
+            icon="alert-circle-outline"
+            label="Moderate Concentration"
+            value={summary.moderate}
+            subtext="Monitor reports"
+            subColor="#D97A1E"
+            color="#D97A1E"
+            background="#FFF4E5"
+          />
+        </View>
 
-
-
-
+        {/* ADMIN VALIDATION STYLE FILTER PANEL */}
+        <View style={styles.filterCard}>
+          <View style={styles.filterHeaderRow}>
+            <View style={styles.filterTitleContainer}>
+              <Ionicons name="filter-outline" size={18} color="#294880" />
+              <Text style={styles.filterCardTitle}>Filter Reports</Text>
             </View>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.batchFilterRow}
-            >
-              <BatchFilterDropdown
-                label="Location"
-                value={selectedBarangay}
-                options={BARANGAY_FILTER_OPTIONS}
-                onChange={setSelectedBarangay}
-              />
-              <BatchFilterDropdown
-                label="Incident Category"
-                value={selectedCategory}
-                options={["All", ...Object.keys(INCIDENT_TYPES_BY_CATEGORY)].map((category) => ({
-                  value: category,
-                  label: category === "All" ? "All Categories" : category,
-                }))}
-                onChange={(category) => {
-                  setSelectedCategory(category);
-                  setSelectedIncidentType("All");
-                }}
-              />
-              <BatchFilterDropdown
-                label="Incident Type"
-                value={selectedIncidentType}
-                options={[
-                  { value: "All", label: "All Incident Types" },
-                  ...incidentTypeOptions.map((type) => ({ value: type, label: type })),
-                ]}
-                onChange={setSelectedIncidentType}
-              />
-              <BatchDateRangeDropdown
-                from={fromDate}
-                to={toDate}
-                onChangeFrom={setFromDate}
-                onChangeTo={setToDate}
-              />
-              <BatchFilterDropdown
-                label="Status"
-                value={selectedStatus}
-                options={statusFilters}
-                onChange={setSelectedStatus}
-                chips
-              />
-            </ScrollView>
+            <Pressable onPress={resetFilters} style={styles.resetFilterButton}>
+              <Text style={styles.resetFilterButtonText}>Reset Filters</Text>
+            </Pressable>
           </View>
 
-          <View style={styles.reportsCard}>
-            <View style={styles.listHeader}>
-              <View style={styles.listHeaderTextBox}>
-                <Text style={styles.sectionTitle}>{validationViewTitle}</Text>
-              </View>
+          {/* Search Bar */}
+          <View style={styles.searchBox}>
+            <Ionicons name="search-outline" size={18} color="#82918B" />
+            <TextInput
+              value={search}
+              onChangeText={(val) => {
+                setSearch(val);
+                setShowAllHotspots(false);
+              }}
+              placeholder="Search location or incident type..."
+              placeholderTextColor="#98A39E"
+              style={styles.searchInput}
+            />
+            {!!search && (
+              <Pressable
+                onPress={() => {
+                  setSearch("");
+                  setShowAllHotspots(false);
+                }}
+              >
+                <Ionicons name="close-circle" size={18} color="#82918B" />
+              </Pressable>
+            )}
+          </View>
 
-              <Text style={styles.resultText}>
-                {filteredReports.length} result
-                {filteredReports.length === 1 ? "" : "s"}
+          {/* Reporting Period Filter */}
+          <Text style={styles.filterLabel}>Reporting Period</Text>
+          <View style={styles.filterChipsRow}>
+            {PERIODS.map((item) => {
+              const active = period === item.value;
+              return (
+                <Pressable
+                  key={item.value}
+                  onPress={() => {
+                    setPeriod(item.value);
+                    setSelectedHotspotKey(null);
+                    setShowAllHotspots(false);
+                  }}
+                  style={[styles.filterChip, active && styles.filterChipActive]}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      active && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Concentration Level Filter */}
+          <Text style={styles.filterLabel}>Concentration Level</Text>
+          <View style={styles.filterChipsRow}>
+            {LEVELS.map((lvl) => {
+              const active = selectedLevel === lvl;
+              return (
+                <Pressable
+                  key={lvl}
+                  onPress={() => {
+                    setSelectedLevel(lvl);
+                    setShowAllHotspots(false);
+                  }}
+                  style={[styles.filterChip, active && styles.filterChipActive]}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      active && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {lvl === "All" ? "All Levels" : lvl}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text style={styles.filterResultsCount}>
+            Showing {Math.min(visibleHotspots.length, showAllHotspots ? visibleHotspots.length : 10)} of {visibleHotspots.length} matching locations
+          </Text>
+        </View>
+
+        {/* MAP PANEL */}
+        <View
+          style={styles.panel}
+          onLayout={(event) => {
+            setMapY(event.nativeEvent.layout.y);
+          }}
+        >
+          <View style={styles.mapHeader}>
+            <View style={styles.mapHeaderText}>
+              <Text style={styles.sectionTitle}>
+                {selectedHotspot
+                  ? selectedHotspot.location
+                  : "Incident Concentration Map"}
+              </Text>
+              <Text style={styles.sectionSubtitle}>
+                {selectedHotspot
+                  ? `${selectedHotspot.count} reports · ${selectedHotspot.mappedCount} with coordinates`
+                  : `${mapReports.length} mapped reports in the selected period`}
               </Text>
             </View>
 
-            {filteredReports.length === 0 ? (
-              <View style={styles.emptyState}>
+            {selectedHotspot && (
+              <Pressable
+                onPress={resetMap}
+                style={styles.resetButton}
+              >
                 <Ionicons
-                  name="document-text-outline"
-                  size={42}
-                  color="#5D6F92"
+                  name="expand-outline"
+                  size={16}
+                  color="#294880"
                 />
-                <Text style={styles.emptyTitle}>No reports found</Text>
-                <Text style={styles.emptyText}>
-                  Try changing the search text or report filters.
+                <Text style={styles.resetText}>Show all</Text>
+              </Pressable>
+            )}
+          </View>
+
+          <View style={styles.mapContainer}>
+            {loading && reports.length === 0 ? (
+              <View style={styles.mapState}>
+                <ActivityIndicator
+                  size="large"
+                  color="#294880"
+                />
+                <Text style={styles.stateText}>
+                  Loading incident locations...
                 </Text>
               </View>
-            ) : (
-              visibleReports.map((group, index) => {
-                const statusStyle = getStatusStyle(group.status);
-                const severityStyle = getSeverityStyle(group.severity);
-                const isCompiled = group.reportCount > 1;
+            ) : mapReports.length > 0 ? (
+              <AdminHeatMap
+                key={
+                  selectedHotspot
+                    ? `hotspot-${selectedHotspot.key}`
+                    : "all-hotspots"
+                }
+                reports={mapReports}
+                focusTarget={
+                  selectedHotspot
+                    ? getHotspotCenter(selectedHotspot)
+                    : null
+                }
+                resetView={!selectedHotspot}
+                onReportSelect={(report) => {
+                  const reportLocation = getLocation(report);
 
-                return (
-                  <View
-                    key={group.id}
-                    style={[
-                      styles.reportRow,
-                      index !== 0 && styles.reportRowBorder,
-                    ]}
-                  >
-                    <View
+                  const match = hotspots.find(
+                    (item) =>
+                      item.key === reportLocation.toLowerCase()
+                  );
+
+                  if (match) {
+                    selectHotspot(match);
+                  }
+                }}
+              />
+            ) : (
+              <View style={styles.mapState}>
+                <Ionicons
+                  name="map-outline"
+                  size={39}
+                  color="#91A39B"
+                />
+                <Text style={styles.stateText}>
+                  No mapped reports available
+                </Text>
+                <Text style={styles.stateSubtext}>
+                  Reports need valid latitude and longitude
+                  coordinates to appear on the map.
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.legend}>
+            {[
+              { label: "High", color: "#D94841" },
+              { label: "Moderate", color: "#E58B32" },
+              { label: "Low", color: "#37956D" },
+            ].map((item) => (
+              <View key={item.label} style={styles.legendItem}>
+                <View
+                  style={[
+                    styles.legendDot,
+                    { backgroundColor: item.color },
+                  ]}
+                />
+                <Text style={styles.legendText}>{item.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* DETECTED LOCATIONS */}
+        <View style={styles.panel}>
+          <View style={styles.listHeader}>
+            <View style={styles.listHeaderText}>
+              <Text style={styles.sectionTitle}>
+                Detected Locations
+              </Text>
+              <Text style={styles.sectionSubtitle}>
+                Ranked by report count for the selected period.
+              </Text>
+            </View>
+
+            <Text style={styles.countText}>
+              {visibleHotspots.length} locations
+            </Text>
+          </View>
+
+          {loading && reports.length === 0 ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator
+                size="large"
+                color="#294880"
+              />
+              <Text style={styles.stateText}>Fetching reports...</Text>
+            </View>
+          ) : visibleHotspots.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="location-outline"
+                size={36}
+                color="#91A39B"
+              />
+              <Text style={styles.stateText}>
+                No matching locations
+              </Text>
+              <Text style={styles.stateSubtext}>
+                Try changing the period, search term, or
+                concentration filter.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.locationList}>
+                {displayedHotspots.map((hotspot, index) => {
+                  const colors = getColors(hotspot.level);
+                  const selected =
+                    selectedHotspotKey === hotspot.key;
+
+                  return (
+                    <Pressable
+                      key={hotspot.key}
+                      onPress={() => selectHotspot(hotspot)}
                       style={[
-                        styles.reportIconBox,
-                        {
-                          backgroundColor: isCompiled
-                            ? "#F3E8FF"
-                            : statusStyle.bg,
-                        },
+                        styles.locationCard,
+                        selected && styles.locationCardSelected,
                       ]}
                     >
-                      <Ionicons
-                        name={isCompiled ? "copy-outline" : statusStyle.icon}
-                        size={25}
-                        color={isCompiled ? "#7C3AED" : statusStyle.color}
-                      />
-                    </View>
+                      <View
+                        style={[
+                          styles.rankBox,
+                          selected && styles.rankBoxSelected,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.rankText,
+                            selected && styles.rankTextSelected,
+                          ]}
+                        >
+                          {index + 1}
+                        </Text>
+                      </View>
 
-                    <View style={styles.reportContent}>
-                      <View style={styles.reportTopRow}>
-                        <View style={styles.reportTitleBox}>
-                          <Text style={styles.reportTitle}>{group.title}</Text>
+                      <View style={styles.locationContent}>
+                        <Text style={styles.locationName}>
+                          {hotspot.location}
+                        </Text>
 
-                          <Text style={styles.reportMeta}>
-                            {group.reportCount} similar post
-                            {group.reportCount === 1 ? "" : "s"}
+                        <Text style={styles.locationMeta}>
+                          {hotspot.count}{" "}
+                          {hotspot.count === 1 ? "report" : "reports"}
+                          {" · "}
+                          {hotspot.mappedCount} mapped
+                        </Text>
+
+                        <View style={styles.locationLevelRow}>
+                          <View
+                            style={[
+                              styles.levelDot,
+                              { backgroundColor: colors.dot },
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.levelText,
+                              { color: colors.color },
+                            ]}
+                          >
+                            {hotspot.level} concentration
                           </Text>
                         </View>
 
+                        {hotspot.types.length > 0 && (
+                          <Text
+                            style={styles.incidentTypes}
+                            numberOfLines={2}
+                          >
+                            Types: {hotspot.types.join(", ")}
+                          </Text>
+                        )}
+                      </View>
+
+                      <View style={styles.locationAction}>
                         <View
                           style={[
-                            styles.statusBadge,
-                            {
-                              backgroundColor: statusStyle.bg,
-                            },
+                            styles.levelBadge,
+                            { backgroundColor: colors.background },
                           ]}
                         >
                           <Text
                             style={[
-                              styles.statusBadgeText,
-                              {
-                                color: statusStyle.color,
-                              },
+                              styles.levelBadgeText,
+                              { color: colors.color },
                             ]}
                           >
-                            {group.status}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.infoBoxGrid}>
-                        <View style={styles.infoItem}>
-                          <Text style={styles.infoLabel}>Category</Text>
-                          <Text style={styles.infoValue}>{group.category}</Text>
-                        </View>
-
-                        <View style={styles.infoItem}>
-                          <Text style={styles.infoLabel}>Incident Type</Text>
-                          <Text style={styles.infoValue}>{group.type}</Text>
-                        </View>
-
-                        <View style={styles.infoItem}>
-                          <Text style={styles.infoLabel}>Location</Text>
-                          <View style={styles.infoLocationRow}>
-                            <Ionicons
-                              name="location-outline"
-                              size={15}
-                              color="#5D6F92"
-                            />
-                            <Text style={styles.infoLocationText}>
-                              {group.location}
-                            </Text>
-                          </View>
-                        </View>
-
-                        <View style={styles.infoItem}>
-                          <Text style={styles.infoLabel}>Highest AI Score</Text>
-                          <Text style={styles.infoValue}>
-                            {group.highestAiScore}%
+                            {hotspot.level}
                           </Text>
                         </View>
 
-                        <View style={styles.infoItem}>
-                          <Text style={styles.infoLabel}>Severity</Text>
-                          <View
-                            style={[
-                              styles.miniBadge,
-                              { backgroundColor: severityStyle.bg },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.miniBadgeText,
-                                { color: severityStyle.color },
-                              ]}
-                            >
-                              {group.severity}
-                            </Text>
-                          </View>
-                        </View>
+                        <Ionicons
+                          name={
+                            selected
+                              ? "checkmark-circle"
+                              : "locate-outline"
+                          }
+                          size={22}
+                          color="#294880"
+                        />
+                        <Text style={styles.viewMapText}>
+                          {selected ? "Selected" : "Focus map"}
+                        </Text>
                       </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
-                      <View style={styles.bottomRow}>
-                        <TouchableOpacity
-                          style={styles.viewButton}
-                          onPress={() => openCompiledGroup(group)}
-                          activeOpacity={0.85}
-                        >
-                          <Ionicons
-                            name="eye-outline"
-                            size={17}
-                            color="#FFFFFF"
-                          />
-                          <Text style={styles.viewButtonText}>
-                            {isCompiled ? "View Posts" : "View Posts"}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </View>
-                );
-              })
-            )}
-
-            {filteredReports.length > visibleReports.length && (
-              <TouchableOpacity
-                style={styles.viewMoreBtn}
-                onPress={() => setVisibleCount((count) => count + PAGE_SIZE)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.viewMoreText}>View more</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </ScrollView>
-
-        {showScrollTop && (
-          <TouchableOpacity
-            style={styles.scrollTopBtn}
-            onPress={() =>
-              scrollRef.current?.scrollTo({ y: 0, animated: true })
-            }
-            activeOpacity={0.8}
-          >
-            <Ionicons name="chevron-up" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
-        )}
-
-        <Admin_ViewSimilarReportsModal
-        visible={viewVisible}
-        compiledGroup={selectedCompiledGroup}
-        onClose={closeReport}
-        onVerify={handleVerify}
-        onReject={handleReject}
-        onMapAndVerify={handleMapAndVerify}
-        onMarkAsFake={handleMarkAsFake}
-        onReanalyze={handleReanalyze}
-        reanalyzing={reanalyzing}
-        validating={validating}
-    />
-
-      </View>
+              {visibleHotspots.length > 10 && (
+                <Pressable
+                  onPress={() => setShowAllHotspots(!showAllHotspots)}
+                  style={styles.viewMoreButton}
+                >
+                  <Text style={styles.viewMoreText}>
+                    {showAllHotspots
+                      ? "Show Less"
+                      : `View More (${visibleHotspots.length - 10} more)`}
+                  </Text>
+                  <Ionicons
+                    name={
+                      showAllHotspots
+                        ? "chevron-up"
+                        : "chevron-down"
+                    }
+                    size={18}
+                    color="#294880"
+                  />
+                </Pressable>
+              )}
+            </>
+          )}
+        </View>
+      </ScrollView>
     </Admin_Layout>
   );
 }
 
+function SummaryCard({
+  icon,
+  label,
+  value,
+  subtext,
+  subColor,
+  color,
+  background,
+}) {
+  return (
+    <View style={styles.summaryCard}>
+      <View
+        style={[
+          styles.summaryIcon,
+          { backgroundColor: background },
+        ]}
+      >
+        <Ionicons name={icon} size={24} color={color} />
+      </View>
+
+      <View style={styles.summaryContent}>
+        <Text style={styles.summaryLabel}>{label}</Text>
+
+        <View style={styles.summaryValueRow}>
+          <Text
+            style={[
+              styles.summaryValue,
+              { color },
+            ]}
+          >
+            {value}
+          </Text>
+
+          <Text
+            style={[
+              styles.summarySubtext,
+              { color: subColor },
+            ]}
+          >
+            {subtext}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  wrapper: {
-    flex: 1,
-    backgroundColor: "#F5F8FC",
+  page: {
+    padding: 20,
+    paddingBottom: 32,
+    gap: 16,
+    backgroundColor: "#F8FAF9",
   },
-
-  container: {
-    flex: 1,
-    backgroundColor: "#F5F8FC",
-  },
-
-  scrollContent: {
-    paddingBottom: 34,
-  },
-
-  statsRow: {
+  header: {
     flexDirection: "row",
-    flexWrap: "nowrap",
-    gap: 10,
-    marginBottom: 18,
+    alignItems: "center",
+    gap: 12,
   },
-
-  statCard: {
+  headerNarrow: {
+    flexWrap: "wrap",
+  },
+  headerIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: "#E8EFFB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerText: {
     flex: 1,
-    minWidth: 0,
+    minWidth: 180,
+  },
+  title: {
+    fontFamily: "PoppinsSemiBold",
+    fontSize: 21,
+    color: "#294880",
+  },
+  subtitle: {
+    fontFamily: "PoppinsRegular",
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#647B75",
+    marginTop: 2,
+  },
+  updatedText: {
+    fontFamily: "PoppinsRegular",
+    fontSize: 10,
+    color: "#82918B",
+    marginTop: 3,
+  },
+  refreshButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    backgroundColor: "#FFFFFF",
+  },
+  refreshText: {
+    fontFamily: "PoppinsMedium",
+    fontSize: 11,
+    color: "#294880",
+  },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 13,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "#F0C7C7",
+    backgroundColor: "#FFF7F7",
+  },
+  errorText: {
+    flex: 1,
+    fontFamily: "PoppinsRegular",
+    fontSize: 11,
+    lineHeight: 17,
+    color: "#854545",
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14,
+    marginBottom: 2,
+  },
+  summaryCard: {
+    flex: 1,
+    minWidth: 210,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#D9E2F0",
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
   },
-
-  statIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+  summaryIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
+    marginRight: 14,
   },
-
-  statTextBox: {
+  summaryContent: {
     flex: 1,
     minWidth: 0,
   },
-
-  statValue: {
-    fontSize: 22,
-    fontFamily: "PoppinsSemiBold",
-    color: "#2F4267",
-  },
-
-  statTitle: {
-    fontSize: 12,
-    color: "#5D6F92",
-    marginTop: 3,
+  summaryLabel: {
+    fontSize: 14,
+    color: "#4B5D7A",
+    marginBottom: 6,
     fontFamily: "PoppinsMedium",
   },
-
+  summaryValueRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+  },
+  summaryValue: {
+    fontSize: 22,
+    fontFamily: "PoppinsSemiBold",
+  },
+  summarySubtext: {
+    fontSize: 11,
+    fontFamily: "PoppinsRegular",
+  },
+  // Admin Validation Filter Card Style
   filterCard: {
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#D9E2F0",
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 18,
-  },
-
-  filterTopRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 14,
-    marginBottom: 16,
-  },
-
-  filterHeaderTitleBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    flex: 1,
-  },
-
-  filterMainIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
-    backgroundColor: "#EAF2FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  filterMainTitle: {
-    fontSize: 16,
-    fontFamily: "PoppinsSemiBold",
-    color: COMMUNISHIELD_BLUE,
-  },
-
-  filterMainSubtitle: {
-    fontSize: 13,
-    fontFamily: "PoppinsRegular",
-    color: "#5D6F92",
-    marginTop: 2,
-  },
-
-  addReportButton: {
-    height: 42,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: COMMUNISHIELD_BLUE,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-  },
-
-  addReportButtonText: {
-    fontSize: 13,
-    fontFamily: "PoppinsSemiBold",
-    color: "#FFFFFF",
-  },
-
-  exportCsvButton: {
-    backgroundColor: "#25845C",
-  },
-
-  filterCriteriaRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 16,
-  },
-
-  batchFilterRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 10,
-    paddingBottom: 2,
-    width: "100%",
-  },
-
-  criteriaInput: {
-    flexGrow: 1,
-    minWidth: 145,
-    height: 42,
-    borderWidth: 1,
-    borderColor: "#D9E2F0",
-    borderRadius: 8,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12,
-    color: "#2F4267",
-    fontFamily: "PoppinsRegular",
-    fontSize: 13,
-  },
-
-  searchCriteriaInput: {
-    flexGrow: 2,
-    minWidth: 220,
-  },
-
-  barangayFilter: {
-    flexGrow: 1,
-    minWidth: 220,
-  },
-
-  filterBody: {
-    flexDirection: "row",
-    gap: 18,
-    flexWrap: "wrap",
-  },
-
-  filterColumn: {
-    flex: 1,
-    minWidth: 320,
-    backgroundColor: "#F7F9FD",
-    borderWidth: 1,
-    borderColor: "#E4EAF3",
     borderRadius: 14,
-    padding: 14,
+    padding: 16,
+    gap: 12,
   },
-
   filterHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    marginBottom: 10,
+    justifyContent: "between",
   },
-
-  filterTitleBox: {
+  filterTitleContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
+    flex: 1,
   },
-
-  filterTitle: {
-    fontSize: 14,
+  filterCardTitle: {
     fontFamily: "PoppinsSemiBold",
-    color: COMMUNISHIELD_BLUE,
+    fontSize: 16,
+    color: "#294880",
   },
-
-  filterSelectedText: {
+  resetFilterButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  resetFilterButtonText: {
+    fontFamily: "PoppinsMedium",
     fontSize: 12,
-    fontFamily: "PoppinsMedium",
-    color: "#7A8BA8",
+    color: "#294880",
   },
-
-  filterRow: {
-    gap: 10,
-    paddingRight: 4,
-  },
-
-  filterPill: {
-    height: 38,
-    paddingHorizontal: 15,
-    borderRadius: 999,
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F4F7FC",
     borderWidth: 1,
     borderColor: "#D9E2F0",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 44,
+    gap: 8,
   },
-
-  activeFilterPill: {
-    backgroundColor: COMMUNISHIELD_BLUE,
-    borderColor: COMMUNISHIELD_BLUE,
-  },
-
-  filterPillText: {
-    fontSize: 13,
-    fontFamily: "PoppinsMedium",
-    color: COMMUNISHIELD_BLUE,
-  },
-
-  activeFilterPillText: {
-    color: "#FFFFFF",
-  },
-
-  datePill: {
-    height: 38,
-    paddingHorizontal: 15,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#D9E2F0",
-    backgroundColor: "#FFFFFF",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-  },
-
-  activeDatePill: {
-    backgroundColor: COMMUNISHIELD_BLUE,
-    borderColor: COMMUNISHIELD_BLUE,
-  },
-
-  datePillText: {
-    fontSize: 13,
-    fontFamily: "PoppinsMedium",
-    color: COMMUNISHIELD_BLUE,
-  },
-
-  activeDatePillText: {
-    color: "#FFFFFF",
-  },
-
-  reportsCard: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#D9E2F0",
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-
-  listHeader: {
-    minHeight: 82,
-    paddingHorizontal: 22,
-    paddingVertical: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: "#D9E2F0",
-    backgroundColor: "#F7F9FD",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
-  },
-
-  listHeaderTextBox: {
+  searchInput: {
     flex: 1,
-  },
-
-  sectionTitle: {
-    fontSize: 21,
-    fontFamily: "PoppinsSemiBold",
-    color: COMMUNISHIELD_BLUE,
-  },
-
-  resultText: {
-    fontSize: 15,
-    fontFamily: "PoppinsMedium",
-    color: COMMUNISHIELD_BLUE,
-  },
-
-  reportRow: {
-    paddingHorizontal: 22,
-    paddingVertical: 20,
-    backgroundColor: "#FFFFFF",
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 16,
-  },
-
-  reportRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: "#E4EAF3",
-  },
-
-  reportIconBox: {
-    width: 52,
-    height: 52,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  reportContent: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  reportTopRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12,
-    marginBottom: 14,
-  },
-
-  reportTitleBox: {
-    flex: 1,
-  },
-
-  reportTitle: {
-    fontSize: 18,
-    fontFamily: "PoppinsMedium",
-    color: "#111827",
-    lineHeight: 23,
-    marginBottom: 4,
-  },
-
-  reportMeta: {
-    fontSize: 14,
-    color: "#5D6F92",
-    lineHeight: 20,
     fontFamily: "PoppinsRegular",
+    fontSize: 13,
+    color: "#294880",
+    padding: 0,
   },
-
-  statusBadge: {
+  filterLabel: {
+    fontFamily: "PoppinsMedium",
+    fontSize: 12,
+    color: "#4B5D7A",
+    marginTop: 4,
+  },
+  filterChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  filterChip: {
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 999,
-  },
-
-  statusBadgeText: {
-    fontSize: 12,
-    fontFamily: "PoppinsMedium",
-  },
-
-  infoBoxGrid: {
-    flexDirection: "row",
-    alignItems: "stretch",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 14,
-  },
-
-  infoItem: {
-    flex: 1,
-    minWidth: 180,
-    backgroundColor: "#F7F9FD",
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#E4EAF3",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: "#D9E2F0",
+    backgroundColor: "#F8FAF9",
   },
-
-  infoLabel: {
+  filterChipActive: {
+    backgroundColor: "#E8EFFB",
+    borderColor: "#294880",
+  },
+  filterChipText: {
+    fontFamily: "PoppinsRegular",
     fontSize: 12,
-    color: "#7A8BA8",
+    color: "#5D6F92",
+  },
+  filterChipTextActive: {
     fontFamily: "PoppinsMedium",
-    marginBottom: 5,
+    color: "#294880",
   },
-
-  infoValue: {
-    fontSize: 14,
-    color: COMMUNISHIELD_BLUE,
-    fontFamily: "PoppinsMedium",
-    lineHeight: 19,
+  filterResultsCount: {
+    fontFamily: "PoppinsRegular",
+    fontSize: 11,
+    color: "#82918B",
+    marginTop: 4,
   },
-
-  infoLocationRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 6,
-  },
-
-  infoLocationText: {
-    flex: 1,
-    fontSize: 14,
-    color: COMMUNISHIELD_BLUE,
-    fontFamily: "PoppinsMedium",
-    lineHeight: 19,
-  },
-
-  miniBadge: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-
-  miniBadgeText: {
-    fontSize: 12,
-    fontFamily: "PoppinsMedium",
-  },
-
-  bottomRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    flexWrap: "wrap",
+  panel: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    borderRadius: 14,
+    padding: 16,
     gap: 12,
   },
-
-  viewButton: {
-    height: 42,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: COMMUNISHIELD_BLUE,
+  sectionTitle: {
+    fontFamily: "PoppinsSemiBold",
+    fontSize: 15,
+    color: "#294880",
+  },
+  sectionSubtitle: {
+    fontFamily: "PoppinsRegular",
+    fontSize: 11,
+    color: "#647B75",
+  },
+  mapHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    justifyContent: "space-between",
   },
-
-  viewButtonText: {
-    fontSize: 13,
-    fontFamily: "PoppinsSemiBold",
-    color: "#FFFFFF",
+  mapHeaderText: {
+    flex: 1,
   },
-
-  emptyState: {
-    paddingVertical: 48,
+  resetButton: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    backgroundColor: "#F8FAF9",
   },
-
-  emptyTitle: {
-    fontSize: 18,
+  resetText: {
     fontFamily: "PoppinsMedium",
-    color: "#2F4267",
-    marginTop: 12,
-    marginBottom: 6,
+    fontSize: 11,
+    color: "#294880",
   },
-
-  emptyText: {
-    fontSize: 15,
-    color: "#5D6F92",
-    fontFamily: "PoppinsRegular",
+  mapContainer: {
+    height: 280,
+    borderRadius: 10,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#E5EBEA",
+    backgroundColor: "#F2F5F4",
   },
-
-  viewMoreBtn: {
-    alignSelf: "center",
-    marginTop: 16,
-    marginBottom: 6,
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: "#294880",
-  },
-
-  viewMoreText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontFamily: "PoppinsSemiBold",
-  },
-
-  scrollTopBtn: {
-    position: "absolute",
-    right: 26,
-    bottom: 30,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#294880",
+  mapState: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 20,
-    elevation: 6,
-    shadowColor: "#000000",
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+    padding: 20,
+    gap: 8,
+  },
+  stateText: {
+    fontFamily: "PoppinsMedium",
+    fontSize: 13,
+    color: "#294880",
+    textAlign: "center",
+  },
+  stateSubtext: {
+    fontFamily: "PoppinsRegular",
+    fontSize: 11,
+    color: "#647B75",
+    textAlign: "center",
+  },
+  legend: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    marginTop: 4,
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  legendText: {
+    fontFamily: "PoppinsRegular",
+    fontSize: 11,
+    color: "#4B5D7A",
+  },
+  listHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  listHeaderText: {
+    flex: 1,
+  },
+  countText: {
+    fontFamily: "PoppinsMedium",
+    fontSize: 12,
+    color: "#294880",
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 30,
+    gap: 8,
+  },
+  locationList: {
+    gap: 10,
+  },
+  locationCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5EBEA",
+    backgroundColor: "#F8FAF9",
+    gap: 12,
+  },
+  locationCardSelected: {
+    borderColor: "#294880",
+    backgroundColor: "#F2F6FC",
+  },
+  rankBox: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: "#E5EBEA",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rankBoxSelected: {
+    backgroundColor: "#294880",
+  },
+  rankText: {
+    fontFamily: "PoppinsSemiBold",
+    fontSize: 12,
+    color: "#647B75",
+  },
+  rankTextSelected: {
+    color: "#FFFFFF",
+  },
+  locationContent: {
+    flex: 1,
+    gap: 2,
+  },
+  locationName: {
+    fontFamily: "PoppinsSemiBold",
+    fontSize: 13,
+    color: "#294880",
+  },
+  locationMeta: {
+    fontFamily: "PoppinsRegular",
+    fontSize: 11,
+    color: "#647B75",
+  },
+  locationLevelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 2,
+  },
+  levelDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  levelText: {
+    fontFamily: "PoppinsMedium",
+    fontSize: 11,
+  },
+  incidentTypes: {
+    fontFamily: "PoppinsRegular",
+    fontSize: 10,
+    color: "#82918B",
+    marginTop: 2,
+  },
+  latestText: {
+    fontFamily: "PoppinsRegular",
+    fontSize: 10,
+    color: "#82918B",
+  },
+  locationAction: {
+    alignItems: "flex-end",
+    gap: 4,
+  },
+  levelBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  levelBadgeText: {
+    fontFamily: "PoppinsMedium",
+    fontSize: 10,
+  },
+  viewMapText: {
+    fontFamily: "PoppinsMedium",
+    fontSize: 10,
+    color: "#294880",
+  },
+  viewMoreButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    backgroundColor: "#F8FAF9",
+    marginTop: 4,
+  },
+  viewMoreText: {
+    fontFamily: "PoppinsMedium",
+    fontSize: 12,
+    color: "#294880",
   },
 });

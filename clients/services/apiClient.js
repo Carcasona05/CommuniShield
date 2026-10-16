@@ -2,7 +2,7 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
-const BASE_URL =
+const BASE_URL =  
   Platform.OS === "web"
     ? process.env.EXPO_PUBLIC_API_URL
     : "https://communishield-server-iota.vercel.app/api";
@@ -26,8 +26,7 @@ export const clearDisabledReason = async () => {
 };
 
 const apiClient = axios.create({
-  // baseURL: BASE_URL,
-  baseURL: "http://192.168.8.134:3000/api",
+  baseURL: "http://172.20.10.3:3000/api",
   timeout: 180000,
   headers: {
     "Content-Type": "application/json",
