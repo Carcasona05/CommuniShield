@@ -15,10 +15,6 @@ import { useFonts } from "expo-font";
 
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
-import {
-  BatchFilterDropdown,
-  BatchDateRangeDropdown,
-} from "../../components/Admin_compo/AdminBatchFilters";
 import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import apiClient from "../../services/apiClient";
@@ -36,6 +32,7 @@ const PERIODS = [
 const LEVELS = ["All", "Critical", "High", "Moderate", "Low"];
 
 const ALL_ARGAO_BARANGAYS = ARGAO_BARANGAYS.map((b) => b.name);
+const LOCATION_OPTIONS = ["All", ...ALL_ARGAO_BARANGAYS];
 
 const textValue = (value) => String(value ?? "").trim();
 
@@ -130,15 +127,16 @@ export default function Admin_Hotspot_Detection() {
   const [loading, setLoading] = useState(() => getCache(CACHE_KEY) === undefined);
   const [errorMessage, setErrorMessage] = useState("");
 
-  // Filters state
+  // Filter states
   const [period, setPeriod] = useState("7d");
   const [selectedLocation, setSelectedLocation] = useState("All");
   const [selectedLevel, setSelectedLevel] = useState("All");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
   const [search, setSearch] = useState("");
   const [showAllHotspots, setShowAllHotspots] = useState(false);
   const [selectedHotspotKey, setSelectedHotspotKey] = useState(null);
+
+  // Dropdown open states
+  const [openDropdown, setOpenDropdown] = useState(null); // 'period' | 'location' | 'level' | null
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -182,21 +180,15 @@ export default function Admin_Hotspot_Detection() {
   useAutoRefresh(loadReports, 60000);
 
   const periodReports = useMemo(() => {
-    const startPeriod = getPeriodStart(period);
-    const startCustom = fromDate ? new Date(`${fromDate}T00:00:00`) : null;
-    const endCustom = toDate ? new Date(`${toDate}T23:59:59.999`) : null;
+    const start = getPeriodStart(period);
 
     return reports.filter((report) => {
       if (isExcluded(report)) return false;
+      if (!start) return true;
       const date = getDate(report);
-
-      if (startPeriod && date !== null && date < startPeriod) return false;
-      if (startCustom && date !== null && date < startCustom) return false;
-      if (endCustom && date !== null && date > endCustom) return false;
-
-      return true;
+      return date !== null && date >= start;
     });
-  }, [reports, period, fromDate, toDate]);
+  }, [reports, period]);
 
   const hotspots = useMemo(() => {
     const groups = new Map();
@@ -320,11 +312,10 @@ export default function Admin_Hotspot_Detection() {
     setPeriod("7d");
     setSelectedLocation("All");
     setSelectedLevel("All");
-    setFromDate("");
-    setToDate("");
     setSearch("");
     setSelectedHotspotKey(null);
     setShowAllHotspots(false);
+    setOpenDropdown(null);
   };
 
   if (!fontsLoaded) return null;
@@ -383,7 +374,7 @@ export default function Admin_Hotspot_Detection() {
           />
         </View>
 
-        {/* UNIFIED FILTER CARD WITH SPACE-OCCUPYING WRAP */}
+        {/* UNIFIED FILTER CARD WITH HOVERDOWN MENUS */}
         <View style={styles.filterCard}>
           <View style={styles.filterTopRow}>
             <View style={styles.filterHeaderTitleBox}>
@@ -391,7 +382,7 @@ export default function Admin_Hotspot_Detection() {
                 <Ionicons name="options-outline" size={20} color="#294880" />
               </View>
               <View style={styles.filterTitleText}>
-                <Text style={styles.filterMainTitle}>Filter Hotspot Reports</Text>
+                <Text style={styles.filterMainTitle}>Filter Reports & Hotspots</Text>
                 <Text style={styles.filterMainSubtitle}>
                   Filter incident concentrations across Argao barangays
                 </Text>
@@ -403,56 +394,156 @@ export default function Admin_Hotspot_Detection() {
             </Pressable>
           </View>
 
-          
-
-          {/* BATCH HOVERDOWN FILTERS OCCUPYING FULL WIDTH SPACE */}
-          <View style={styles.batchFilterRow}>
-            <View style={styles.filterDropdownWrapper}>
-              <BatchFilterDropdown
-                label="Location (Barangay)"
-                value={selectedLocation}
-                options={[{ value: "All", label: "All Barangays" }, ...ARGAO_BARANGAYS.map(({ name }) => ({ value: name, label: name }))]}
-                onChange={(val) => {
-                  setSelectedLocation(val);
-                  setSelectedHotspotKey(null);
-                  setShowAllHotspots(false);
-                }}
-              />
-            </View>
-            <View style={styles.filterDropdownWrapper}>
-              <BatchFilterDropdown
-                label="Reporting Period"
-                value={period}
-                options={PERIODS.map((p) => ({ value: p.value, label: p.label }))}
-                onChange={(val) => {
-                  setPeriod(val);
-                  setSelectedHotspotKey(null);
-                  setShowAllHotspots(false);
-                }}
-              />
-            </View>
-            <View style={styles.filterDropdownWrapper}>
-              <BatchFilterDropdown
-                label="Concentration Level"
-                value={selectedLevel}
-                options={LEVELS.map((lvl) => ({ value: lvl, label: lvl === "All" ? "All Levels" : lvl }))}
-                onChange={(val) => {
-                  setSelectedLevel(val);
-                  setShowAllHotspots(false);
-                }}
-              />
-            </View>
-            <View style={styles.filterDateWrapper}>
-              <BatchDateRangeDropdown
-                from={fromDate}
-                to={toDate}
-                onChangeFrom={setFromDate}
-                onChangeTo={setToDate}
-              />
-            </View>
+          <View style={styles.searchBox}>
+            <Ionicons name="search-outline" size={18} color="#82918B" />
+            <TextInput
+              value={search}
+              onChangeText={(value) => {
+                setSearch(value);
+                setShowAllHotspots(false);
+              }}
+              placeholder="Search location or incident type..."
+              placeholderTextColor="#98A39E"
+              style={styles.searchInput}
+            />
+            {!!search && (
+              <Pressable onPress={() => setSearch("")}>
+                <Ionicons name="close-circle" size={18} color="#82918B" />
+              </Pressable>
+            )}
           </View>
 
-          
+          {/* HOVERDOWN DROPDOWN SELECTORS CONTAINER */}
+          <View style={styles.batchFilterRow}>
+            
+            {/* Reporting Period Dropdown */}
+            <View style={styles.dropdownContainer}>
+              <Text style={styles.filterLabel}>Reporting period</Text>
+              <Pressable
+                style={styles.dropdownTrigger}
+                onPress={() => setOpenDropdown(openDropdown === "period" ? null : "period")}
+              >
+                <Text style={styles.dropdownTriggerText}>
+                  {PERIODS.find((p) => p.value === period)?.label || "Select period"}
+                </Text>
+                <Ionicons
+                  name={openDropdown === "period" ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color="#294880"
+                />
+              </Pressable>
+
+              {openDropdown === "period" && (
+                <View style={styles.dropdownMenu}>
+                  {PERIODS.map((item) => (
+                    <Pressable
+                      key={item.value}
+                      style={[styles.dropdownItem, period === item.value && styles.dropdownItemSelected]}
+                      onPress={() => {
+                        setPeriod(item.value);
+                        setSelectedHotspotKey(null);
+                        setShowAllHotspots(false);
+                        setOpenDropdown(null);
+                      }}
+                    >
+                      <Text style={[styles.dropdownItemText, period === item.value && styles.dropdownItemTextSelected]}>
+                        {item.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Location / Barangay Dropdown */}
+            <View style={styles.dropdownContainer}>
+              <Text style={styles.filterLabel}>Location (Barangay)</Text>
+              <Pressable
+                style={styles.dropdownTrigger}
+                onPress={() => setOpenDropdown(openDropdown === "location" ? null : "location")}
+              >
+                <Text style={styles.dropdownTriggerText} numberOfLines={1}>
+                  {selectedLocation === "All" ? "All locations" : selectedLocation}
+                </Text>
+                <Ionicons
+                  name={openDropdown === "location" ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color="#294880"
+                />
+              </Pressable>
+
+              {openDropdown === "location" && (
+                <View style={styles.dropdownMenu}>
+                  <ScrollView style={styles.dropdownScrollList} nestedScrollIndicator showsVerticalScrollIndicator={false}>
+                    {LOCATION_OPTIONS.map((loc) => (
+                      <Pressable
+                        key={loc}
+                        style={[styles.dropdownItem, selectedLocation === loc && styles.dropdownItemSelected]}
+                        onPress={() => {
+                          setSelectedLocation(loc);
+                          setSelectedHotspotKey(null);
+                          setShowAllHotspots(false);
+                          setOpenDropdown(null);
+                        }}
+                      >
+                        <Text style={[styles.dropdownItemText, selectedLocation === loc && styles.dropdownItemTextSelected]}>
+                          {loc === "All" ? "All locations" : loc}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+
+            {/* Concentration Level Dropdown */}
+            <View style={styles.dropdownContainer}>
+              <Text style={styles.filterLabel}>Concentration level</Text>
+              <Pressable
+                style={styles.dropdownTrigger}
+                onPress={() => setOpenDropdown(openDropdown === "level" ? null : "level")}
+              >
+                <Text style={styles.dropdownTriggerText}>
+                  {selectedLevel === "All" ? "All levels" : selectedLevel}
+                </Text>
+                <Ionicons
+                  name={openDropdown === "level" ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color="#294880"
+                />
+              </Pressable>
+
+              {openDropdown === "level" && (
+                <View style={styles.dropdownMenu}>
+                  {LEVELS.map((level) => (
+                    <Pressable
+                      key={level}
+                      style={[styles.dropdownItem, selectedLevel === level && styles.dropdownItemSelected]}
+                      onPress={() => {
+                        setSelectedLevel(level);
+                        setShowAllHotspots(false);
+                        setOpenDropdown(null);
+                      }}
+                    >
+                      <Text style={[styles.dropdownItemText, selectedLevel === level && styles.dropdownItemTextSelected]}>
+                        {level === "All" ? "All levels" : level}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+
+          </View>
+
+          <Text style={styles.filterResultsCount}>
+            Showing{" "}
+            {Math.min(
+              visibleHotspots.length,
+              showAllHotspots ? visibleHotspots.length : 10
+            )}{" "}
+            of {visibleHotspots.length} matching locations.
+          </Text>
         </View>
 
         {/* WORKSPACE CONTAINER: MAP ON LEFT, DETECTED LOCATIONS ON RIGHT */}
@@ -789,21 +880,97 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#FFFFFF",
   },
- 
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F4F7FC",
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 44,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontFamily: "PoppinsRegular",
+    fontSize: 13,
+    color: "#294880",
+    padding: 0,
+  },
   batchFilterRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
     alignItems: "flex-start",
+    paddingVertical: 2,
     zIndex: 20,
   },
-  filterDropdownWrapper: {
+  dropdownContainer: {
     flex: 1,
-    minWidth: 200,
+    minWidth: 160,
+    position: "relative",
+    zIndex: 30,
   },
-  filterDateWrapper: {
-    flex: 2,
-    minWidth: 280,
+  filterLabel: {
+    fontFamily: "PoppinsMedium",
+    fontSize: 12,
+    color: "#4B5D7A",
+    marginBottom: 4,
+  },
+  dropdownTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F8FAF9",
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 42,
+  },
+  dropdownTriggerText: {
+    fontFamily: "PoppinsRegular",
+    fontSize: 12,
+    color: "#294880",
+    flex: 1,
+  },
+  dropdownMenu: {
+    position: "absolute",
+    top: 68,
+    left: 0,
+    right: 0,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 999,
+  },
+  dropdownScrollList: {
+    maxHeight: 200,
+  },
+  dropdownItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+  dropdownItemSelected: {
+    backgroundColor: "#E8EFFB",
+  },
+  dropdownItemText: {
+    fontFamily: "PoppinsRegular",
+    fontSize: 12,
+    color: "#4B5D7A",
+  },
+  dropdownItemTextSelected: {
+    fontFamily: "PoppinsMedium",
+    color: "#294880",
   },
   filterResultsCount: {
     fontFamily: "PoppinsRegular",
