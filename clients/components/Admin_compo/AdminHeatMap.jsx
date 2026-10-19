@@ -35,18 +35,21 @@ const MAP_HTML = `
 <script>
   (function () {
     var ARGAO_CENTER = [9.8816, 123.5953];
+    // Covers the complete official barangay-hall dataset, including the
+    // northern and western barangays. The minimum zoom keeps the map within
+    // the municipal/Siboang view without trapping a selected barangay.
     var ARGAO_BOUNDS = [
-      [9.75, 123.5],
-      [9.95, 123.65],
+      [9.75, 123.45],
+      [10.02, 123.66],
     ];
 
     var map = L.map("map", {
       center: ARGAO_CENTER,
       zoom: 13,
-      minZoom: 12,
+      minZoom: 11,
       maxZoom: 18,
       maxBounds: ARGAO_BOUNDS,
-      maxBoundsViscosity: 1.0,
+      maxBoundsViscosity: 0.85,
       scrollWheelZoom: true,
     });
 
@@ -64,9 +67,26 @@ const MAP_HTML = `
       Critical: "#E45757",
     };
 
-    var SEVERITY_INTENSITY = { Low: 0.3, Medium: 0.5, High: 0.75, Critical: 1 };
-    var SEVERITY_RANK = { Low: 1, Medium: 2, High: 3, Critical: 4 };
-    var DOT_RADIUS = { Low: 7, Medium: 8, High: 9, Critical: 9.5 };
+    var SEVERITY_INTENSITY = {
+      Low: 0.3,
+      Medium: 0.5,
+      High: 0.75,
+      Critical: 1
+    };
+
+    var SEVERITY_RANK = {
+      Low: 1,
+      Medium: 2,
+      High: 3,
+      Critical: 4
+    };
+
+    var DOT_RADIUS = {
+      Low: 7,
+      Medium: 8,
+      High: 9,
+      Critical: 9.5
+    };
 
     var HEAT_GRADIENT = {
       0.3: "#22c55e",
@@ -76,7 +96,9 @@ const MAP_HTML = `
     };
 
     function severityOf(r) {
-      return SEVERITY_INTENSITY[r.severity] != null ? r.severity : "Medium";
+      return SEVERITY_INTENSITY[r.severity] != null
+        ? r.severity
+        : "Medium";
     }
 
     function esc(value) {
@@ -90,23 +112,30 @@ const MAP_HTML = `
     function worstSeverity(list) {
       var best = "Medium";
       var bestRank = 0;
+
       (list || []).forEach(function (r) {
         var sev = severityOf(r);
         var rank = SEVERITY_RANK[sev] || 0;
+
         if (rank > bestRank) {
           bestRank = rank;
           best = sev;
         }
       });
+
       return best;
     }
 
     function emitSelection(report) {
       if (!report) return;
+
       try {
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(
-            JSON.stringify({ type: "report-select", report: report })
+            JSON.stringify({
+              type: "report-select",
+              report: report
+            })
           );
         }
       } catch (err) {}
@@ -119,10 +148,14 @@ const MAP_HTML = `
     function popupHtml(key) {
       var group = groups[key];
       if (!group) return "";
+
       var report = group.list[group.idx];
       var sev = severityOf(report);
       var color = SEVERITY_COLOR[sev] || "#294880";
-      var score = report.ai_score != null ? report.ai_score + "%" : "—";
+      var score = report.ai_score != null
+        ? report.ai_score + "%"
+        : "—";
+
       var html =
         '<div class="cs-pop">' +
           '<div class="cs-pop-top">' +
@@ -133,17 +166,22 @@ const MAP_HTML = `
               esc(report.incident_type || "Incident") +
             "</span>" +
           "</div>" +
-          '<div class="cs-pop-loc">' + esc(report.location || "") + "</div>" +
+          '<div class="cs-pop-loc">' +
+            esc(report.location || "") +
+          "</div>" +
           '<div class="cs-pop-meta">' +
-            "<span>Status: " + esc(report.status || "Pending Review") + "</span>" +
+            "<span>Status: " +
+              esc(report.status || "Pending Review") +
+            "</span>" +
             "<span>AI Score: " + score + "</span>" +
           "</div>";
+
       if (group.list.length > 1) {
         html +=
           '<div class="cs-pop-nav">' +
             '<button class="cs-nav-btn" type="button" data-key="' +
             esc(key) +
-            '" data-dir="-1">\u2039 Prev</button>' +
+            '" data-dir="-1">\\u2039 Prev</button>' +
             '<span class="cs-nav-count">' +
             (group.idx + 1) +
             " / " +
@@ -151,25 +189,38 @@ const MAP_HTML = `
             "</span>" +
             '<button class="cs-nav-btn" type="button" data-key="' +
             esc(key) +
-            '" data-dir="1">Next \u203A</button>' +
+            '" data-dir="1">Next \\u203A</button>' +
           "</div>";
       }
+
       return html + "</div>";
     }
 
     window.__csShift = function (key, dir) {
       var group = groups[key];
+
       if (!group || group.list.length < 2) return;
-      group.idx = (group.idx + dir + group.list.length) % group.list.length;
+
+      group.idx =
+        (group.idx + dir + group.list.length) % group.list.length;
+
       group.marker.setPopupContent(popupHtml(key));
-      if (!group.marker.isPopupOpen()) group.marker.openPopup();
+
+      if (!group.marker.isPopupOpen()) {
+        group.marker.openPopup();
+      }
+
       emitSelection(group.list[group.idx]);
     };
 
     document.getElementById("map").addEventListener("click", function (e) {
       var btn =
-        e.target && e.target.closest ? e.target.closest(".cs-nav-btn") : null;
+        e.target && e.target.closest
+          ? e.target.closest(".cs-nav-btn")
+          : null;
+
       if (!btn) return;
+
       window.__csShift(
         btn.getAttribute("data-key"),
         Number(btn.getAttribute("data-dir"))
@@ -178,25 +229,42 @@ const MAP_HTML = `
 
     function render(list) {
       markerLayer.clearLayers();
+
       if (heatLayer) {
         map.removeLayer(heatLayer);
         heatLayer = null;
       }
+
       groups = {};
 
       var points = [];
 
       (list || []).forEach(function (r) {
         if (r.latitude == null || r.longitude == null) return;
+
         var lat = Number(r.latitude);
         var lng = Number(r.longitude);
+
         if (!isFinite(lat) || !isFinite(lng)) return;
 
         var sev = severityOf(r);
-        points.push([lat, lng, SEVERITY_INTENSITY[sev]]);
+
+        points.push([
+          lat,
+          lng,
+          SEVERITY_INTENSITY[sev]
+        ]);
 
         var key = lat.toFixed(4) + "," + lng.toFixed(4);
-        if (!groups[key]) groups[key] = { list: [], idx: 0, marker: null };
+
+        if (!groups[key]) {
+          groups[key] = {
+            list: [],
+            idx: 0,
+            marker: null
+          };
+        }
+
         groups[key].list.push(r);
       });
 
@@ -204,6 +272,7 @@ const MAP_HTML = `
         var group = groups[key];
         var first = group.list[0];
         var sev = worstSeverity(group.list);
+
         var marker = L.circleMarker(
           [Number(first.latitude), Number(first.longitude)],
           {
@@ -215,10 +284,13 @@ const MAP_HTML = `
             className: "cs-dot",
           }
         );
+
         marker.bindPopup(popupHtml(key));
+
         marker.on("click", function () {
           emitSelection(group.list[group.idx]);
         });
+
         group.marker = marker;
         markerLayer.addLayer(marker);
       });
@@ -234,13 +306,45 @@ const MAP_HTML = `
     }
 
     window.__communishieldInit = function (cfg) {
-      render((cfg && cfg.reports) || []);
+      cfg = cfg || {};
+
+      render(cfg.reports || []);
+
+      var target = cfg.focusTarget;
+
+      if (
+        target &&
+        target.latitude != null &&
+        target.longitude != null &&
+        isFinite(Number(target.latitude)) &&
+        isFinite(Number(target.longitude))
+      ) {
+        map.flyTo(
+          [
+            Number(target.latitude),
+            Number(target.longitude)
+          ],
+          Number(target.zoom) || 17,
+          {
+            animate: true,
+            duration: 1.1
+          }
+        );
+      } else if (cfg.resetView) {
+        map.flyTo(ARGAO_CENTER, 13, {
+          animate: true,
+          duration: 0.8
+        });
+      }
     };
 
     window.addEventListener("message", function (e) {
       try {
         var d = JSON.parse(e.data);
-        if (d.type === "init") window.__communishieldInit(d);
+
+        if (d.type === "init") {
+          window.__communishieldInit(d);
+        }
       } catch (err) {}
     });
   })();
@@ -249,27 +353,46 @@ const MAP_HTML = `
 </html>
 `;
 
-const AdminHeatMap = ({ style, reports = [], onReportSelect }) => {
+const AdminHeatMap = ({
+  style,
+  reports = [],
+  onReportSelect,
+  focusTarget = null,
+  resetView = false,
+}) => {
   const mapRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
   const isWeb = Platform.OS === "web";
+
   const reportsRef = useRef(reports);
   reportsRef.current = reports;
 
   const handleMessage = (event) => {
     try {
       const payload = JSON.parse(event.nativeEvent.data);
-      if (payload?.type === "report-select" && payload.report && onReportSelect) {
+
+      if (
+        payload?.type === "report-select" &&
+        payload.report &&
+        onReportSelect
+      ) {
         onReportSelect(payload.report);
       }
     } catch {
-      // ignore unsupported messages
+      // Ignore unsupported messages.
     }
   };
 
   const pushInit = () => {
     if (!mapRef.current) return;
-    const cfg = JSON.stringify({ type: "init", reports: reportsRef.current });
+
+    const cfg = JSON.stringify({
+      type: "init",
+      reports: reportsRef.current,
+      focusTarget,
+      resetView,
+    });
+
     if (isWeb) {
       mapRef.current.contentWindow?.postMessage(cfg, "*");
     } else {
@@ -282,14 +405,19 @@ const AdminHeatMap = ({ style, reports = [], onReportSelect }) => {
   useEffect(() => {
     if (!loaded) return;
     pushInit();
-  }, [loaded, reports]);
+  }, [loaded, reports, focusTarget, resetView]);
 
   if (isWeb) {
     return (
       <iframe
         ref={mapRef}
         srcDoc={MAP_HTML}
-        style={{ width: "100%", height: "100%", border: "0", display: "block" }}
+        style={{
+          width: "100%",
+          height: "100%",
+          border: "0",
+          display: "block",
+        }}
         onLoad={() => setLoaded(true)}
       />
     );

@@ -736,7 +736,7 @@ const styles = StyleSheet.create({
   },
 
   pageTitle: {
-    fontSize: 30,
+    fontSize: 24,
     color: "#294880",
     fontFamily: "PoppinsSemiBold",
     marginBottom: 8,

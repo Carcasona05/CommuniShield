@@ -7,10 +7,13 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts } from "expo-font";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import Admin_AddReportModal from "../../components/Admin_compo/Admin_AddReportModal";
 import Admin_AddAnnouncementModal from "../../components/Admin_compo/Admin_AddAnnouncementModal";
@@ -34,6 +37,148 @@ const formatDate = (value) => {
   if (!value) return "";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
+};
+
+const documentValue = (value) => {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) return value.join(", ") || "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+};
+
+const escapeHtml = (value) => documentValue(value)
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;")
+  .replace(/'/g, "&#39;");
+
+const getRecordDocumentSections = (record) => {
+  if (record.kind === "Announcement") {
+    return [
+      {
+        title: "Publication Details",
+        fields: [
+          ["Record ID", record.id],
+          ["Record Type", record.kind],
+          ["Published", formatDate(record.created_at)],
+          ["Status", record.status],
+          ["Published By", record.actor || record.reportedBy],
+          ["Location", record.location],
+        ],
+      },
+      { title: "Announcement", fields: [["Details", record.details]] },
+    ];
+  }
+
+  if (record.kind === "Activity") {
+    return [
+      {
+        title: "Activity Record",
+        fields: [
+          ["Record ID", record.id],
+          ["Action", record.title || record.status],
+          ["Date and Time", formatDate(record.created_at)],
+          ["Actor", record.actor],
+          ["Actor Role", record.actorRole],
+          ["Details", record.details],
+        ],
+      },
+    ];
+  }
+
+  return [
+    {
+      title: "Report Identification",
+      fields: [
+        ["Report ID", record.id],
+        ["Record Type", record.kind],
+        ["Date/Time Reported", record.dateReported || formatDate(record.created_at)],
+        ["Status", record.status],
+        ["Severity", record.severity],
+        ["Source", record.source || record.actorRole],
+      ],
+    },
+    {
+      title: "Incident Information",
+      fields: [
+        ["Incident Category", record.incident_category || record.incidentCategory],
+        ["Type of Incident", record.incident_type || record.incidentType],
+        ["Location", record.location],
+        ["Barangay", record.barangay],
+        ["Date/Time of Incident", record.incidentDateTime || record.incident_datetime || record.incident_date],
+        ["Coordinates", record.latitude && record.longitude ? `${record.latitude}, ${record.longitude}` : ""],
+      ],
+    },
+    {
+      title: "People Involved",
+      fields: [
+        ["Reported By", record.reportedBy || record.poster_name || record.actor],
+        ["Complainant Name", record.complainantName],
+        ["Complainant Age", record.complainantAge],
+        ["Contact Number", record.complainantContact || record.contact_number],
+        ["Respondent", record.respondent],
+        ["Blotter Officer", record.blotterOfficer],
+      ],
+    },
+    {
+      title: "Narrative and Actions",
+      fields: [
+        ["Report Details", record.details || record.incidentDescription],
+        ["Action Taken", record.actionTaken || record.action_taken],
+      ],
+    },
+  ];
+};
+
+const buildRecordDocumentHtml = (record) => {
+  const sections = getRecordDocumentSections(record);
+  const sectionMarkup = sections.map((section) => `
+    <section>
+      <h2>${escapeHtml(section.title)}</h2>
+      <table><tbody>${section.fields.map(([label, value]) => `
+        <tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>
+      `).join("")}</tbody></table>
+    </section>
+  `).join("");
+  const images = (record.images || record.photos || [])
+    .map((image) => typeof image === "string" ? image : image?.uri || image?.url || image?.image_url)
+    .filter(Boolean);
+  const imageMarkup = images.length ? `
+    <section><h2>Photo Evidence</h2><div class="photos">${images.map((uri, index) => `
+      <figure><img src="${escapeHtml(uri)}" alt="Report evidence ${index + 1}" /><figcaption>Evidence ${index + 1}</figcaption></figure>
+    `).join("")}</div></section>
+  ` : "";
+
+  return `<!doctype html>
+    <html><head><meta charset="utf-8" /><title>${escapeHtml(record.title || "Report")}</title>
+    <style>
+      @page { size: A4; margin: 18mm; }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: #1f2937; font: 12px Arial, sans-serif; line-height: 1.5; }
+      header { border-bottom: 3px solid #294880; padding-bottom: 14px; margin-bottom: 22px; }
+      .brand { color: #294880; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+      h1 { margin: 8px 0 3px; color: #172b4d; font-size: 22px; }
+      .subtitle { color: #64748b; font-size: 11px; }
+      section { margin: 0 0 20px; break-inside: avoid; }
+      h2 { margin: 0 0 8px; padding-bottom: 5px; border-bottom: 1px solid #d9e2f0; color: #294880; font-size: 13px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 7px 9px; border-bottom: 1px solid #e5eaf1; text-align: left; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+      th { width: 34%; color: #52627a; font-weight: 600; }
+      .photos { display: flex; flex-wrap: wrap; gap: 12px; }
+      figure { margin: 0; width: 46%; break-inside: avoid; }
+      img { max-width: 100%; max-height: 250px; object-fit: contain; }
+      figcaption { color: #64748b; font-size: 10px; }
+      footer { margin-top: 26px; padding-top: 8px; border-top: 1px solid #d9e2f0; color: #64748b; font-size: 9px; }
+    </style></head><body>
+      <header><div class="brand">CommuniShield · Argao, Cebu</div>
+        <h1>${escapeHtml(record.title || `${record.kind || "Admin"} Record`)}</h1>
+        <div class="subtitle">Official ${escapeHtml(record.kind || "Admin")} Record · Generated ${escapeHtml(new Date().toLocaleString())}</div>
+      </header>
+      ${sectionMarkup}${imageMarkup}
+      <footer>Confidential administrative record. Handle and share in accordance with local records policies.</footer>
+    </body></html>`;
 };
 
 export default function Admin_ReportManagementWrapper() {
@@ -108,6 +253,7 @@ function Admin_ReportManagement() {
 
   const activityRecords = useMemo(() => {
     return (status === "All" ? logs : []).map((item) => ({
+        ...item,
         id: `activity-${item.id}`,
         kind: "Activity",
         title: item.title || item.actionType || "Admin activity",
@@ -123,6 +269,7 @@ function Admin_ReportManagement() {
 
   const visibleRecords = useMemo(() => [
     ...reports.map((item) => ({
+      ...item,
       id: item.id,
       kind: [item.reportType, item.report_type, item.kind].includes("Blotter") ? "Blotter" : "Incident",
       title: `${item.incident_type || "Incident"}${item.location ? ` in ${item.location}` : ""}`,
@@ -136,6 +283,7 @@ function Admin_ReportManagement() {
     })),
     ...(status === "All"
       ? announcements.map((item) => ({
+          ...item,
           id: `announcement-${item.id}`,
           kind: "Announcement",
           title: item.title || item.type || "Announcement",
@@ -175,7 +323,7 @@ function Admin_ReportManagement() {
   const openRecordPreview = (record, successMessage) => {
     setPreviewRecord(record);
     setPreviewVisible(true);
-    showSuccess(successMessage);
+    if (successMessage) showSuccess(successMessage);
   };
 
   const handleAddReport = async (payload) => {
@@ -295,12 +443,38 @@ function Admin_ReportManagement() {
     await Share.share({ title: "CommuniShield admin records CSV", message: content });
   };
 
-  const handlePrintPreview = () => {
-    if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.print === "function") {
-      window.print();
-      return;
+  const handlePrintPreview = async () => {
+    if (!previewRecord) return;
+    const html = buildRecordDocumentHtml(previewRecord);
+
+    try {
+      if (Platform.OS === "web") {
+        const printWindow = window.open("", "_blank");
+        if (!printWindow) {
+          showError("Allow pop-ups to export this report as a PDF.");
+          return;
+        }
+        printWindow.document.open();
+        printWindow.document.write(html);
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.print();
+        return;
+      }
+
+      const { uri } = await Print.printToFileAsync({ html });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType: "application/pdf",
+          dialogTitle: "Export report as PDF",
+          UTI: "com.adobe.pdf",
+        });
+      } else {
+        showError("The PDF was generated, but sharing is unavailable on this device.");
+      }
+    } catch (error) {
+      showError(error?.message || "Could not export this record as a PDF.");
     }
-    showError("Print/export is available from the web version of the app.");
   };
 
   if (!fontsLoaded) return null;
@@ -333,7 +507,7 @@ function Admin_ReportManagement() {
     <Admin_Layout>
       <View style={styles.wrapper}>
         <ScrollView
-          style={styles.container}
+          style={[styles.container, { scrollbarWidth: "none", msOverflowStyle: "none" }]}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
@@ -442,7 +616,14 @@ function Admin_ReportManagement() {
               const tone = record.kind === "Activity" ? "#B96A18" : "#294880";
               const iconBackground = record.kind === "Activity" ? "#FFF4E5" : "#EAF2FF";
               return (
-                <View key={record.id} style={[styles.recordRow, index > 0 && styles.recordRowBorder]}>
+                <TouchableOpacity
+                  key={record.id}
+                  style={[styles.recordRow, index > 0 && styles.recordRowBorder]}
+                  onPress={() => openRecordPreview(record)}
+                  activeOpacity={0.78}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View ${record.kind} details`}
+                >
                   <View style={[styles.recordIcon, { backgroundColor: iconBackground }]}>
                     <Ionicons name={icon} size={23} color={tone} />
                   </View>
@@ -462,8 +643,11 @@ function Admin_ReportManagement() {
                       {!!record.actor && <Text style={styles.recordMeta}>{record.actor}</Text>}
                     </View>
                     {!!record.details && <Text style={styles.recordDetails} numberOfLines={2}>{record.details}</Text>}
+                    <View style={styles.recordBottomRow}>
+                      
+                    </View>
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             })}
           </View>
@@ -491,55 +675,54 @@ function Admin_ReportManagement() {
           <View style={styles.previewModalOuter}>
             <View style={styles.previewModal}>
               <View style={styles.previewHeader}>
-                <Text style={styles.previewTitle}>Posted Record</Text>
+                <View>
+                  <Text style={styles.previewTitle}>Report Document</Text>
+                  <Text style={styles.previewSubtitle}>{previewRecord.title || previewRecord.id}</Text>
+                </View>
                 <TouchableOpacity onPress={() => setPreviewVisible(false)} hitSlop={10}>
                   <Ionicons name="close" size={24} color="#4B5D7A" />
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.previewScroll} showsVerticalScrollIndicator={false}>
-                <View style={styles.previewSection}>
-                  <Text style={styles.previewSectionTitle}>System Details</Text>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Record Type</Text><Text style={styles.previewValue}>{previewRecord.kind}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Blotter No.</Text><Text style={styles.previewValue}>{previewRecord.blotterNo || previewRecord.id || "—"}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Date/Time Reported</Text><Text style={styles.previewValue}>{previewRecord.dateReported || formatDate(previewRecord.created_at) || "—"}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Barangay</Text><Text style={styles.previewValue}>{previewRecord.barangay || "—"}</Text></View>
+              <ScrollView
+                style={[styles.previewScroll, { scrollbarWidth: "none", msOverflowStyle: "none" }]}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={styles.documentHeading}>
+                  <Text style={styles.documentEyebrow}>COMMUNITY SAFETY RECORD</Text>
+                  <Text style={styles.documentTitle}>{previewRecord.title || `${previewRecord.kind} Record`}</Text>
+                  <Text style={styles.documentId}>Reference {documentValue(previewRecord.id)}</Text>
                 </View>
 
-                <View style={styles.previewSection}>
-                  <Text style={styles.previewSectionTitle}>Incident Info</Text>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Location</Text><Text style={styles.previewValue}>{previewRecord.location || "—"}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Type of Incident</Text><Text style={styles.previewValue}>{previewRecord.incidentType || previewRecord.incident_type || "—"}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Date & Time of Incident</Text><Text style={styles.previewValue}>{previewRecord.incidentDateTime || "—"}</Text></View>
-                </View>
+                {getRecordDocumentSections(previewRecord).map((section) => (
+                  <View key={section.title} style={styles.previewSection}>
+                    <Text style={styles.previewSectionTitle}>{section.title}</Text>
+                    {section.fields.map(([label, value]) => (
+                      <View key={label} style={styles.previewPair}>
+                        <Text style={styles.previewLabel}>{label}</Text>
+                        <Text style={styles.previewValue}>{documentValue(value)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
 
-                <View style={styles.previewSection}>
-                  <Text style={styles.previewSectionTitle}>Parties Involved</Text>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Complainant Name</Text><Text style={styles.previewValue}>{previewRecord.complainantName || previewRecord.poster_name || "—"}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Age</Text><Text style={styles.previewValue}>{previewRecord.complainantAge || "—"}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Contact No.</Text><Text style={styles.previewValue}>{previewRecord.complainantContact || "—"}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Respondent</Text><Text style={styles.previewValue}>{previewRecord.respondent || "—"}</Text></View>
-                </View>
-
-                <View style={styles.previewSection}>
-                  <Text style={styles.previewSectionTitle}>Narrative & Actions</Text>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Incident Description</Text><Text style={styles.previewValue}>{previewRecord.details || previewRecord.incidentDescription || "—"}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Action Taken</Text><Text style={styles.previewValue}>{previewRecord.actionTaken || "—"}</Text></View>
-                </View>
-
-                <View style={styles.previewSection}>
-                  <Text style={styles.previewSectionTitle}>Administrative Tracking</Text>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Status</Text><Text style={styles.previewValue}>{previewRecord.status || "—"}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Reported By</Text><Text style={styles.previewValue}>{previewRecord.reportedBy || previewRecord.actor || "—"}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Blotter Officer</Text><Text style={styles.previewValue}>{previewRecord.blotterOfficer || "—"}</Text></View>
-                  <View style={styles.previewPair}><Text style={styles.previewLabel}>Date Recorded</Text><Text style={styles.previewValue}>{previewRecord.dateRecorded || formatDate(previewRecord.created_at) || "—"}</Text></View>
-                </View>
+                {(previewRecord.images || previewRecord.photos || []).length > 0 ? (
+                  <View style={styles.previewSection}>
+                    <Text style={styles.previewSectionTitle}>Photo Evidence</Text>
+                    <View style={styles.previewImages}>
+                      {(previewRecord.images || previewRecord.photos).map((image, index) => {
+                        const uri = typeof image === "string" ? image : image?.uri || image?.url || image?.image_url;
+                        return uri ? <Image key={`${uri}-${index}`} source={{ uri }} style={styles.previewImage} resizeMode="cover" /> : null;
+                      })}
+                    </View>
+                  </View>
+                ) : null}
               </ScrollView>
 
               <View style={styles.previewFooter}>
                 <TouchableOpacity style={styles.previewPrimaryButton} onPress={handlePrintPreview} activeOpacity={0.85}>
-                  <Ionicons name="print-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.previewPrimaryButtonText}>Print / Export PDF</Text>
+                  <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.previewPrimaryButtonText}>Export as PDF</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.previewSecondaryButton} onPress={() => setPreviewVisible(false)} activeOpacity={0.85}>
                   <Text style={styles.previewSecondaryButtonText}>Close</Text>
@@ -582,12 +765,19 @@ const styles = StyleSheet.create({
   previewModalHidden: { opacity: 0, pointerEvents: "none" },
   previewHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
   previewTitle: { fontSize: 18, fontFamily: "PoppinsSemiBold", color: "#294880" },
+  previewSubtitle: { marginTop: 2, fontSize: 12, fontFamily: "PoppinsRegular", color: "#5D6F92" },
   previewScroll: { maxHeight: 560, paddingHorizontal: 18, paddingVertical: 16 },
+  documentHeading: { paddingVertical: 14, paddingHorizontal: 15, marginBottom: 14, borderLeftWidth: 4, borderLeftColor: "#25845C", backgroundColor: "#F5F8FC" },
+  documentEyebrow: { color: "#25845C", fontSize: 10, fontFamily: "PoppinsSemiBold", letterSpacing: 1 },
+  documentTitle: { marginTop: 5, color: "#1F2A37", fontSize: 18, lineHeight: 25, fontFamily: "PoppinsSemiBold" },
+  documentId: { marginTop: 4, color: "#5D6F92", fontSize: 11, fontFamily: "PoppinsRegular" },
   previewSection: { marginBottom: 14, backgroundColor: "#F9FAFB", borderWidth: 1, borderColor: "#E7ECF3", borderRadius: 12, padding: 14 },
   previewSectionTitle: { fontSize: 13, fontFamily: "PoppinsSemiBold", color: "#294880", marginBottom: 10 },
   previewPair: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 8 },
   previewLabel: { flex: 1, fontSize: 12, color: "#5D6F92", fontFamily: "PoppinsMedium" },
   previewValue: { flex: 1.25, fontSize: 12, color: "#1F2A37", fontFamily: "PoppinsRegular", textAlign: "right" },
+  previewImages: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  previewImage: { width: 150, height: 112, borderRadius: 8, backgroundColor: "#E7ECF3" },
   previewFooter: { flexDirection: "row", justifyContent: "flex-end", gap: 10, paddingHorizontal: 18, paddingVertical: 14, borderTopWidth: 1, borderTopColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
   previewPrimaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#294880", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   previewPrimaryButtonText: { color: "#FFFFFF", fontFamily: "PoppinsSemiBold", fontSize: 13 },
@@ -624,6 +814,9 @@ const styles = StyleSheet.create({
   recordInfoRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 12, marginBottom: 4 },
   severityBadge: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: "#FFF4E5", color: "#B96A18", fontSize: 11, fontFamily: "PoppinsMedium" },
   recordDetails: { color: "#43536A", fontFamily: "PoppinsRegular", fontSize: 13, lineHeight: 19, marginTop: 4 },
+  recordBottomRow: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", marginTop: 9 },
+  recordAction: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 11, paddingVertical: 7, borderWidth: 1, borderColor: "#B9C9E6", borderRadius: 8, backgroundColor: "#EEF3FF" },
+  recordActionText: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 12 },
   emptyState: { minHeight: 150, alignItems: "center", justifyContent: "center", gap: 8, padding: 28 },
   emptyTitle: { fontSize: 18, fontFamily: "PoppinsMedium", color: "#2F4267" },
   emptyText: { fontSize: 14, color: "#5D6F92", fontFamily: "PoppinsRegular", textAlign: "center" },

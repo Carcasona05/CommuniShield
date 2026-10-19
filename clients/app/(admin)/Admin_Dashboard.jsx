@@ -362,7 +362,7 @@ export default function Admin_Dashboard() {
                     <AdminHeatMap reports={filteredMapReports} />
 
                     <View style={styles.legendCard}>
-                      <Text style={styles.legendTitle}>SEVERITY</Text>
+                      <Text style={styles.legendTitle}>Severity</Text>
                       <View style={styles.legendRow}>
                         {[
                           { label: "Critical", color: "#E45757" },
