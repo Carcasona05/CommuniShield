@@ -7,6 +7,7 @@ import { isValidEmail, isValidPhone, passwordPolicyError } from "../services/val
 import { notificationService } from "../services/notificationService.js";
 import { credibilityService } from "../services/credibilityService.js";
 import { reportService } from "../services/reportService.js";
+import { LoginVerificationError, loginVerificationService } from "../services/loginVerificationService.js";
 
 type AuthRequest = Request & { user?: User; token?: string };
 
@@ -43,7 +44,7 @@ export const register = async (req: Request, res: Response) => {
       return res.status(400).json({ error: passwordError });
     }
 
-    const { error } = await supabaseAdmin.auth.admin.createUser({
+    const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
@@ -52,22 +53,14 @@ export const register = async (req: Request, res: Response) => {
 
     if (error) return res.status(400).json({ error: error.message });
 
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (authError) return res.status(401).json({ error: authError.message });
-
-    const userId = authData.user?.id;
+    const userId = created.user?.id;
     if (userId) {
       await profileService.recordTermsAcceptance(userId, termsVersion);
     }
 
     res.json({
       message: "Registered",
-      access_token: authData.session?.access_token ?? null,
-      user: authData.user,
+      login_required: true,
     });
   } catch (err) {
     console.error("[Register Error]", err);
@@ -76,84 +69,76 @@ export const register = async (req: Request, res: Response) => {
 };
 
 export const login = async (req: Request, res: Response) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
-    }
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) return res.status(401).json({ error: error.message });
-
-    try {
-      await notificationService.createLoginActivity({
-        userId: data.user.id,
-        device: detectDevice(req.headers["user-agent"]),
-        location: "Philippines",
-        isCurrent: true,
-      });
-    } catch {
-      // login activity logging is best-effort
-    }
-
-    res.json({
-      message: "Login successful",
-      access_token: data.session?.access_token ?? null,
-      user: data.user,
-    });
-  } catch {
-    res.status(500).json({ error: "Internal server error" });
-  }
+  return loginWithDevice(req, res, false);
 };
 
-export const adminLogin = async (req: Request, res: Response) => {
+async function loginWithDevice(req: Request, res: Response, admin: boolean) {
   try {
-    const { email, password } = req.body;
+    const { email, password, device_token } = req.body ?? {};
 
-    if (!email || !password) {
+    if (typeof email !== "string" || typeof password !== "string" || !email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
 
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.trim().toLowerCase(),
       password,
     });
 
     if (error) return res.status(401).json({ error: error.message });
+    if (!data.session?.access_token || !data.user.email) return res.status(401).json({ error: "No session token" });
+    const { data: profile, error: profileError } = await profileService.getProfile(data.user.id);
+    if (profileError || !profile) return res.status(503).json({ error: "Could not check account status. Please try again." });
+    if (profile.status === "Disabled") return res.status(403).json({ error: "Your account is disabled. Contact the super admin." });
+    if (admin && !["admin", "super_admin"].includes(profile.role)) return res.status(403).json({ error: "Admin access only." });
+    if (!admin && profile.role !== "user") return res.status(403).json({ error: "Please use Admin Login for this account." });
 
-    const token = data.session?.access_token;
-    if (!token) return res.status(401).json({ error: "No session token" });
-
-    const { data: profile, error: profileErr } = await profileService.getProfile(data.user.id);
-
-    if (profileErr) {
-      return res.status(500).json({ error: "Profile query failed", detail: profileErr.message });
+    if (!await loginVerificationService.isTrusted(data.user.id, data.user.email, password, device_token)) {
+      return res.json(await loginVerificationService.create({
+        userId: data.user.id, email: data.user.email, password,
+        token: data.session.access_token, admin,
+      }));
     }
+    await loginVerificationService.approveSession(data.user.id, data.session.access_token);
+    await recordLogin(data.user.id, req);
+    return res.json({ message: "Login successful", access_token: data.session.access_token,
+      user: { ...data.user, name: profile.fullname, role: profile.role } });
+  } catch (error) {
+    return res.status(error instanceof LoginVerificationError ? error.status : 503)
+      .json({ error: error instanceof LoginVerificationError ? error.message : "Sign-in verification is unavailable. Please try again later." });
+  }
+}
 
-    if (!profile) {
-      return res.status(403).json({ error: "No profile found for this account. Contact super admin." });
+export const adminLogin = async (req: Request, res: Response) => {
+  return loginWithDevice(req, res, true);
+};
+
+async function recordLogin(userId: string, req: Request) {
+  await notificationService.createLoginActivity({ userId, device: detectDevice(req.headers["user-agent"]), isCurrent: true }).catch(() => {});
+}
+
+export const verifyLoginCode = async (req: Request, res: Response) => {
+  try {
+    const { challenge_id, code } = req.body ?? {};
+    if (typeof challenge_id !== "string" || !/^[a-f0-9]{64}$/.test(challenge_id) ||
+      typeof code !== "string" || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ error: "Provide a valid challenge and six-digit code." });
     }
-
-    if (profile.status === "Disabled") {
-      return res.status(403).json({ error: "Your account is disabled. Contact the super admin." });
-    }
-
-    if (profile.role === "user") {
-      return res.status(403).json({ error: "Admin access only." });
-    }
-
-    res.json({
-      message: "Admin login successful",
-      access_token: token,
-      user: { ...data.user, name: profile.fullname, role: profile.role },
-    });
-  } catch {
-    res.status(500).json({ error: "Internal server error" });
+    const challenge = await loginVerificationService.consume(challenge_id, code);
+    const { data, error } = await supabase.auth.getUser(challenge.token);
+    if (error || data.user?.id !== challenge.userId || data.user.email !== challenge.email) return res.status(401).json({ error: "Session expired or credentials changed. Please sign in again." });
+    const { data: profile, error: profileError } = await profileService.getProfile(challenge.userId);
+    if (profileError || !profile) return res.status(503).json({ error: "Could not check account status." });
+    if (profile.status === "Disabled") return res.status(403).json({ error: "Your account is disabled. Contact the super admin." });
+    if (challenge.admin ? !["admin", "super_admin"].includes(profile.role) : profile.role !== "user") return res.status(403).json({ error: "Account access changed. Please sign in again." });
+    const deviceToken = await loginVerificationService.remember(challenge.userId, challenge.credentialHash, challenge.epoch);
+    await loginVerificationService.approveSession(challenge.userId, challenge.token, challenge.epoch);
+    await recordLogin(challenge.userId, req);
+    return res.json({ message: "Device verified", access_token: challenge.token, device_token: deviceToken,
+      user: { ...data.user, name: profile.fullname, role: profile.role } });
+  } catch (error) {
+    return res.status(error instanceof LoginVerificationError ? error.status : 503)
+      .json({ error: error instanceof LoginVerificationError ? error.message : "Sign-in verification is unavailable. Please try again later." });
   }
 };
 
@@ -302,6 +287,7 @@ export const changePassword = async (
       return res.status(401).json({ error: "Current password is incorrect" });
     }
 
+    await loginVerificationService.revokeAll(user.id);
     const { error: updateError } = await profileService.updateAuth(user.id, {
       password: newPassword,
     });
@@ -378,6 +364,7 @@ export const changeEmail = async (req: AuthRequest, res: Response) => {
     return res.status(400).json({ error: "Current email does not match" });
   }
 
+  await loginVerificationService.revokeAll(user.id);
   const { error: updateError } = await profileService.updateAuth(user.id, {
     email: newEmail,
   });

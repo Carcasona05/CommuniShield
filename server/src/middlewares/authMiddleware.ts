@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../config/supabase.js";
 import { profileService } from "../services/authService.js";
+import { loginVerificationService } from "../services/loginVerificationService.js";
 
 type AuthRequest = Request & { user?: User; token?: string };
 
@@ -20,6 +21,14 @@ export const authenticate = async (
 
   if (error || !data.user) {
     return res.status(401).json({ error: "Invalid or expired token" });
+  }
+
+  try {
+    if (!await loginVerificationService.sessionApproved(data.user.id, token)) {
+      return res.status(401).json({ error: "Please sign in again and verify this device.", code: "DEVICE_VERIFICATION_REQUIRED" });
+    }
+  } catch {
+    return res.status(503).json({ error: "Sign-in verification is temporarily unavailable." });
   }
 
   const profile = await profileService.getProfile(data.user.id);

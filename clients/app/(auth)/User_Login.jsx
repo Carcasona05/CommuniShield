@@ -21,6 +21,8 @@ import { saveAuth } from "../../services/auth";
 import { IMAGES } from "../../constants/assets";
 import { prefetchAllData } from "../../services/dataStore";
 import ToastProvider, { useToast } from "../../components/Toast";
+import useDeviceLogin from "../../hooks/useDeviceLogin";
+import LoginVerificationModal from "../../components/modals/LoginVerificationModal";
 
 const validateLoginPassword = (value) => {
   if (!value) return "Password incorrect.";
@@ -54,6 +56,12 @@ function UserLoginInner() {
   const [resetEmail, setResetEmail] = useState("");
   const [sendingOtp, setSendingOtp] = useState(false);
   const [, setAdminTapCount] = useState(0);
+  const { beginLogin, verificationModalProps } = useDeviceLogin(async (data) => {
+    await saveAuth({ token: data.access_token, role: "user" });
+    prefetchAllData();
+    toast.success("Login successful! Welcome back.");
+    setTimeout(() => router.replace("/(tabs)/User_Home"), 800);
+  });
 
   useFocusEffect(
     useCallback(() => {
@@ -123,29 +131,7 @@ function UserLoginInner() {
 
     setLoading(true);
     try {
-      const res = await apiClient.post("/login", {
-        email: cleanEmail,
-        password,
-      });
-
-      const token = res.data?.access_token;
-
-      if (!token) {
-        throw new Error("No access token received from server.");
-      }
-
-      try {
-        await saveAuth({ token, role: "user" });
-      } catch (storageError) {
-        console.warn("Failed to store access token:", storageError);
-      }
-
-      prefetchAllData();
-
-      toast.success("Login successful! Welcome back.");
-      setTimeout(() => {
-        router.replace("/(tabs)/User_Home");
-      }, 800);
+      await beginLogin(cleanEmail, password);
     } catch (error) {
       toast.error(
         error.response?.data?.error || "Invalid credentials"
@@ -203,6 +189,7 @@ function UserLoginInner() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <LoginVerificationModal {...verificationModalProps} />
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === "ios" ? "padding" : undefined}

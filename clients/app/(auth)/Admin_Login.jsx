@@ -21,6 +21,8 @@ import { prefetchAllData } from "../../services/dataStore";
 import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
 import { isValidEmail } from "../../services/validation";
+import useDeviceLogin from "../../hooks/useDeviceLogin";
+import LoginVerificationModal from "../../components/modals/LoginVerificationModal";
 
 const { width, height } = Dimensions.get("window");
 
@@ -83,6 +85,19 @@ function Admin_LoginInner() {
   const [resettingPassword, setResettingPassword] = useState(false);
   const [disabledMessage, setDisabledMessage] = useState("");
   const [disabledModalVisible, setDisabledModalVisible] = useState(false);
+  const { beginLogin, verificationModalProps } = useDeviceLogin(async (data) => {
+    const user = data.user;
+    await saveAuth({ token: data.access_token, role: user?.role || "admin" });
+    await saveAdminInfo({
+      fullName: user?.name || user?.email || "Admin",
+      email: user?.email || email.trim().toLowerCase(),
+      role: user?.role || "Admin",
+    });
+    prefetchAllData();
+    toast.success("Login successful! Welcome back.");
+    setTimeout(() => router.replace(user?.role === "super_admin"
+      ? "/(sadmin)/SAdmin_Dashboard" : "/(admin)/Admin_Dashboard"), 800);
+  });
 
   const handlePasswordChange = (text) => {
     setPassword(text);
@@ -113,7 +128,6 @@ function Admin_LoginInner() {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const cleanPassword = password.trim();
 
     setSubmitted(true);
     const pwError = validateLoginPassword(password);
@@ -132,36 +146,7 @@ function Admin_LoginInner() {
 
     setLoading(true);
     try {
-      const res = await apiClient.post("/admin/login", {
-        email: cleanEmail,
-        password: cleanPassword,
-      });
-
-      const token = res.data?.access_token;
-      const user = res.data?.user;
-
-      if (!token) {
-        throw new Error("No access token received");
-      }
-
-      await saveAuth({ token, role: user?.role || "admin" });
-
-      await saveAdminInfo({
-        fullName: user?.name || user?.email || "Admin",
-        email: user?.email || cleanEmail,
-        role: user?.role || "Admin",
-      });
-
-      prefetchAllData();
-
-      toast.success("Login successful! Welcome back.");
-      setTimeout(() => {
-        if (user?.role === "super_admin") {
-          router.replace("/(sadmin)/SAdmin_Dashboard");
-        } else {
-          router.replace("/(admin)/Admin_Dashboard");
-        }
-      }, 800);
+      await beginLogin(cleanEmail, password, true);
     } catch (error) {
       const errMsg = error.response?.data?.error || "";
       const status = error.response?.status;
@@ -525,6 +510,7 @@ function Admin_LoginInner() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <LoginVerificationModal {...verificationModalProps} />
       <View style={styles.page}>
         <Image
           source={IMAGES.bannerDark}

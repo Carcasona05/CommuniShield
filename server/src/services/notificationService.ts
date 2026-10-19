@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import { allowsNotification, notificationPreferencesService } from "./notificationPreferencesService.js";
 
 type NotifType =
   | "report_status"
@@ -55,6 +56,15 @@ export const notificationService = {
     distanceMeters?: number | string;
     level?: "Low" | "Moderate" | "High";
   }) {
+    // Apply user opt-outs at delivery time, without deleting notification history
+    // or affecting admin alerts and security login activity.
+    if (input.userId && (input.type === "report_status" || input.type === "nearby_incident")) {
+      const { data: preferences, error } = await notificationPreferencesService.get(input.userId);
+      if (error || !preferences) return { error: "Could not check notification preferences" };
+      if (!allowsNotification(preferences, input.type)) {
+        return { data: null, skipped: true };
+      }
+    }
     const { id: typeId, error: typeError } = await this.getTypeId(input.type);
     if (typeError) return { error: typeError };
 
@@ -173,7 +183,7 @@ export const notificationService = {
       );
       if (distance > radiusMeters) continue;
 
-      const { error } = await this.createNotification({
+      const result = await this.createNotification({
         userId,
         type: "nearby_incident",
         title,
@@ -182,7 +192,7 @@ export const notificationService = {
         distanceMeters: distance,
         level,
       });
-      if (!error) notified += 1;
+      if (result.data) notified += 1;
     }
 
     return { data: notified, error: null };

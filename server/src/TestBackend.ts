@@ -24,6 +24,110 @@ import {
   type ForecastActionFacts,
 } from "./services/forecastActionsService.js";
 import { validateSetting } from "./controllers/settingsController.js";
+import { allowsNotification, notificationPreferencesService } from "./services/notificationPreferencesService.js";
+import { notificationService } from "./services/notificationService.js";
+import { getNotificationPreferences, updateNotificationPreferences } from "./controllers/notificationPreferencesController.js";
+import type { Request, Response } from "express";
+import type { User } from "@supabase/supabase-js";
+
+describe("user notification preferences", () => {
+  test("master switch and crime switch independently control delivery", () => {
+    for (const notifications_enabled of [true, false]) {
+      for (const crime_alerts_enabled of [true, false]) {
+        const preferences = { notifications_enabled, crime_alerts_enabled };
+        assert.equal(allowsNotification(preferences, "report_status"), notifications_enabled);
+        assert.equal(allowsNotification(preferences, "nearby_incident"), notifications_enabled && crime_alerts_enabled);
+      }
+    }
+  });
+
+  const response = () => {
+    const result = { status: 200, body: undefined as unknown };
+    const res = {
+      status(code: number) { result.status = code; return res; },
+      json(body: unknown) { result.body = body; return res; },
+    } as Response;
+    return { res, result };
+  };
+  const request = (body?: unknown) => ({ user: { id: "user-1" } as User, body }) as Request & { user: User };
+
+  test("preferences require authentication", async () => {
+    for (const handler of [getNotificationPreferences, updateNotificationPreferences]) {
+      const { res, result } = response();
+      await handler({} as Request, res);
+      assert.equal(result.status, 401);
+    }
+  });
+
+  test("rejects empty, unknown, and non-boolean preferences", async () => {
+    for (const body of [undefined, {}, [], { role: "admin" }, { notifications_enabled: "false" }, { crime_alerts_enabled: null }]) {
+      const { res, result } = response();
+      await updateNotificationPreferences(request(body), res);
+      assert.equal(result.status, 400);
+    }
+  });
+
+  test("saves only the supplied preference for the authenticated user", async (t) => {
+    const saved = { notifications_enabled: false, crime_alerts_enabled: true };
+    t.mock.method(notificationPreferencesService, "update", async (id: string, patch: Record<string, boolean>) => {
+      assert.equal(id, "user-1");
+      assert.deepEqual(patch, { notifications_enabled: false });
+      return { data: saved, error: null };
+    });
+    const { res, result } = response();
+    await updateNotificationPreferences(request({ notifications_enabled: false }), res);
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body, saved);
+  });
+
+  test("returns an error instead of reporting a failed save as successful", async (t) => {
+    t.mock.method(notificationPreferencesService, "update", async () => ({ data: null, error: { message: "database unavailable" } }));
+    const { res, result } = response();
+    await updateNotificationPreferences(request({ crime_alerts_enabled: false }), res);
+    assert.equal(result.status, 500);
+  });
+
+  test("loads the authenticated user's saved preferences", async (t) => {
+    const saved = { notifications_enabled: true, crime_alerts_enabled: false };
+    t.mock.method(notificationPreferencesService, "get", async (id: string) => {
+      assert.equal(id, "user-1");
+      return { data: saved, error: null };
+    });
+    const { res, result } = response();
+    await getNotificationPreferences(request(), res);
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body, saved);
+  });
+
+  test("failed preference reads do not silently enable notifications", async (t) => {
+    t.mock.method(notificationPreferencesService, "get", async () => ({ data: null, error: { message: "database unavailable" } }));
+    const { res, result } = response();
+    await getNotificationPreferences(request(), res);
+    assert.equal(result.status, 500);
+    const delivery = await notificationService.createNotification({ userId: "user-1", type: "report_status", title: "Test" });
+    assert.ok(delivery.error);
+  });
+
+  test("opted-out user notifications are skipped before insertion", async (t) => {
+    t.mock.method(notificationPreferencesService, "get", async () => ({
+      data: { notifications_enabled: false, crime_alerts_enabled: true }, error: null,
+    }));
+    const typeLookup = t.mock.method(notificationService, "getTypeId", async () => { throw new Error("must not insert"); });
+    for (const type of ["report_status", "nearby_incident"] as const) {
+      const result = await notificationService.createNotification({ userId: "user-1", type, title: "Test" });
+      assert.equal(result.skipped, true);
+    }
+    assert.equal(typeLookup.mock.callCount(), 0);
+  });
+
+  test("crime opt-out suppresses nearby incidents even with notifications on", async (t) => {
+    t.mock.method(notificationPreferencesService, "get", async () => ({
+      data: { notifications_enabled: true, crime_alerts_enabled: false }, error: null,
+    }));
+    const result = await notificationService.createNotification({ userId: "user-1", type: "nearby_incident", title: "Test" });
+    assert.equal(result.skipped, true);
+  });
+});
 
 const basePrediction = (
   overrides: Partial<SentimentPrediction>
@@ -585,6 +689,8 @@ describe("API", () => {
   describe("protected routes reject requests without a token", () => {
     const protectedRoutes: Array<{ method: string; path: string }> = [
       { method: "GET", path: "/api/profile" },
+      { method: "GET", path: "/api/profile/notification-preferences" },
+      { method: "PATCH", path: "/api/profile/notification-preferences" },
       { method: "PUT", path: "/api/profile" },
       { method: "PUT", path: "/api/profile/email" },
       { method: "PUT", path: "/api/profile/password" },

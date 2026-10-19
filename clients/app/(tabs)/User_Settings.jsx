@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -20,8 +20,11 @@ import { clearAuth } from "../../services/auth";
 import { getCache, setCache } from "../../services/dataStore";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import ToastProvider, { useToast } from "../../components/Toast";
+import ConfirmModal from "../../components/modals/ConfirmModal";
 
 const COMMUNISHIELD_BLUE = "#294880";
+const PREFERENCES_PATH = "/profile/notification-preferences";
+const PREFERENCES_CACHE_KEY = `api:${PREFERENCES_PATH}`;
 
 const UserSettingsWrapper = () => {
   return (
@@ -33,6 +36,7 @@ const UserSettingsWrapper = () => {
 
 const UserSettings = () => {
   const toast = useToast();
+  const preferenceLoadError = toast.error;
   const router = useRouter();
 
   const [loading, setLoading] = useState(() => getCache("api:/profile") === undefined);
@@ -43,8 +47,73 @@ const UserSettings = () => {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const [notifications, setNotifications] = useState(true);
-  const [crimeAlerts, setCrimeAlerts] = useState(true);
+  const [preferences, setPreferences] = useState(
+    () => getCache(PREFERENCES_CACHE_KEY) ?? null
+  );
+  const [savingPreferences, setSavingPreferences] = useState(false);
+  const [preferenceToDisable, setPreferenceToDisable] = useState(null);
+  const preferenceVersion = useRef(0);
+  const savingPreferenceRef = useRef(false);
+  const notifications = preferences?.notifications_enabled ?? true;
+  const crimeAlerts = preferences?.crime_alerts_enabled ?? true;
+
+  const loadPreferences = useCallback(async () => {
+    if (savingPreferenceRef.current) return;
+    const version = ++preferenceVersion.current;
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+      const { data } = await apiClient.get(PREFERENCES_PATH, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (version !== preferenceVersion.current) return;
+      setCache(PREFERENCES_CACHE_KEY, data);
+      setPreferences(data);
+    } catch (error) {
+      if (version === preferenceVersion.current) {
+        const status = error.response?.status;
+        const message = status === 404
+          ? "Preferences API not found. Check that the app uses the updated local server."
+          : !error.response
+            ? "Cannot reach the server. Check your local API URL and server connection."
+            : error.response?.data?.error || "Could not load notification preferences. Please try again.";
+        preferenceLoadError(message);
+      }
+    }
+  }, [preferenceLoadError]);
+
+  const savePreference = async (key, value, label) => {
+    if (savingPreferenceRef.current || !preferences) return;
+    savingPreferenceRef.current = true;
+    preferenceVersion.current += 1;
+    setSavingPreferences(true);
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) throw new Error("Please sign in again.");
+      const { data } = await apiClient.patch(
+        PREFERENCES_PATH,
+        { [key]: value },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setCache(PREFERENCES_CACHE_KEY, data);
+      setPreferences(data);
+      toast.success(`${label} turned ${value ? "on" : "off"}.`);
+    } catch (error) {
+      toast.error(error.response?.data?.error || "Could not save preference. Please try again.");
+    } finally {
+      savingPreferenceRef.current = false;
+      setSavingPreferences(false);
+    }
+  };
+
+  const handlePreferenceChange = (key, value, label) => {
+    if (savingPreferenceRef.current || !preferences) return;
+    if (!value) {
+      setPreferenceToDisable({ key, label });
+    } else {
+      savePreference(key, true, label);
+    }
+  };
   const [displayName, setDisplayName] = useState(() => {
     const cached = getCache("api:/profile");
     if (cached === undefined) return "";
@@ -87,6 +156,7 @@ const UserSettings = () => {
   }, []);
 
   useAutoRefresh(loadProfile, 60000);
+  useAutoRefresh(loadPreferences, 60000);
 
   useEffect(() => {
     loadProfile();
@@ -189,12 +259,14 @@ const UserSettings = () => {
             iconBg="#FFF4DD"
             iconColor="#E7A11A"
             title="Notifications"
-            subtitle="Receive app updates and important reminders"
+            subtitle="Receive app updates, report updates, and Incident alerts"
             rightComponent={
               <Switch
                 trackColor={{ false: "#D1D5DB", true: "#BFD2FF" }}
                 thumbColor={notifications ? COMMUNISHIELD_BLUE : "#F9FAFB"}
-                onValueChange={setNotifications}
+                disabled={!preferences || savingPreferences}
+                accessibilityLabel="Notifications"
+                onValueChange={(value) => handlePreferenceChange("notifications_enabled", value, "Notifications")}
                 value={notifications}
               />
             }
@@ -204,13 +276,17 @@ const UserSettings = () => {
             icon="warning-outline"
             iconBg="#FFEAEA"
             iconColor="#D64545"
-            title="Crime Alert Settings"
-            subtitle="Enable alerts for incidents near your location"
+            title="Incident Alert Settings"
+            subtitle={notifications
+              ? "Enable alerts for incidents near your location"
+              : "Turn on Notifications to receive incident alerts"}
             rightComponent={
               <Switch
                 trackColor={{ false: "#D1D5DB", true: "#FFD2D2" }}
                 thumbColor={crimeAlerts ? "#D64545" : "#F9FAFB"}
-                onValueChange={setCrimeAlerts}
+                disabled={!preferences || savingPreferences}
+                accessibilityLabel="Incident alerts"
+                onValueChange={(value) => handlePreferenceChange("crime_alerts_enabled", value, "Incident alerts")}
                 value={crimeAlerts}
               />
             }
@@ -241,6 +317,22 @@ const UserSettings = () => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <ConfirmModal
+        visible={!!preferenceToDisable}
+        onClose={() => setPreferenceToDisable(null)}
+        onConfirm={() => {
+          if (preferenceToDisable) {
+            savePreference(preferenceToDisable.key, false, preferenceToDisable.label);
+          }
+        }}
+        title={`Turn off ${preferenceToDisable?.label || ""}?`}
+        message={preferenceToDisable?.key === "notifications_enabled"
+          ? "You will stop receiving new report updates and nearby Incident alerts. Your existing notifications and login activity will remain available."
+          : "You will stop receiving new alerts for incidents near your location. Your other notification preferences will not change."}
+        confirmLabel="Turn Off"
+        icon="power-outline"
+      />
 
       <Modal
         visible={showLogoutModal}
