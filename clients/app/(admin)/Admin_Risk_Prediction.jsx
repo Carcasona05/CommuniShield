@@ -167,7 +167,11 @@ export default function Admin_Risk_Prediction() {
 
   return (
     <Admin_Layout>
-      <ScrollView contentContainerStyle={styles.page}>
+      <ScrollView
+        contentContainerStyle={styles.page}
+        showsVerticalScrollIndicator={false}
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+      >
         
         {/* SUMMARY HEADER WITH DYNAMIC COLOR CODING */}
         <View style={styles.overview}>
@@ -259,7 +263,11 @@ export default function Admin_Risk_Prediction() {
 
               {showDropdown && (
                 <View style={styles.dropdownListContainer}>
-                  <ScrollView style={{ maxHeight: 160 }} nestedScrollEnabled>
+                  <ScrollView
+                    style={{ maxHeight: 160, scrollbarWidth: "none", msOverflowStyle: "none" }}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator={false}
+                  >
                     {ARGAO_BARANGAYS.map((brgy) => (
                       <TouchableOpacity
                         key={brgy}

@@ -6,8 +6,8 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
-  //useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -15,6 +15,11 @@ import { useFonts } from "expo-font";
 
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
+import {
+  BatchFilterDropdown,
+  BatchDateRangeDropdown,
+} from "../../components/Admin_compo/AdminBatchFilters";
+import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
@@ -30,61 +35,38 @@ const PERIODS = [
 
 const LEVELS = ["All", "Critical", "High", "Moderate", "Low"];
 
+const ALL_ARGAO_BARANGAYS = ARGAO_BARANGAYS.map((b) => b.name);
+
 const textValue = (value) => String(value ?? "").trim();
 
 const getDate = (report) => {
-  const value =
-    report?.created_at || report?.reported_at || report?.date;
-
+  const value = report?.created_at || report?.reported_at || report?.date;
   if (!value) return null;
-
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
 const getLocation = (report) => {
-  const barangay = textValue(
-    report?.barangay || report?.barangay_name
-  );
-
+  const barangay = textValue(report?.barangay || report?.barangay_name);
   if (barangay) return barangay;
-
   const location = textValue(report?.location);
-
   if (location) return location;
-
   if (report?.latitude != null && report?.longitude != null) {
-    return `${Number(report.latitude).toFixed(4)}, ${Number(
-      report.longitude
-    ).toFixed(4)}`;
+    return `${Number(report.latitude).toFixed(4)}, ${Number(report.longitude).toFixed(4)}`;
   }
-
   return "Location not specified";
 };
 
 const hasCoordinates = (report) => {
-  if (report?.latitude == null || report?.longitude == null) {
-    return false;
-  }
-
+  if (report?.latitude == null || report?.longitude == null) return false;
   const lat = Number(report.latitude);
   const lng = Number(report.longitude);
-
-  return (
-    Number.isFinite(lat) &&
-    Number.isFinite(lng) &&
-    lat >= -90 &&
-    lat <= 90 &&
-    lng >= -180 &&
-    lng <= 180
-  );
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 };
 
 const getHotspotCenter = (hotspot) => {
   const mappedReports = (hotspot?.reports || []).filter(hasCoordinates);
-
   if (mappedReports.length === 0) return null;
-
   const totals = mappedReports.reduce(
     (sum, report) => ({
       latitude: sum.latitude + Number(report.latitude),
@@ -92,17 +74,15 @@ const getHotspotCenter = (hotspot) => {
     }),
     { latitude: 0, longitude: 0 }
   );
-
   return {
     latitude: totals.latitude / mappedReports.length,
     longitude: totals.longitude / mappedReports.length,
-    zoom: 17,
+    zoom: 16,
   };
 };
 
 const isExcluded = (report) => {
   const status = textValue(report?.status).toLowerCase();
-
   return ["rejected", "archived", "marked fake"].includes(status);
 };
 
@@ -114,41 +94,15 @@ const getLevel = (count) => {
 };
 
 const getColors = (level) => {
-  if (level === "Critical") {
-    return {
-      color: "#B93838",
-      background: "#FDEEEE",
-      dot: "#D94841",
-    };
-  }
-
-  if (level === "High") {
-    return {
-      color: "#C25E00",
-      background: "#FFF0E5",
-      dot: "#E66C00",
-    };
-  }
-
-  if (level === "Moderate") {
-    return {
-      color: "#8A7300",
-      background: "#FEFCE8",
-      dot: "#EAB308",
-    };
-  }
-
-  return {
-    color: "#16794B",
-    background: "#EAF8F1",
-    dot: "#37956D",
-  };
+  if (level === "Critical") return { color: "#B93838", background: "#FDEEEE", dot: "#D94841" };
+  if (level === "High") return { color: "#C25E00", background: "#FFF0E5", dot: "#E66C00" };
+  if (level === "Moderate") return { color: "#8A7300", background: "#FEFCE8", dot: "#EAB308" };
+  return { color: "#16794B", background: "#EAF8F1", dot: "#37956D" };
 };
 
 const getPeriodStart = (period) => {
   const now = new Date();
   const start = new Date(now);
-
   if (period === "24h") {
     start.setHours(start.getHours() - 24);
   } else if (period === "7d") {
@@ -158,36 +112,33 @@ const getPeriodStart = (period) => {
   } else {
     return null;
   }
-
   return start;
 };
 
 export default function Admin_Hotspot_Detection() {
+  const { width } = useWindowDimensions();
+  const isNarrow = width < 950;
+
   const scrollViewRef = useRef(null);
   const [mapY, setMapY] = useState(0);
-
-  //const { width } = useWindowDimensions();
-  //const isNarrow = width < 760;
 
   const [reports, setReports] = useState(() => {
     const cached = getCache(CACHE_KEY);
     return Array.isArray(cached?.reports) ? cached.reports : [];
   });
 
-  const [loading, setLoading] = useState(
-    () => getCache(CACHE_KEY) === undefined
-  );
-  //const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(() => getCache(CACHE_KEY) === undefined);
   const [errorMessage, setErrorMessage] = useState("");
-  //const [lastUpdated, setLastUpdated] = useState(null);
 
+  // Filters state
   const [period, setPeriod] = useState("7d");
+  const [selectedLocation, setSelectedLocation] = useState("All");
   const [selectedLevel, setSelectedLevel] = useState("All");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [search, setSearch] = useState("");
   const [showAllHotspots, setShowAllHotspots] = useState(false);
-
-  const [selectedHotspotKey, setSelectedHotspotKey] =
-    useState(null);
+  const [selectedHotspotKey, setSelectedHotspotKey] = useState(null);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -196,130 +147,89 @@ export default function Admin_Hotspot_Detection() {
   });
 
   const loadReports = useCallback(async () => {
-    //setRefreshing(true);
-
     try {
       const token = await AsyncStorage.getItem("access_token");
-
       if (!token) {
-        setErrorMessage(
-          "Your session is missing. Please sign in again."
-        );
+        setErrorMessage("Your session is missing. Please sign in again.");
         return;
       }
-
       const response = await apiClient.get("/admin/dashboard", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
-
       const data = response.data ?? {};
-
       if (!Array.isArray(data.reports)) {
-        throw new Error(
-          "The dashboard response does not contain a reports array."
-        );
+        throw new Error("The dashboard response does not contain a reports array.");
       }
-
       setCache(CACHE_KEY, data);
       setReports(data.reports);
       setErrorMessage("");
-      //setLastUpdated(new Date());
     } catch (error) {
       const cached = getCache(CACHE_KEY);
-
       if (Array.isArray(cached?.reports)) {
         setReports(cached.reports);
       }
-
       const status = error?.response?.status;
-
       if (status === 401 || status === 403) {
-        setErrorMessage(
-          "Access denied. Your session may have expired or your account may not have administrator access."
-        );
+        setErrorMessage("Access denied. Your session may have expired or your account lacks administrator permissions.");
       } else {
-        setErrorMessage(
-          error?.message ||
-            "Unable to retrieve reports. Check your connection and server."
-        );
+        setErrorMessage(error?.message || "Unable to retrieve reports. Check your connection.");
       }
     } finally {
       setLoading(false);
-      //setRefreshing(false);
     }
   }, []);
 
   useAutoRefresh(loadReports, 60000);
 
   const periodReports = useMemo(() => {
-    const start = getPeriodStart(period);
+    const startPeriod = getPeriodStart(period);
+    const startCustom = fromDate ? new Date(`${fromDate}T00:00:00`) : null;
+    const endCustom = toDate ? new Date(`${toDate}T23:59:59.999`) : null;
 
     return reports.filter((report) => {
       if (isExcluded(report)) return false;
-      if (!start) return true;
-
       const date = getDate(report);
 
-      return date !== null && date >= start;
+      if (startPeriod && date !== null && date < startPeriod) return false;
+      if (startCustom && date !== null && date < startCustom) return false;
+      if (endCustom && date !== null && date > endCustom) return false;
+
+      return true;
     });
-  }, [reports, period]);
+  }, [reports, period, fromDate, toDate]);
 
   const hotspots = useMemo(() => {
     const groups = new Map();
 
     periodReports.forEach((report) => {
       const location = getLocation(report);
-
-      if (!location || location === "Location not specified") {
-        return;
-      }
+      if (!location || location === "Location not specified") return;
 
       const key = location.toLowerCase();
-
       if (!groups.has(key)) {
-        groups.set(key, {
-          key,
-          location,
-          reports: [],
-        });
+        groups.set(key, { key, location, reports: [] });
       }
-
       groups.get(key).reports.push(report);
     });
 
     return Array.from(groups.values())
       .map((group) => {
-        const latestDate = group.reports.reduce(
-          (latest, report) => {
-            const date = getDate(report);
-
-            if (!date) return latest;
-            if (!latest || date > latest) return date;
-
-            return latest;
-          },
-          null
-        );
+        const latestDate = group.reports.reduce((latest, report) => {
+          const date = getDate(report);
+          if (!date) return latest;
+          if (!latest || date > latest) return date;
+          return latest;
+        }, null);
 
         const types = [
           ...new Set(
             group.reports
-              .map((report) =>
-                textValue(
-                  report?.incident_type ||
-                    report?.type ||
-                    report?.category
-                )
-              )
+              .map((report) => textValue(report?.incident_type || report?.type || report?.category))
               .filter(Boolean)
           ),
         ];
 
-        const mappedCount = group.reports.filter(
-          hasCoordinates
-        ).length;
+        const mappedCount = group.reports.filter(hasCoordinates).length;
 
         return {
           ...group,
@@ -335,57 +245,64 @@ export default function Admin_Hotspot_Detection() {
 
   const visibleHotspots = useMemo(() => {
     const query = search.trim().toLowerCase();
-
     return hotspots.filter((hotspot) => {
       const matchesSearch =
         !query ||
         hotspot.location.toLowerCase().includes(query) ||
-        hotspot.types.some((type) =>
-          type.toLowerCase().includes(query)
-        );
+        hotspot.types.some((type) => type.toLowerCase().includes(query));
 
-      const matchesLevel =
-        selectedLevel === "All" ||
-        hotspot.level === selectedLevel;
+      const matchesLocation =
+        selectedLocation === "All" ||
+        hotspot.location.toLowerCase().includes(selectedLocation.toLowerCase());
 
-      return matchesSearch && matchesLevel;
+      const matchesLevel = selectedLevel === "All" || hotspot.level === selectedLevel;
+
+      return matchesSearch && matchesLocation && matchesLevel;
     });
-  }, [hotspots, search, selectedLevel]);
+  }, [hotspots, search, selectedLocation, selectedLevel]);
 
-  const displayedHotspots = showAllHotspots
-    ? visibleHotspots
-    : visibleHotspots.slice(0, 10);
+  const displayedHotspots = showAllHotspots ? visibleHotspots : visibleHotspots.slice(0, 10);
 
-  const selectedHotspot =
-    hotspots.find(
-      (item) => item.key === selectedHotspotKey
-    ) || null;
+  const selectedHotspot = hotspots.find((item) => item.key === selectedHotspotKey) || null;
+
+  const mapFocusTarget = useMemo(() => {
+    if (selectedHotspot) {
+      return getHotspotCenter(selectedHotspot);
+    }
+    if (selectedLocation !== "All") {
+      const matchingHotspots = hotspots.filter((h) =>
+        h.location.toLowerCase().includes(selectedLocation.toLowerCase())
+      );
+      if (matchingHotspots.length > 0) {
+        const dummyGroup = {
+          reports: matchingHotspots.flatMap((h) => h.reports),
+        };
+        return getHotspotCenter(dummyGroup);
+      }
+    }
+    return null;
+  }, [selectedHotspot, selectedLocation, hotspots]);
 
   const mapReports = useMemo(() => {
-    const source = selectedHotspot
-      ? selectedHotspot.reports
-      : periodReports;
-
-    return source.filter(hasCoordinates);
-  }, [selectedHotspot, periodReports]);
+    const source = selectedHotspot ? selectedHotspot.reports : periodReports;
+    return source.filter((report) => {
+      if (!hasCoordinates(report)) return false;
+      if (selectedLocation === "All") return true;
+      const loc = getLocation(report);
+      return loc.toLowerCase().includes(selectedLocation.toLowerCase());
+    });
+  }, [selectedHotspot, periodReports, selectedLocation]);
 
   const summary = useMemo(() => ({
     totalReports: periodReports.length,
     locations: hotspots.length,
-    high: hotspots.filter(
-      (item) => item.level === "High" || item.level === "Critical"
-    ).length,
-    moderate: hotspots.filter(
-      (item) => item.level === "Moderate"
-    ).length,
-    unmapped: periodReports.filter(
-      (report) => !hasCoordinates(report)
-    ).length,
+    high: hotspots.filter((item) => item.level === "High" || item.level === "Critical").length,
+    moderate: hotspots.filter((item) => item.level === "Moderate").length,
+    unmapped: periodReports.filter((report) => !hasCoordinates(report)).length,
   }), [periodReports, hotspots]);
 
   const selectHotspot = (hotspot) => {
     setSelectedHotspotKey(hotspot.key);
-
     requestAnimationFrame(() => {
       scrollViewRef.current?.scrollTo({
         y: Math.max(0, mapY - 12),
@@ -396,11 +313,15 @@ export default function Admin_Hotspot_Detection() {
 
   const resetMap = () => {
     setSelectedHotspotKey(null);
+    setSelectedLocation("All");
   };
 
   const resetFilters = () => {
     setPeriod("7d");
+    setSelectedLocation("All");
     setSelectedLevel("All");
+    setFromDate("");
+    setToDate("");
     setSearch("");
     setSelectedHotspotKey(null);
     setShowAllHotspots(false);
@@ -415,56 +336,9 @@ export default function Admin_Hotspot_Detection() {
         contentContainerStyle={styles.page}
         showsVerticalScrollIndicator={false}
       >
-        {/* MAIN HEADER 
-        <View style={[styles.header, isNarrow && styles.headerNarrow]}>
-          <View style={styles.headerIcon}>
-            <Ionicons
-              name="navigate-circle-outline"
-              size={27}
-              color="#294880"
-            />
-          </View>
-
-          <View style={styles.headerText}>
-            <Text style={styles.title}>Hotspot Detection</Text>
-            <Text style={styles.subtitle}>
-              Monitor report concentrations across Argao, Cebu.
-            </Text>
-            {lastUpdated && (
-              <Text style={styles.updatedText}>
-                Updated {lastUpdated.toLocaleTimeString()}
-              </Text>
-            )}
-          </View>
-
-          <Pressable
-            onPress={loadReports}
-            disabled={refreshing}
-            style={styles.refreshButton}
-          >
-            {refreshing ? (
-              <ActivityIndicator
-                size="small"
-                color="#294880"
-              />
-            ) : (
-              <Ionicons
-                name="refresh-outline"
-                size={17}
-                color="#294880"
-              />
-            )}
-            <Text style={styles.refreshText}>Refresh</Text>
-          </Pressable>
-        </View> */}
-
         {!!errorMessage && (
           <View style={styles.errorBox}>
-            <Ionicons
-              name="alert-circle-outline"
-              size={21}
-              color="#B93838"
-            />
+            <Ionicons name="alert-circle-outline" size={21} color="#B93838" />
             <Text style={styles.errorText}>{errorMessage}</Text>
           </View>
         )}
@@ -475,22 +349,20 @@ export default function Admin_Hotspot_Detection() {
             icon="document-text-outline"
             label="Total Reports"
             value={summary.totalReports}
-            subtext="Selected period"
+            subtext="All Argao records"
             subColor="#5D6F92"
             color="#294880"
             background="#E8EFFB"
           />
-
           <SummaryCard
             icon="location-outline"
             label="Detected Locations"
             value={summary.locations}
-            subtext="Identified locations"
+            subtext="Identified zones"
             subColor="#294880"
             color="#294880"
             background="#E8EFFB"
           />
-
           <SummaryCard
             icon="warning-outline"
             label="High Concentration"
@@ -500,7 +372,6 @@ export default function Admin_Hotspot_Detection() {
             color="#E45757"
             background="#FDEEEE"
           />
-
           <SummaryCard
             icon="alert-circle-outline"
             label="Moderate Concentration"
@@ -512,489 +383,274 @@ export default function Admin_Hotspot_Detection() {
           />
         </View>
 
-        {/* IMPROVED ANALYSIS FILTERS */}
+        {/* UNIFIED FILTER CARD WITH SPACE-OCCUPYING WRAP */}
         <View style={styles.filterCard}>
-          <View style={styles.filterHeaderRow}>
-            <View style={styles.filterTitleContainer}>
-              <Ionicons name="filter-outline" size={18} color="#294880" />
-              <Text style={styles.filterCardTitle}>Filter Reports</Text>
+          <View style={styles.filterTopRow}>
+            <View style={styles.filterHeaderTitleBox}>
+              <View style={styles.filterMainIconBox}>
+                <Ionicons name="options-outline" size={20} color="#294880" />
+              </View>
+              <View style={styles.filterTitleText}>
+                <Text style={styles.filterMainTitle}>Filter Hotspot Reports</Text>
+                <Text style={styles.filterMainSubtitle}>
+                  Filter incident concentrations across Argao barangays
+                </Text>
+              </View>
             </View>
-            <Pressable onPress={resetFilters} style={styles.resetFilterButton}>
-              <Text style={styles.resetFilterButtonText}>Reset Filters</Text>
+            <Pressable onPress={resetFilters} style={styles.exportButton} activeOpacity={0.85}>
+              <Ionicons name="refresh-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.buttonText}>Reset Filters</Text>
             </Pressable>
           </View>
 
-          <View style={styles.searchBox}>
-            <Ionicons
-              name="search-outline"
-              size={18}
-              color="#82918B"
-            />
-            <TextInput
-              value={search}
-              onChangeText={(value) => {
-                setSearch(value);
-                setShowAllHotspots(false);
-              }}
-              placeholder="Search location or incident type..."
-              placeholderTextColor="#98A39E"
-              style={styles.searchInput}
-            />
-            {!!search && (
-              <Pressable
-                onPress={() => {
-                  setSearch("");
+          
+
+          {/* BATCH HOVERDOWN FILTERS OCCUPYING FULL WIDTH SPACE */}
+          <View style={styles.batchFilterRow}>
+            <View style={styles.filterDropdownWrapper}>
+              <BatchFilterDropdown
+                label="Location (Barangay)"
+                value={selectedLocation}
+                options={[{ value: "All", label: "All Barangays" }, ...ARGAO_BARANGAYS.map(({ name }) => ({ value: name, label: name }))]}
+                onChange={(val) => {
+                  setSelectedLocation(val);
+                  setSelectedHotspotKey(null);
                   setShowAllHotspots(false);
                 }}
-              >
-                <Ionicons
-                  name="close-circle"
-                  size={18}
-                  color="#82918B"
-                />
-              </Pressable>
-            )}
-          </View>
-
-          <Text style={styles.filterLabel}>Reporting period</Text>
-          <View style={styles.filterChipsRow}>
-            {PERIODS.map((item) => {
-              const active = period === item.value;
-              return (
-                <Pressable
-                  key={item.value}
-                  onPress={() => {
-                    setPeriod(item.value);
-                    setSelectedHotspotKey(null);
-                    setShowAllHotspots(false);
-                  }}
-                  style={[styles.filterChip, active && styles.filterChipActive]}
-                >
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      active && styles.filterChipTextActive,
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Text style={styles.filterLabel}>Concentration level</Text>
-          <View style={styles.filterChipsRow}>
-            {LEVELS.map((level) => {
-              const active = selectedLevel === level;
-              return (
-                <Pressable
-                  key={level}
-                  onPress={() => {
-                    setSelectedLevel(level);
-                    setShowAllHotspots(false);
-                  }}
-                  style={[styles.filterChip, active && styles.filterChipActive]}
-                >
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      active && styles.filterChipTextActive,
-                    ]}
-                  >
-                    {level === "All" ? "All levels" : level}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Text style={styles.filterResultsCount}>
-            Showing{" "}
-            {Math.min(
-              visibleHotspots.length,
-              showAllHotspots ? visibleHotspots.length : 10
-            )}{" "}
-            of {visibleHotspots.length} matching locations.
-          </Text>
-        </View>
-
-        {/* MAP PANEL */}
-        <View
-          style={styles.panel}
-          onLayout={(event) => {
-            setMapY(event.nativeEvent.layout.y);
-          }}
-        >
-          <View style={styles.mapHeader}>
-            <View style={styles.mapHeaderText}>
-              <Text style={styles.sectionTitle}>
-                {selectedHotspot
-                  ? selectedHotspot.location
-                  : "Incident Concentration Map"}
-              </Text>
-              <Text style={styles.sectionSubtitle}>
-                {selectedHotspot
-                  ? `${selectedHotspot.count} reports · ${selectedHotspot.mappedCount} with coordinates`
-                  : `${mapReports.length} mapped reports in the selected period`}
-              </Text>
+              />
             </View>
-
-            {selectedHotspot && (
-              <Pressable
-                onPress={resetMap}
-                style={styles.resetButton}
-              >
-                <Ionicons
-                  name="expand-outline"
-                  size={16}
-                  color="#294880"
-                />
-                <Text style={styles.resetText}>Show all</Text>
-              </Pressable>
-            )}
-          </View>
-
-          <View style={styles.mapContainer}>
-            {loading && reports.length === 0 ? (
-              <View style={styles.mapState}>
-                <ActivityIndicator
-                  size="large"
-                  color="#294880"
-                />
-                <Text style={styles.stateText}>
-                  Loading incident locations...
-                </Text>
-              </View>
-            ) : mapReports.length > 0 ? (
-              <AdminHeatMap
-                key={
-                  selectedHotspot
-                    ? `hotspot-${selectedHotspot.key}`
-                    : "all-hotspots"
-                }
-                reports={mapReports}
-                focusTarget={
-                  selectedHotspot
-                    ? getHotspotCenter(selectedHotspot)
-                    : null
-                }
-                resetView={!selectedHotspot}
-                onReportSelect={(report) => {
-                  const reportLocation = getLocation(report);
-
-                  const match = hotspots.find(
-                    (item) =>
-                      item.key === reportLocation.toLowerCase()
-                  );
-
-                  if (match) {
-                    selectHotspot(match);
-                  }
+            <View style={styles.filterDropdownWrapper}>
+              <BatchFilterDropdown
+                label="Reporting Period"
+                value={period}
+                options={PERIODS.map((p) => ({ value: p.value, label: p.label }))}
+                onChange={(val) => {
+                  setPeriod(val);
+                  setSelectedHotspotKey(null);
+                  setShowAllHotspots(false);
                 }}
               />
-            ) : (
-              <View style={styles.mapState}>
-                <Ionicons
-                  name="map-outline"
-                  size={39}
-                  color="#91A39B"
-                />
-                <Text style={styles.stateText}>
-                  No mapped reports available
+            </View>
+            <View style={styles.filterDropdownWrapper}>
+              <BatchFilterDropdown
+                label="Concentration Level"
+                value={selectedLevel}
+                options={LEVELS.map((lvl) => ({ value: lvl, label: lvl === "All" ? "All Levels" : lvl }))}
+                onChange={(val) => {
+                  setSelectedLevel(val);
+                  setShowAllHotspots(false);
+                }}
+              />
+            </View>
+            <View style={styles.filterDateWrapper}>
+              <BatchDateRangeDropdown
+                from={fromDate}
+                to={toDate}
+                onChangeFrom={setFromDate}
+                onChangeTo={setToDate}
+              />
+            </View>
+          </View>
+
+          
+        </View>
+
+        {/* WORKSPACE CONTAINER: MAP ON LEFT, DETECTED LOCATIONS ON RIGHT */}
+        <View style={[styles.workspace, isNarrow && styles.workspaceNarrow]}>
+          
+          {/* LEFT SIDE: MAP PANEL */}
+          <View
+            style={[styles.panel, styles.mapPanel]}
+            onLayout={(event) => {
+              setMapY(event.nativeEvent.layout.y);
+            }}
+          >
+            <View style={styles.mapHeader}>
+              <View style={styles.mapHeaderText}>
+                <Text style={styles.sectionTitle}>
+                  {selectedHotspot
+                    ? selectedHotspot.location
+                    : selectedLocation !== "All"
+                    ? `${selectedLocation} Map View`
+                    : "Incident Concentration Map"}
                 </Text>
-                <Text style={styles.stateSubtext}>
-                  Reports need valid latitude and longitude
-                  coordinates to appear on the map.
+                <Text style={styles.sectionSubtitle}>
+                  {selectedHotspot
+                    ? `${selectedHotspot.count} reports · ${selectedHotspot.mappedCount} with coordinates`
+                    : `${mapReports.length} mapped reports (${selectedLocation === "All" ? "All Argao" : selectedLocation})`}
                 </Text>
               </View>
+
+              {(selectedHotspot || selectedLocation !== "All") && (
+                <Pressable onPress={resetMap} style={styles.resetButton}>
+                  <Ionicons name="expand-outline" size={16} color="#294880" />
+                  <Text style={styles.resetText}>Show all</Text>
+                </Pressable>
+              )}
+            </View>
+
+            <View style={styles.mapContainer}>
+              {loading && reports.length === 0 ? (
+                <View style={styles.mapState}>
+                  <ActivityIndicator size="large" color="#294880" />
+                  <Text style={styles.stateText}>Loading incident locations...</Text>
+                </View>
+              ) : mapReports.length > 0 ? (
+                <AdminHeatMap
+                  key={`${selectedHotspot?.key || "none"}-${selectedLocation}`}
+                  reports={mapReports}
+                  focusTarget={mapFocusTarget}
+                  resetView={!selectedHotspot && selectedLocation === "All"}
+                  onReportSelect={(report) => {
+                    const reportLocation = getLocation(report);
+                    const match = hotspots.find(
+                      (item) => item.key === reportLocation.toLowerCase()
+                    );
+                    if (match) selectHotspot(match);
+                  }}
+                />
+              ) : (
+                <View style={styles.mapState}>
+                  <Ionicons name="map-outline" size={39} color="#91A39B" />
+                  <Text style={styles.stateText}>No mapped reports available</Text>
+                  <Text style={styles.stateSubtext}>
+                    Reports need valid latitude and longitude coordinates.
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.legend}>
+              {[
+                { label: "Critical", color: "#D94841" },
+                { label: "High", color: "#E66C00" },
+                { label: "Moderate", color: "#EAB308" },
+                { label: "Low", color: "#37956D" },
+              ].map((item) => (
+                <View key={item.label} style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+                  <Text style={styles.legendText}>{item.label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* RIGHT SIDE: DETECTED LOCATIONS PANEL */}
+          <View style={[styles.panel, styles.locationsPanel]}>
+            <View style={styles.listHeader}>
+              <View style={styles.listHeaderText}>
+                <Text style={styles.sectionTitle}>Detected Locations</Text>
+                <Text style={styles.sectionSubtitle}>Ranked by report count.</Text>
+              </View>
+              <Text style={styles.countText}>{visibleHotspots.length} found</Text>
+            </View>
+
+            {loading && reports.length === 0 ? (
+              <View style={styles.emptyState}>
+                <ActivityIndicator size="large" color="#294880" />
+                <Text style={styles.stateText}>Fetching locations...</Text>
+              </View>
+            ) : visibleHotspots.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="location-outline" size={36} color="#91A39B" />
+                <Text style={styles.stateText}>No matching locations</Text>
+                <Text style={styles.stateSubtext}>Try changing your filter settings.</Text>
+              </View>
+            ) : (
+              <>
+                <ScrollView style={styles.locationListContainer} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                  <View style={styles.locationList}>
+                    {displayedHotspots.map((hotspot, index) => {
+                      const colors = getColors(hotspot.level);
+                      const selected = selectedHotspotKey === hotspot.key;
+
+                      return (
+                        <Pressable
+                          key={hotspot.key}
+                          onPress={() => selectHotspot(hotspot)}
+                          style={[styles.locationCard, selected && styles.locationCardSelected]}
+                        >
+                          <View style={[styles.rankBox, selected && styles.rankBoxSelected]}>
+                            <Text style={[styles.rankText, selected && styles.rankTextSelected]}>
+                              {index + 1}
+                            </Text>
+                          </View>
+
+                          <View style={styles.locationContent}>
+                            <Text style={styles.locationName}>{hotspot.location}</Text>
+                            <Text style={styles.locationMeta}>
+                              {hotspot.count} {hotspot.count === 1 ? "report" : "reports"} · {hotspot.mappedCount} mapped
+                            </Text>
+                            <View style={styles.locationLevelRow}>
+                              <View style={[styles.levelDot, { backgroundColor: colors.dot }]} />
+                              <Text style={[styles.levelText, { color: colors.color }]}>
+                                {hotspot.level} concentration
+                              </Text>
+                            </View>
+                          </View>
+
+                          <Ionicons
+                            name={selected ? "checkmark-circle" : "chevron-forward"}
+                            size={18}
+                            color="#294880"
+                          />
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+
+                {visibleHotspots.length > 10 && (
+                  <Pressable
+                    onPress={() => setShowAllHotspots(!showAllHotspots)}
+                    style={styles.viewMoreButton}
+                  >
+                    <Text style={styles.viewMoreText}>
+                      {showAllHotspots ? "Show Less" : `View More (${visibleHotspots.length - 10} more)`}
+                    </Text>
+                    <Ionicons
+                      name={showAllHotspots ? "chevron-up" : "chevron-down"}
+                      size={18}
+                      color="#294880"
+                    />
+                  </Pressable>
+                )}
+              </>
             )}
           </View>
 
-          {/* COLOR LEGEND - LEFT ALIGNED WITH RED, ORANGE, YELLOW, GREEN */}
-          <View style={styles.legend}>
-            {[
-              { label: "Critical", color: "#D94841" },
-              { label: "High", color: "#E66C00" },
-              { label: "Moderate", color: "#EAB308" },
-              { label: "Low", color: "#37956D" },
-            ].map((item) => (
-              <View key={item.label} style={styles.legendItem}>
-                <View
-                  style={[
-                    styles.legendDot,
-                    { backgroundColor: item.color },
-                  ]}
-                />
-                <Text style={styles.legendText}>{item.label}</Text>
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.mapHint}>
-            <Ionicons
-              name="information-circle-outline"
-              size={17}
-              color="#71847D"
-            />
-            <Text style={styles.mapHintText}>
-              Select a detected location below to focus the map
-              on its reports. Use “Show all” to reset the view.
-            </Text>
-          </View>
         </View>
 
-        {/* DETECTED LOCATIONS */}
-        <View style={styles.panel}>
-          <View style={styles.listHeader}>
-            <View style={styles.listHeaderText}>
-              <Text style={styles.sectionTitle}>
-                Detected Locations
-              </Text>
-              <Text style={styles.sectionSubtitle}>
-                Ranked by report count for the selected period.
-              </Text>
-            </View>
-
-            <Text style={styles.countText}>
-              {visibleHotspots.length} locations
-            </Text>
-          </View>
-
-          {loading && reports.length === 0 ? (
-            <View style={styles.emptyState}>
-              <ActivityIndicator
-                size="large"
-                color="#294880"
-              />
-              <Text style={styles.stateText}>Fetching reports...</Text>
-            </View>
-          ) : visibleHotspots.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons
-                name="location-outline"
-                size={36}
-                color="#91A39B"
-              />
-              <Text style={styles.stateText}>
-                No matching locations
-              </Text>
-              <Text style={styles.stateSubtext}>
-                Try changing the period, search term, or
-                concentration filter.
-              </Text>
-            </View>
-          ) : (
-            <>
-              <View style={styles.locationList}>
-                {displayedHotspots.map((hotspot, index) => {
-                  const colors = getColors(hotspot.level);
-                  const selected =
-                    selectedHotspotKey === hotspot.key;
-
-                  return (
-                    <Pressable
-                      key={hotspot.key}
-                      onPress={() => selectHotspot(hotspot)}
-                      style={[
-                        styles.locationCard,
-                        selected && styles.locationCardSelected,
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.rankBox,
-                          selected && styles.rankBoxSelected,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.rankText,
-                            selected && styles.rankTextSelected,
-                          ]}
-                        >
-                          {index + 1}
-                        </Text>
-                      </View>
-
-                      <View style={styles.locationContent}>
-                        <Text style={styles.locationName}>
-                          {hotspot.location}
-                        </Text>
-
-                        <Text style={styles.locationMeta}>
-                          {hotspot.count}{" "}
-                          {hotspot.count === 1 ? "report" : "reports"}
-                          {" · "}
-                          {hotspot.mappedCount} mapped
-                        </Text>
-
-                        <View style={styles.locationLevelRow}>
-                          <View
-                            style={[
-                              styles.levelDot,
-                              { backgroundColor: colors.dot },
-                            ]}
-                          />
-                          <Text
-                            style={[
-                              styles.levelText,
-                              { color: colors.color },
-                            ]}
-                          >
-                            {hotspot.level} concentration
-                          </Text>
-                        </View>
-
-                        {hotspot.types.length > 0 && (
-                          <Text
-                            style={styles.incidentTypes}
-                            numberOfLines={2}
-                          >
-                            Types: {hotspot.types.join(", ")}
-                          </Text>
-                        )}
-
-                        {hotspot.latestDate && (
-                          <Text style={styles.latestText}>
-                            Latest report:{" "}
-                            {hotspot.latestDate.toLocaleDateString()}
-                          </Text>
-                        )}
-                      </View>
-
-                      <View style={styles.locationAction}>
-                        <View
-                          style={[
-                            styles.levelBadge,
-                            { backgroundColor: colors.background },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.levelBadgeText,
-                              { color: colors.color },
-                            ]}
-                          >
-                            {hotspot.level}
-                          </Text>
-                        </View>
-
-                        <Ionicons
-                          name={
-                            selected
-                              ? "checkmark-circle"
-                              : "locate-outline"
-                          }
-                          size={22}
-                          color="#294880"
-                        />
-                        <Text style={styles.viewMapText}>
-                          {selected ? "Selected" : "Focus map"}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              {visibleHotspots.length > 10 && (
-                <Pressable
-                  onPress={() => setShowAllHotspots(!showAllHotspots)}
-                  style={styles.viewMoreButton}
-                >
-                  <Text style={styles.viewMoreText}>
-                    {showAllHotspots
-                      ? "Show Less"
-                      : `View More (${visibleHotspots.length - 10} more)`}
-                  </Text>
-
-                  <Ionicons
-                    name={
-                      showAllHotspots
-                        ? "chevron-up"
-                        : "chevron-down"
-                    }
-                    size={18}
-                    color="#294880"
-                  />
-                </Pressable>
-              )}
-            </>
-          )}
-        </View>
-
-        {/* DATA QUALITY */}
+        {/* DATA QUALITY & DISCLAIMER */}
         <View style={styles.qualityBox}>
-          <Ionicons
-            name="shield-checkmark-outline"
-            size={21}
-            color="#294880"
-          />
+          <Ionicons name="shield-checkmark-outline" size={21} color="#294880" />
           <View style={styles.qualityContent}>
-            <Text style={styles.qualityTitle}>Data quality</Text>
+            <Text style={styles.qualityTitle}>Data scope & quality</Text>
             <Text style={styles.qualityText}>
-              {summary.unmapped} report(s) in the selected period
-              lack valid map coordinates. These reports can
-              contribute to location grouping only when their
-              location text is available.
+              Showing records across Argao barangays. {summary.unmapped} report(s) lack map coordinates but contribute to location groupings.
             </Text>
           </View>
         </View>
 
         <Text style={styles.disclaimer}>
-          Hotspot concentration reflects report volume, not
-          confirmed danger. Current levels use temporary report
-          count thresholds and should be calibrated against
-          geographic distance, time period, duplicates, and
-          verification status before operational use.
+          Hotspot concentration reflects report volume and should be verified before operational use.
         </Text>
       </ScrollView>
     </Admin_Layout>
   );
 }
 
-function SummaryCard({
-  icon,
-  label,
-  value,
-  subtext,
-  subColor,
-  color,
-  background,
-}) {
+function SummaryCard({ icon, label, value, subtext, subColor, color, background }) {
   return (
     <View style={styles.summaryCard}>
-      <View
-        style={[
-          styles.summaryIcon,
-          { backgroundColor: background },
-        ]}
-      >
+      <View style={[styles.summaryIcon, { backgroundColor: background }]}>
         <Ionicons name={icon} size={24} color={color} />
       </View>
-
       <View style={styles.summaryContent}>
         <Text style={styles.summaryLabel}>{label}</Text>
-
         <View style={styles.summaryValueRow}>
-          <Text
-            style={[
-              styles.summaryValue,
-              { color },
-            ]}
-          >
-            {value}
-          </Text>
-
-          <Text
-            style={[
-              styles.summarySubtext,
-              { color: subColor },
-            ]}
-          >
-            {subtext}
-          </Text>
+          <Text style={[styles.summaryValue, { color }]}>{value}</Text>
+          <Text style={[styles.summarySubtext, { color: subColor }]}>{subtext}</Text>
         </View>
       </View>
     </View>
@@ -1008,63 +664,6 @@ const styles = StyleSheet.create({
     gap: 16,
     backgroundColor: "#F8FAF9",
   },
-
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  headerNarrow: {
-    flexWrap: "wrap",
-  },
-  headerIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: "#E8EFFB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerText: {
-    flex: 1,
-    minWidth: 180,
-  },
-  title: {
-    fontFamily: "PoppinsSemiBold",
-    fontSize: 21,
-    color: "#294880",
-  },
-  subtitle: {
-    fontFamily: "PoppinsRegular",
-    fontSize: 12,
-    lineHeight: 18,
-    color: "#647B75",
-    marginTop: 2,
-  },
-  updatedText: {
-    fontFamily: "PoppinsRegular",
-    fontSize: 10,
-    color: "#82918B",
-    marginTop: 3,
-  },
-  refreshButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#D9E2F0",
-    backgroundColor: "#FFFFFF",
-  },
-  refreshText: {
-    fontFamily: "PoppinsMedium",
-    fontSize: 11,
-    color: "#294880",
-  },
-
   errorBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -1082,12 +681,10 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: "#854545",
   },
-
   summaryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 14,
-    marginBottom: 2,
   },
   summaryCard: {
     flex: 1,
@@ -1114,123 +711,128 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   summaryLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#4B5D7A",
-    marginBottom: 6,
+    marginBottom: 4,
     fontFamily: "PoppinsMedium",
   },
   summaryValueRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    gap: 8,
+    gap: 6,
   },
   summaryValue: {
-    fontSize: 22,
+    fontSize: 20,
     fontFamily: "PoppinsSemiBold",
   },
   summarySubtext: {
-    fontSize: 11,
+    fontSize: 10,
     fontFamily: "PoppinsRegular",
   },
-
-  /* Improved Admin Validation Style Filter Card */
   filterCard: {
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#D9E2F0",
-    borderRadius: 14,
-    padding: 16,
-    gap: 12,
+    borderRadius: 16,
+    padding: 18,
+    gap: 14,
+    zIndex: 10,
   },
-  filterHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  filterTitleContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flex: 1,
-  },
-  filterCardTitle: {
-    fontFamily: "PoppinsSemiBold",
-    fontSize: 15,
-    color: "#294880",
-  },
-  resetFilterButton: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-  },
-  resetFilterButtonText: {
-    fontFamily: "PoppinsMedium",
-    fontSize: 12,
-    color: "#294880",
-  },
-  searchBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F4F7FC",
-    borderWidth: 1,
-    borderColor: "#D9E2F0",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 44,
-    gap: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontFamily: "PoppinsRegular",
-    fontSize: 13,
-    color: "#294880",
-    padding: 0,
-  },
-  filterLabel: {
-    fontFamily: "PoppinsMedium",
-    fontSize: 12,
-    color: "#4B5D7A",
-    marginTop: 4,
-  },
-  filterChipsRow: {
+  filterTopRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 14,
   },
-  filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#D9E2F0",
-    backgroundColor: "#F8FAF9",
+  filterHeaderTitleBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+    minWidth: 240,
   },
-  filterChipActive: {
-    backgroundColor: "#E8EFFB",
-    borderColor: "#294880",
+  filterMainIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: "#EAF2FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  filterChipText: {
-    fontFamily: "PoppinsRegular",
-    fontSize: 12,
-    color: "#5D6F92",
+  filterTitleText: {
+    flex: 1,
   },
-  filterChipTextActive: {
-    fontFamily: "PoppinsMedium",
+  filterMainTitle: {
+    fontSize: 16,
+    fontFamily: "PoppinsSemiBold",
     color: "#294880",
+  },
+  filterMainSubtitle: {
+    fontSize: 12,
+    fontFamily: "PoppinsRegular",
+    color: "#5D6F92",
+    marginTop: 2,
+  },
+  exportButton: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: "#294880",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  buttonText: {
+    fontFamily: "PoppinsMedium",
+    fontSize: 12,
+    color: "#FFFFFF",
+  },
+ 
+  batchFilterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    alignItems: "flex-start",
+    zIndex: 20,
+  },
+  filterDropdownWrapper: {
+    flex: 1,
+    minWidth: 200,
+  },
+  filterDateWrapper: {
+    flex: 2,
+    minWidth: 280,
   },
   filterResultsCount: {
     fontFamily: "PoppinsRegular",
     fontSize: 11,
     color: "#82918B",
-    marginTop: 4,
+    marginTop: 2,
   },
-
+  workspace: {
+    flexDirection: "row",
+    gap: 16,
+  },
+  workspaceNarrow: {
+    flexDirection: "column",
+  },
   panel: {
+    flex: 1,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#D9E2F0",
     borderRadius: 14,
     padding: 16,
     gap: 12,
+  },
+  mapPanel: {
+    flex: 1.2,
+  },
+  locationsPanel: {
+    flex: 1,
+    maxHeight: 520,
   },
   sectionTitle: {
     fontFamily: "PoppinsSemiBold",
@@ -1267,7 +869,7 @@ const styles = StyleSheet.create({
     color: "#294880",
   },
   mapContainer: {
-    height: 280,
+    height: 350,
     borderRadius: 10,
     overflow: "hidden",
     borderWidth: 1,
@@ -1293,12 +895,9 @@ const styles = StyleSheet.create({
     color: "#647B75",
     textAlign: "center",
   },
-
-  /* Left-aligned Legend Style */
   legend: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-start",
     flexWrap: "wrap",
     gap: 16,
     marginTop: 4,
@@ -1318,29 +917,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#4B5D7A",
   },
-
-  mapHint: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#F2F6FC",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  mapHintText: {
-    flex: 1,
-    fontFamily: "PoppinsRegular",
-    fontSize: 11,
-    color: "#4B5D7A",
-  },
   listHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-  },
-  listHeaderText: {
-    flex: 1,
   },
   countText: {
     fontFamily: "PoppinsMedium",
@@ -1353,27 +933,30 @@ const styles = StyleSheet.create({
     padding: 30,
     gap: 8,
   },
+  locationListContainer: {
+    maxHeight: 380,
+  },
   locationList: {
     gap: 10,
   },
   locationCard: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
+    padding: 10,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#E5EBEA",
     backgroundColor: "#F8FAF9",
-    gap: 12,
+    gap: 10,
   },
   locationCardSelected: {
     borderColor: "#294880",
     backgroundColor: "#F2F6FC",
   },
   rankBox: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 7,
     backgroundColor: "#E5EBEA",
     alignItems: "center",
     justifyContent: "center",
@@ -1383,7 +966,7 @@ const styles = StyleSheet.create({
   },
   rankText: {
     fontFamily: "PoppinsSemiBold",
-    fontSize: 12,
+    fontSize: 11,
     color: "#647B75",
   },
   rankTextSelected: {
@@ -1395,18 +978,18 @@ const styles = StyleSheet.create({
   },
   locationName: {
     fontFamily: "PoppinsSemiBold",
-    fontSize: 13,
+    fontSize: 12,
     color: "#294880",
   },
   locationMeta: {
     fontFamily: "PoppinsRegular",
-    fontSize: 11,
+    fontSize: 10,
     color: "#647B75",
   },
   locationLevelRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
     marginTop: 2,
   },
   levelDot: {
@@ -1415,30 +998,6 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   levelText: {
-    fontFamily: "PoppinsMedium",
-    fontSize: 11,
-  },
-  incidentTypes: {
-    fontFamily: "PoppinsRegular",
-    fontSize: 10,
-    color: "#82918B",
-    marginTop: 2,
-  },
-  latestText: {
-    fontFamily: "PoppinsRegular",
-    fontSize: 10,
-    color: "#82918B",
-  },
-  locationAction: {
-    alignItems: "flex-end",
-    gap: 4,
-  },
-  levelBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  levelBadgeText: {
     fontFamily: "PoppinsMedium",
     fontSize: 10,
   },
