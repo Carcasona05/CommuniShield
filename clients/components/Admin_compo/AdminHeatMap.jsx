@@ -35,18 +35,21 @@ const MAP_HTML = `
 <script>
   (function () {
     var ARGAO_CENTER = [9.8816, 123.5953];
+    // Covers the complete official barangay-hall dataset, including the
+    // northern and western barangays. The minimum zoom keeps the map within
+    // the municipal/Siboang view without trapping a selected barangay.
     var ARGAO_BOUNDS = [
-      [9.75, 123.5],
-      [9.95, 123.65],
+      [9.75, 123.45],
+      [10.02, 123.66],
     ];
 
     var map = L.map("map", {
       center: ARGAO_CENTER,
       zoom: 13,
-      minZoom: 12,
+      minZoom: 11,
       maxZoom: 18,
       maxBounds: ARGAO_BOUNDS,
-      maxBoundsViscosity: 1.0,
+      maxBoundsViscosity: 0.85,
       scrollWheelZoom: true,
     });
 

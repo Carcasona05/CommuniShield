@@ -52,20 +52,14 @@ const INCIDENT_CATEGORIES = [
   },
 ];
 
-const ARGAO_BARANGAY_COORDINATES = {
-  Poblacion: { latitude: 9.8823, longitude: 123.6071, zoom: 16 },
-  Langtad: { latitude: 9.8950, longitude: 123.5980, zoom: 16 },
-  Bulasa: { latitude: 9.8650, longitude: 123.6020, zoom: 16 },
-  Taloot: { latitude: 9.8510, longitude: 123.6050, zoom: 16 },
-  Binlod: { latitude: 9.9020, longitude: 123.5890, zoom: 16 },
-  Bogo: { latitude: 9.8720, longitude: 123.6090, zoom: 16 },
-  Casay: { latitude: 9.8350, longitude: 123.6150, zoom: 16 },
-  Talaga: { latitude: 9.8450, longitude: 123.5850, zoom: 16 },
-  Tulic: { latitude: 9.8890, longitude: 123.5950, zoom: 16 },
-  Canbanua: { latitude: 9.8800, longitude: 123.6020, zoom: 16 },
-  Lamacan: { latitude: 9.8750, longitude: 123.5990, zoom: 16 },
-  Default: { latitude: 9.8814, longitude: 123.6086, zoom: 14 },
-};
+const ARGAO_BARANGAY_COORDINATES = Object.fromEntries(
+  ARGAO_BARANGAYS.map(({ name, lat, lng }) => [name, {
+    latitude: lat,
+    longitude: lng,
+    zoom: 16,
+  }])
+);
+ARGAO_BARANGAY_COORDINATES.Default = { latitude: 9.8816, longitude: 123.5953, zoom: 14 };
 
 const normalizeText = (value) => String(value ?? "").trim();
 
@@ -95,6 +89,12 @@ const hasCoordinates = (report) => {
 };
 
 const getMapCenterCoordinates = (reportsList, selectedBarangay) => {
+  // A barangay filter must focus the same hall pin shown by User_Map. Report
+  // coordinates are only used for an individual hotspot with no barangay filter.
+  if (selectedBarangay && selectedBarangay !== "All" && ARGAO_BARANGAY_COORDINATES[selectedBarangay]) {
+    return ARGAO_BARANGAY_COORDINATES[selectedBarangay];
+  }
+
   const mappedReports = (reportsList || []).filter(hasCoordinates);
   
   if (mappedReports.length > 0) {
@@ -109,12 +109,8 @@ const getMapCenterCoordinates = (reportsList, selectedBarangay) => {
     return {
       latitude: totals.latitude / mappedReports.length,
       longitude: totals.longitude / mappedReports.length,
-      zoom: 16,
+      zoom: 10,
     };
-  }
-
-  if (selectedBarangay && selectedBarangay !== "All" && ARGAO_BARANGAY_COORDINATES[selectedBarangay]) {
-    return ARGAO_BARANGAY_COORDINATES[selectedBarangay];
   }
 
   return ARGAO_BARANGAY_COORDINATES.Default;
@@ -171,6 +167,8 @@ export default function Admin_Ince_Map() {
 
   const [selectedReportId, setSelectedReportId] = useState(null);
   const [selectedHotspotKey, setSelectedHotspotKey] = useState(null);
+  const [activeLocationKey, setActiveLocationKey] = useState(null);
+  const [selectedReportSnapshot, setSelectedReportSnapshot] = useState(null);
 
   // Comment pagination state (limit 5 per page)
   const [commentPage, setCommentPage] = useState(1);
@@ -189,17 +187,11 @@ export default function Admin_Ince_Map() {
       if (!token) return;
       
       const headers = { Authorization: `Bearer ${token}` };
-      const params = {
-        source: "Admin",
-        from: from.trim() || undefined,
-        to: to.trim() || undefined,
-      };
-
-      const response = await apiClient.get("/admin/dashboard", { headers, params });
+      const response = await apiClient.get("/admin/dashboard", { headers });
       const data = response.data ?? {};
       setCache("api:/admin/dashboard", data);
       if (Array.isArray(data.reports)) setReports(data.reports);
-    } catch (err) {
+    } catch {
       const cached = getCache("api:/admin/dashboard");
       if (Array.isArray(cached?.reports)) setReports(cached.reports);
     } finally {
@@ -300,7 +292,8 @@ export default function Admin_Ince_Map() {
     setCommentPage(1);
   }, [filteredReports, selectedHotspot, selectedReportId]);
 
-  const selectedReport = filteredReports.find((report) => report.id === selectedReportId) || null;
+  const selectedReport = filteredReports.find((report) => report.id === selectedReportId) ||
+    (selectedReportSnapshot?.id === selectedReportId ? selectedReportSnapshot : null);
   const sentimentCounts = getSentimentCounts(selectedReport);
   const sentimentTotal = sentimentCounts.positive + sentimentCounts.negative + sentimentCounts.neutral;
   const statusColors = getStatusColors(selectedReport?.status);
@@ -315,12 +308,17 @@ export default function Admin_Ince_Map() {
   );
 
   const handleSelectReport = (report) => {
+    if (!report) return;
+
+    const locationKey = getLocation(report).toLowerCase();
+    const hotspot = hotspots.find((item) => item.key === locationKey);
+
+    // Bind the report and its location in one interaction so the detail panel
+    // can render directly from the clicked marker without a blank transition.
     setSelectedReportId(report.id);
-    const loc = getLocation(report).toLowerCase();
-    const match = hotspots.find((h) => h.key === loc);
-    if (match) {
-      setSelectedHotspotKey(match.key);
-    }
+    setSelectedReportSnapshot(report);
+    setActiveLocationKey(hotspot?.key || locationKey);
+    setSelectedHotspotKey(hotspot?.key || null);
     requestAnimationFrame(() => {
       scrollViewRef.current?.scrollTo({
         y: Math.max(0, workspaceY - 12),
@@ -346,6 +344,8 @@ export default function Admin_Ince_Map() {
             onChange={(val) => {
               setSelectedBarangay(val);
               setSelectedHotspotKey(null);
+              setActiveLocationKey(null);
+              setSelectedReportSnapshot(null);
             }}
           />
           <BatchFilterDropdown
@@ -355,6 +355,8 @@ export default function Admin_Ince_Map() {
             onChange={(val) => {
               setSelectedCategory(val);
               setSelectedHotspotKey(null);
+              setActiveLocationKey(null);
+              setSelectedReportSnapshot(null);
             }}
           />
           <BatchFilterDropdown
@@ -364,13 +366,21 @@ export default function Admin_Ince_Map() {
             onChange={(val) => {
               setSelectedIncidentType(val);
               setSelectedHotspotKey(null);
+              setActiveLocationKey(null);
+              setSelectedReportSnapshot(null);
             }}
           />
           <BatchDateRangeDropdown
             from={from}
             to={to}
-            onChangeFrom={setFrom}
-            onChangeTo={setTo}
+            onChangeFrom={(value) => {
+              setFrom(value);
+              setSelectedReportSnapshot(null);
+            }}
+            onChangeTo={(value) => {
+              setTo(value);
+              setSelectedReportSnapshot(null);
+            }}
           />
         </View>
 
@@ -416,13 +426,20 @@ export default function Admin_Ince_Map() {
           </View>
 
           {/* Detailed Report Inspection Panel (40% Width Flex) */}
-          <View style={[styles.detailPanel, isNarrow && styles.detailPanelNarrow]}>
+          <View
+            key={`inspection-${activeLocationKey || "all"}-${selectedReportId || "none"}`}
+            style={[styles.detailPanel, isNarrow && styles.detailPanelNarrow]}
+          >
             <View style={styles.detailHeader}>
               <Text style={styles.panelTitle}>Detailed Report</Text>
               {selectedReport ? <Text style={styles.panelMeta}>ID {String(selectedReport.id).slice(0, 8)}</Text> : null}
             </View>
             {selectedReport ? (
-              <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                key={`report-detail-${selectedReport.id}`}
+                contentContainerStyle={styles.detailContent}
+                showsVerticalScrollIndicator={false}
+              >
                 
                 {/* Top Header Row with Top-Right Badges */}
                 <View style={styles.topHeaderRow}>
@@ -467,12 +484,17 @@ export default function Admin_Ince_Map() {
                   </View>
 
                   {/* Report Details Section */}
-                  {selectedReport.details ? (
+                  {selectedReport.details || selectedReport.description ? (
                     <View style={styles.descriptionBox}>
                       <Text style={styles.infoLabel}>Report Details</Text>
-                      <Text style={styles.descriptionText}>{selectedReport.details}</Text>
+                      <Text style={styles.descriptionText}>{selectedReport.details || selectedReport.description}</Text>
                     </View>
-                  ) : null}
+                  ) : (
+                    <View style={styles.descriptionBox}>
+                      <Text style={styles.infoLabel}>Report Details</Text>
+                      <Text style={styles.descriptionText}>No description provided.</Text>
+                    </View>
+                  )}
                 </View>
 
                 {/* Comments Section (Limit 5 per page with Pagination) */}
