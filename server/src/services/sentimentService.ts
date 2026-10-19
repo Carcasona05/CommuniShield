@@ -96,6 +96,11 @@ const modelDirectory = resolveModelDirectory();
 const localSessions = new Map<SentimentLanguage, Promise<LocalSession>>();
 
 const LOW_LOCAL_CONFIDENCE = 0.45;
+// A confident local override is only trustworthy when the input carries enough
+// signal. For very short inputs (up to 3 tokens, e.g. "gwapo") the TF-IDF model
+// has almost no context, so it must be near-certain before it may overrule Gemini.
+const SHORT_INPUT_TOKENS = 3;
+const SHORT_INPUT_LOCAL_CONFIDENCE = 0.75;
 
 const clamp = (value: number, minimum = 0, maximum = 1): number =>
   Math.min(maximum, Math.max(minimum, value));
@@ -423,7 +428,16 @@ const fuseLocalWithGeminiAssist = (
     };
   }
 
-  if (local.confidence >= LOW_LOCAL_CONFIDENCE) {
+  // Decide how confident the local model must be before it may overrule Gemini.
+  // Short, low-context inputs demand near-certainty; longer inputs use the
+  // normal threshold.
+  const tokenCount = local.source_text.trim().split(/\s+/).filter(Boolean).length;
+  const requiredLocalConfidence =
+    tokenCount <= SHORT_INPUT_TOKENS
+      ? Math.max(LOW_LOCAL_CONFIDENCE, SHORT_INPUT_LOCAL_CONFIDENCE)
+      : LOW_LOCAL_CONFIDENCE;
+
+  if (local.confidence >= requiredLocalConfidence) {
     return {
       prediction: {
         ...local,
@@ -596,6 +610,8 @@ const predict = async (
 export const __testing = {
   fuseLocalWithGeminiAssist,
   LOW_LOCAL_CONFIDENCE,
+  SHORT_INPUT_TOKENS,
+  SHORT_INPUT_LOCAL_CONFIDENCE,
   buildGeminiSentimentPrompt,
 };
 

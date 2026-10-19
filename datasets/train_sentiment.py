@@ -155,6 +155,11 @@ def build_classifier(candidate: float) -> OneVsRestClassifier:
             max_iter=1000,
             random_state=RANDOM_STATE,
             solver="liblinear",
+            # The Cebuano splits are heavily skewed toward negative (crime/news
+            # origin), which pushed positive recall down to ~0.12. Balanced
+            # class weights penalise mistakes on the rare positive class so the
+            # model stops defaulting to negative on praise like "gwapo".
+            class_weight="balanced",
         )
     )
 

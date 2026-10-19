@@ -26,8 +26,13 @@ STAR_LABEL_MAP = {
 
 LANGUAGE_CAPS = {"english": 12_000, "filipino": 9_000, "cebuano": 4_000}
 NEUTRAL_SHARE = 0.42
-MIN_OCCURRENCES = 1
-MIN_DOMINANCE = 0.5
+# A single word inherits the label of the sentences it appeared in. With
+# MIN_OCCURRENCES=1 and MIN_DOMINANCE=0.5, a praise word like "gwapo" that only
+# ever shows up inside negative crime news ("gipatay tungod sa ka-gwapo") got
+# mined as a NEGATIVE sample. Requiring more evidence and a stronger majority
+# keeps context-only words out of the mined set.
+MIN_OCCURRENCES = 4
+MIN_DOMINANCE = 0.75
 MIN_WORD_LENGTH = 3
 
 RESERVED_TOKENS = {"nan", "null", "none", "na", "n/a", "true", "false"}
@@ -94,6 +99,12 @@ LEXICON: dict[str, dict[str, tuple[str, ...]]] = {
             "maayo", "nindot", "maanindot", "hingpit", "malipayon", "salamat", "tabang", "luwas",
             "kasaligan", "lig-on", "paspas", "buotan", "maalamon", "matabangon", "dayag",
             "malinawon", "mabungahon", "putli", "mahigugmaon",
+            # Compliment vocabulary the original set lacked. These were the exact
+            # words misclassified as negative because they only ever appeared in
+            # negative news headlines before.
+            "gwapo", "gwapa", "pogi", "kaayo", "kaayohan", "nindota", "gwapa",
+            "malumi", "himaya", "malipayon", "lipay", "alingasaw", "bida",
+            "idol", "astig", "lupet", "solid", "buot", "malinilon", "grabe",
         ),
         "negative": (
             "daotan", "ngil-ad", "delikado", "makuyaw", "kahadlok", "kasuko", "subo", "guba",
