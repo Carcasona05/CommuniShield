@@ -390,7 +390,7 @@ function SAdmin_AdminAccounts() {
 
               <View>
                 <Text style={styles.summaryValue}>{superAdminCount}</Text>
-                <Text style={styles.summaryLabel}>SuperAdmins</Text>
+                <Text style={styles.summaryLabel}>Super Admins</Text>
               </View>
             </View>
 
@@ -435,7 +435,7 @@ function SAdmin_AdminAccounts() {
             {filteredAdmins.length === 0 ? (
               <View style={styles.emptyState}>
                 <Ionicons name="people-outline" size={38} color="#5D6F92" />
-                <Text style={styles.emptyTitle}>No admin found</Text>
+                <Text style={styles.emptyTitle}>No admins found</Text>
                 <Text style={styles.emptyText}>
                   Try searching with another name, email, role, or status.
                 </Text>

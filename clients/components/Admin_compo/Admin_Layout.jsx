@@ -1108,7 +1108,7 @@ const styles = {
   },
 
   navText: {
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: "PoppinsMedium",
     color: "#5F6F8C",
   },
@@ -1174,14 +1174,14 @@ const styles = {
   },
 
   pageTitle: {
-    fontSize: 34,
+    fontSize: 30,
     color: "#16233A",
     fontFamily: "PoppinsSemiBold",
     marginBottom: 4,
   },
 
   pageDesc: {
-    fontSize: 17,
+    fontSize: 15,
     color: "#5F6F8C",
     fontFamily: "PoppinsMedium",
   },

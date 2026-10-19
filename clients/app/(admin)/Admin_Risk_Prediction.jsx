@@ -229,12 +229,12 @@ export default function Admin_Risk_Prediction() {
               <Text style={styles.boxHeaderTitle}>Possible Crime Forecast Map</Text>
             </View>
 
-            {/* UNIFORM FILTER PANEL */}
+            {/* FILTER PANEL (Border removed here) */}
             <View style={styles.filterCard}>
               <View style={styles.filterHeaderRow}>
                 <View style={styles.filterTitleContainer}>
                   <View style={styles.filterIconBadge}>
-                    <Ionicons name="filter-outline" size={16} color="#294880" />
+                    <Ionicons name="options-outline" size={16} color="#294880" />
                   </View>
                   <View>
                     <Text style={styles.filterCardTitle}>Filter by Barangay</Text>
@@ -490,12 +490,11 @@ const styles = StyleSheet.create({
   boxHeaderTitle: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 14 },
 
   filterCard: {
-    backgroundColor: "#F8FAF9",
-    borderWidth: 1,
-    borderColor: "#D9E2F0",
-    borderRadius: 12,
-    padding: 12,
-    gap: 10,
+    backgroundColor: "#FFFFFF",
+    // Border removed here as requested
+    borderRadius: 14,
+    padding: 0,
+    gap: 12,
     position: "relative",
     zIndex: 10,
   },
@@ -507,14 +506,14 @@ const styles = StyleSheet.create({
   filterTitleContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
     flex: 1,
   },
   filterIconBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: "#E8EFFB",
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#EAF2FF",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -526,7 +525,7 @@ const styles = StyleSheet.create({
   filterCardSubtitle: {
     fontFamily: "PoppinsRegular",
     fontSize: 10,
-    color: "#647B75",
+    color: "#5D6F92",
   },
   resetFilterButton: {
     flexDirection: "row",
@@ -544,12 +543,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#294880",
   },
-  dropdownBox: { height: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 8, backgroundColor: "#FFFFFF" },
+  dropdownBox: { height: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 10, backgroundColor: "#FFFFFF" },
   dropdownLabelRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   dropdownText: { color: "#294880", fontFamily: "PoppinsMedium", fontSize: 12 },
-  dropdownListContainer: { position: "absolute", top: 75, left: 12, right: 12, borderWidth: 1, borderColor: "#DCE3ED", borderRadius: 8, backgroundColor: "#FFFFFF", elevation: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, zIndex: 99 },
+  dropdownListContainer: { position: "absolute", top: 78, left: 0, right: 0, borderWidth: 1, borderColor: "#DCE3ED", borderRadius: 10, backgroundColor: "#FFFFFF", elevation: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, zIndex: 99 },
   dropdownItem: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: "#F0F3F7" },
-  dropdownItemActive: { backgroundColor: "#E8EFFB" },
+  dropdownItemActive: { backgroundColor: "#EAF2FF" },
   dropdownItemText: { color: "#3B4A5F", fontFamily: "PoppinsRegular", fontSize: 12 },
   dropdownItemTextActive: { color: "#294880", fontFamily: "PoppinsSemiBold" },
 
