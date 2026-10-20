@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { reverseGeocode } from "../utils/geocode.js";
+import { deriveBarangay, hasReportCoordinates } from "../utils/argaoLocation.js";
 import {
   getRecommendedActions,
   ruleBasedActions,
@@ -44,41 +45,6 @@ const VALID_STATUSES = [
   "Archived",
   "Marked Fake",
 ];
-
-const ARGAO_BARANGAYS = [
-  "Poblacion",
-  "Lamacan",
-  "Talaga",
-  "Canbanua",
-  "Bugang",
-  "Conalum",
-  "Dawis",
-  "Guiwanon",
-  "Kabangkalan",
-  "Kasambagan",
-  "Langtad",
-  "Mango",
-  "Matic",
-  "Mindalusan",
-  "Oboj",
-  "Osang",
-  "Pajija",
-  "Tulic",
-  "San Miguel",
-  "Binlod",
-  "Tagaytay",
-  "Taloot",
-];
-
-function deriveBarangay(location: string): string {
-  const loc = (location || "").toLowerCase();
-  if (!loc) return "";
-  for (const barangay of ARGAO_BARANGAYS) {
-    if (loc.includes(barangay.toLowerCase())) return barangay;
-  }
-  const first = loc.split(",")[0]?.trim() || "";
-  return first ? first.charAt(0).toUpperCase() + first.slice(1) : "";
-}
 
 function categoryNameOf(rel: unknown): string {
   if (!rel) return "";
@@ -426,6 +392,12 @@ export const reportService = {
     if (typeof input.details === "string") updates.details = input.details.trim();
     if (typeof input.location === "string") updates.location = input.location;
     if (typeof input.poster_name === "string") updates.poster_name = input.poster_name;
+
+    if (input.latitude !== undefined || input.longitude !== undefined) {
+      if (!hasReportCoordinates(input)) return { error: "Valid latitude and longitude are required together" };
+      updates.latitude = Number(input.latitude);
+      updates.longitude = Number(input.longitude);
+    }
 
     const coordPattern = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?/;
     const latNum = input.latitude ? Number(input.latitude) : null;
@@ -1021,7 +993,7 @@ export const reportService = {
       return {
         id: r.id,
         location: r.location ?? "",
-        barangay: deriveBarangay(r.location ?? ""),
+        barangay: deriveBarangay(r.location ?? "", r),
         details: r.details ?? "",
         poster_name: r.poster_name ?? "",
         reporter_name:

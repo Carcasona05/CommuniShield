@@ -252,6 +252,14 @@ function SAdmin_Layout({ children }) {
       description: "Review report validation and AI credibility results",
     },
     {
+      label: "Sentiment Datasets",
+      route: "/(sadmin)/SAdmin_SentimentDatasets",
+      path: "/SAdmin_SentimentDatasets",
+      icon: "documents-outline",
+      iconType: "Ionicons",
+      description: "Review, approve, and export sentiment training datasets",
+    },
+    {
       label: "Logs",
       route: "/(sadmin)/SAdmin_AuditLogs",
       path: "/SAdmin_AuditLogs",

@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { InferenceSession, Tensor } from "onnxruntime-node";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import { getActiveModelBundle } from "./sentimentModelRegistry.js";
 import {
   GeminiClientError,
   candidateModels,
@@ -57,6 +58,7 @@ export interface SentimentPrediction {
 interface LocalSession {
   session: InferenceSession;
   labels: SentimentLabel[];
+  version: string;
 }
 
 const LOCAL_LABELS: SentimentLabel[] = ["negative", "neutral", "positive"];
@@ -93,7 +95,7 @@ const resolveModelDirectory = (): string => {
 };
 
 const modelDirectory = resolveModelDirectory();
-const localSessions = new Map<SentimentLanguage, Promise<LocalSession>>();
+const localSessions = new Map<SentimentLanguage, { version: string; session: Promise<LocalSession> }>();
 
 const LOW_LOCAL_CONFIDENCE = 0.45;
 // A confident local override is only trustworthy when the input carries enough
@@ -130,17 +132,30 @@ export const normalizeSentimentLabel = (value: unknown): SentimentLabel | null =
 const LANGID_LABELS = ["cebuano", "english", "filipino"];
 const LANGID_MIN_CONFIDENCE = 0.5;
 let languageSession: Promise<InferenceSession> | null = null;
+let languageVersion = "";
 
-const loadLanguageSession = (): Promise<InferenceSession> => {
-  if (languageSession) return languageSession;
-  languageSession = (async () => {
-    const path = join(modelDirectory, "language_id.onnx");
+const loadLanguageSession = async (): Promise<InferenceSession> => {
+  const bundle = await getActiveModelBundle(modelDirectory);
+  if (languageSession && languageVersion === bundle.version) return languageSession;
+  const previous = languageSession;
+  const previousVersion = languageVersion;
+  languageVersion = bundle.version;
+  const loading = (async () => {
+    const path = join(bundle.directory, "language_id.onnx");
     if (!existsSync(path)) {
       throw new Error(`Language id model is missing: ${path}`);
     }
     return InferenceSession.create(path);
-  })();
-  return languageSession;
+  })().catch((error) => {
+    if (languageSession === loading) {
+      languageSession = previous;
+      languageVersion = previousVersion;
+    }
+    if (previous) return previous;
+    throw error;
+  });
+  languageSession = loading;
+  return loading;
 };
 
 export const detectLanguage = async (
@@ -174,24 +189,29 @@ export const detectLanguage = async (
 export const sentimentInputHash = (text: string): string =>
   createHash("sha256").update(normalizeText(text), "utf8").digest("hex");
 
-const localModelPath = (language: LocalModelLanguage): string =>
-  join(modelDirectory, `sentiment_${language}.onnx`);
-
-const loadLocalSession = (
+const loadLocalSession = async (
   language: LocalModelLanguage
 ): Promise<LocalSession> => {
+  const bundle = await getActiveModelBundle(modelDirectory);
   const existing = localSessions.get(language);
-  if (existing) return existing;
+  if (existing?.version === bundle.version) return existing.session;
 
   const loading = (async (): Promise<LocalSession> => {
-    const path = localModelPath(language);
+    const path = join(bundle.directory, `sentiment_${language}.onnx`);
     if (!existsSync(path)) {
       throw new Error(`Local sentiment model is missing: ${path}`);
     }
     const session = await InferenceSession.create(path);
-    return { session, labels: [...LOCAL_LABELS] };
-  })();
-  localSessions.set(language, loading);
+    return { session, labels: [...LOCAL_LABELS], version: bundle.version };
+  })().catch((error) => {
+    if (localSessions.get(language)?.session === loading) {
+      if (existing) localSessions.set(language, existing);
+      else localSessions.delete(language);
+    }
+    if (existing) return existing.session;
+    throw error;
+  });
+  localSessions.set(language, { version: bundle.version, session: loading });
   return loading;
 };
 
@@ -199,7 +219,7 @@ const runLocalPrediction = async (
   language: LocalModelLanguage,
   text: string
 ): Promise<SentimentPrediction> => {
-  const { session, labels } = await loadLocalSession(language);
+  const { session, labels, version } = await loadLocalSession(language);
   const input = new Tensor("string", [text], [1, 1]);
   const output = await session.run({ text: input });
   const probabilities = output.probabilities?.data;
@@ -221,7 +241,7 @@ const runLocalPrediction = async (
     confidence: clamp(Number(probabilities[bestIndex])),
     language,
     provider: "local",
-    model: `word-character-tfidf-logistic-regression-${language}`,
+    model: `word-character-tfidf-logistic-regression-${language}@${version}`,
     input_hash: sentimentInputHash(text),
     source_text: text,
   };

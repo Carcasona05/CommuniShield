@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, ScrollView, TextInput, TouchableOpacity } from "react-native";
+import { View, Text, ScrollView, Platform, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -9,6 +9,40 @@ import { AnalyticsSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
+import SentimentDatasetManager from "../../components/Admin_compo/SentimentDatasetManager";
+
+const TRAINING_SCROLLBAR_CSS = `
+  #sentiment-training-scroll {
+    scrollbar-gutter: stable;
+    overscroll-behavior-y: contain;
+  }
+  #sentiment-training-scroll::-webkit-scrollbar {
+    width: 10px;
+  }
+  #sentiment-training-scroll::-webkit-scrollbar-track {
+    background: #F3F6FB;
+    border-radius: 999px;
+    margin-block: 10px;
+  }
+  #sentiment-training-scroll::-webkit-scrollbar-thumb {
+    background: #9AAED0;
+    border: 3px solid #F3F6FB;
+    border-radius: 999px;
+    min-height: 40px;
+  }
+  #sentiment-training-scroll::-webkit-scrollbar-thumb:hover {
+    background: #294880;
+  }
+  #sentiment-training-scroll::-webkit-scrollbar-thumb:active {
+    background: #203A69;
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    #sentiment-training-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: #9AAED0 #F3F6FB;
+    }
+  }
+`;
 
 const SentimentChart = ({ data = [] }) => {
   const W = 320;
@@ -70,6 +104,8 @@ const distColor = (label) => {
 };
 
 export default function Admin_Analytics() {
+  const { width } = useWindowDimensions();
+  const [overviewHeight, setOverviewHeight] = useState(500);
   const [loading, setLoading] = useState(() => getCache("api:/admin/analytics") === undefined);
 
   const [summary, setSummary] = useState(() => {
@@ -77,90 +113,17 @@ export default function Admin_Analytics() {
     return cached?.summary || {
       activeIncidents: 0,
       criticalHotspots: 0,
-      avgSentiment: "4.2",
-      sentimentLabel: "Mostly Positive",
-      sentimentAnalyzed: 142,
-      sentimentTotal: 150,
-      sentimentDistribution: [
-        { label: "positive", count: 90 },
-        { label: "neutral", count: 45 },
-        { label: "negative", count: 15 },
-      ],
+      avgSentiment: "N/A",
+      sentimentLabel: "No analyzed data",
+      sentimentAnalyzed: 0,
+      sentimentTotal: 0,
+      sentimentDistribution: [],
     };
   });
   const [sentimentTrend, setSentimentTrend] = useState(() => {
     const cached = getCache("api:/admin/analytics");
     return cached?.sentimentTrend || [];
   });
-
-  // --- RIGHT SIDE DATASETS & PAGINATION ---
-  const [datasets, setDatasets] = useState([
-    { id: "6", label: "positive", note: "Road maintenance feedback positive." },
-    { id: "5", label: "neutral", note: "Inquiry regarding public transport schedule." },
-    { id: "4", label: "negative", note: "Power outage reported near east district." },
-    { id: "3", label: "positive", note: "Water supply restoration confirmed." },
-    { id: "2", label: "negative", note: "Delay reported in southern sector." },
-    { id: "1", label: "positive", note: "Community outreach feedback was great." },
-  ]);
-
-  const [inputWord, setInputWord] = useState("");
-  const [inputLabel, setInputLabel] = useState("positive");
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-
-  // Pagination (Strictly 4 per page)
-  const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 4;
-
-  const totalPages = Math.ceil(datasets.length / ITEMS_PER_PAGE) || 1;
-  const paginatedDatasets = datasets.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
-
-  const handleSaveDataset = () => {
-    if (!inputWord.trim()) return;
-
-    if (editingId) {
-      setDatasets(
-        datasets.map((d) =>
-          d.id === editingId ? { ...d, label: inputLabel, note: inputWord.trim() } : d
-        )
-      );
-      setEditingId(null);
-    } else {
-      const newEntry = {
-        id: Date.now().toString(),
-        label: inputLabel,
-        note: inputWord.trim(),
-      };
-      setDatasets([newEntry, ...datasets]);
-      setCurrentPage(1);
-    }
-    setInputWord("");
-    setDropdownOpen(false);
-  };
-
-  const handleEditDataset = (item) => {
-    setEditingId(item.id);
-    setInputLabel(item.label);
-    setInputWord(item.note);
-  };
-
-  const handleDeleteDataset = (id) => {
-    const updated = datasets.filter((d) => d.id !== id);
-    setDatasets(updated);
-
-    const newTotalPages = Math.ceil(updated.length / ITEMS_PER_PAGE) || 1;
-    if (currentPage > newTotalPages) {
-      setCurrentPage(newTotalPages);
-    }
-
-    if (editingId === id) {
-      setEditingId(null);
-      setInputWord("");
-    }
-  };
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -227,6 +190,7 @@ export default function Admin_Analytics() {
 
   return (
     <Admin_Layout>
+      {Platform.OS === "web" ? <style>{TRAINING_SCROLLBAR_CSS}</style> : null}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.scrollContent}
@@ -234,10 +198,14 @@ export default function Admin_Analytics() {
       >
         <View style={styles.contentWrap}>
           {/* TWO-COLUMN LAYOUT (70% LEFT, 30% RIGHT) */}
-          <View style={styles.middleRow}>
+          <View style={[styles.middleRow, width < 1100 && { flexDirection: "column" }]}>
             {/* LEFT SECTION (70%) */}
-            <View style={styles.leftAnalyticsSection}>
-              <View style={styles.emphasizedSentimentCard}>
+            <View style={[styles.leftAnalyticsSection, width < 1100 ? styles.stackedSection : { flex: 7 }]}>
+              <View
+                testID="sentiment-overview-panel"
+                style={styles.emphasizedSentimentCard}
+                onLayout={(event) => setOverviewHeight(event.nativeEvent.layout.height)}
+              >
                 <View style={styles.emphasizedHeader}>
                   <View style={styles.emphasizedHeaderTitleRow}>
                     <Ionicons name="pulse" size={18} color="#294880" />
@@ -378,142 +346,17 @@ export default function Admin_Analytics() {
             </View>
 
             {/* RIGHT SECTION: SENTIMENT DATA MANAGER (30%) */}
-            <View style={styles.rightEmptySection}>
-              <View style={styles.emptyBoxCard}>
-                <View style={styles.emphasizedHeader}>
-                  <View style={styles.emphasizedHeaderTitleRow}>
-                    <Ionicons name="create-outline" size={18} color="#294880" />
-                    <Text style={styles.emphasizedTitle}>
-                      {editingId ? "Edit Sentiment Data" : "Add Sentiment Data"}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={{ padding: 14 }}>
-                  {/* ADD WORD INPUT */}
-                  <Text style={styles.inputLabel}>Add Word / Phrase</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="Type a word or sentence..."
-                    placeholderTextColor="#9AA8C2"
-                    value={inputWord}
-                    onChangeText={setInputWord}
-                  />
-
-                  {/* CATEGORY HOVERDOWN DROPDOWN */}
-                  <Text style={styles.inputLabel}>Category</Text>
-                  <TouchableOpacity
-                    style={styles.dropdownHeader}
-                    onPress={() => setDropdownOpen(!dropdownOpen)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <View style={[styles.miniDot, { backgroundColor: distColor(inputLabel) }]} />
-                      <Text style={styles.dropdownHeaderText}>{inputLabel.toUpperCase()}</Text>
-                    </View>
-                    <Ionicons
-                      name={dropdownOpen ? "chevron-up" : "chevron-down"}
-                      size={16}
-                      color="#4B5D7A"
-                    />
-                  </TouchableOpacity>
-
-                  {dropdownOpen && (
-                    <View style={styles.dropdownList}>
-                      {["positive", "neutral", "negative"].map((lbl) => (
-                        <TouchableOpacity
-                          key={lbl}
-                          style={[
-                            styles.dropdownItem,
-                            inputLabel === lbl && { backgroundColor: "#EAF2FF" },
-                          ]}
-                          onPress={() => {
-                            setInputLabel(lbl);
-                            setDropdownOpen(false);
-                          }}
-                        >
-                          <View style={[styles.miniDot, { backgroundColor: distColor(lbl) }]} />
-                          <Text
-                            style={[
-                              styles.dropdownItemText,
-                              inputLabel === lbl && { color: "#2F8DE4", fontFamily: "PoppinsSemiBold" },
-                            ]}
-                          >
-                            {lbl.toUpperCase()}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-
-                  {/* SAVE DATASET BUTTON */}
-                  <TouchableOpacity style={styles.submitBtn} onPress={handleSaveDataset}>
-                    <Text style={styles.submitBtnText}>
-                      {editingId ? "Update Dataset" : "Save Dataset"}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <View style={{ height: 1, backgroundColor: "#D9E2F0", marginVertical: 14 }} />
-
-                  {/* RECENT DATASET HEADER WITH UPPER RIGHT PAGINATION */}
-                  <View style={styles.recentHeaderRow}>
-                    <Text style={styles.chartSubhead}>Recent Dataset</Text>
-
-                    <View style={styles.paginationBox}>
-                      <TouchableOpacity
-                        disabled={currentPage === 1}
-                        onPress={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                        style={{ opacity: currentPage === 1 ? 0.3 : 1 }}
-                      >
-                        <Ionicons name="chevron-back" size={14} color="#294880" />
-                      </TouchableOpacity>
-
-                      <Text style={styles.paginationText}>
-                        {currentPage} ... {totalPages}
-                      </Text>
-
-                      <TouchableOpacity
-                        disabled={currentPage === totalPages}
-                        onPress={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                        style={{ opacity: currentPage === totalPages ? 0.3 : 1 }}
-                      >
-                        <Ionicons name="chevron-forward" size={14} color="#294880" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  {/* RECENT DATASETS LIST (STRICTLY MAX 4 PER PAGE) */}
-                  {paginatedDatasets.length === 0 ? (
-                    <Text style={{ fontSize: 12, color: "#9AA8C2", fontStyle: "italic", marginTop: 6 }}>
-                      No datasets added yet.
-                    </Text>
-                  ) : (
-                    paginatedDatasets.map((item) => (
-                      <View key={item.id} style={styles.datasetRow}>
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                            <View style={[styles.miniDot, { backgroundColor: distColor(item.label) }]} />
-                            <Text style={styles.datasetLabelText}>{item.label.toUpperCase()}</Text>
-                            <Text style={styles.aiTag}>AI Calculated</Text>
-                          </View>
-                          <Text style={styles.datasetNoteText} numberOfLines={2}>
-                            {item.note}
-                          </Text>
-                        </View>
-
-                        <View style={{ flexDirection: "row", gap: 8, marginLeft: 8 }}>
-                          <TouchableOpacity onPress={() => handleEditDataset(item)}>
-                            <Ionicons name="pencil-outline" size={16} color="#4F8EF7" />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => handleDeleteDataset(item.id)}>
-                            <Ionicons name="trash-outline" size={16} color="#E45757" />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ))
-                  )}
-                </View>
-              </View>
+            <View testID="sentiment-training-panel" style={[styles.rightEmptySection, styles.trainingPanel, { height: overviewHeight }, width < 1100 ? styles.stackedSection : { flex: 3 }]}>
+              <ScrollView
+                nativeID="sentiment-training-scroll"
+                testID="sentiment-training-scroll"
+                style={styles.trainingScroll}
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+                keyboardShouldPersistTaps="handled"
+              >
+                <SentimentDatasetManager embedded />
+              </ScrollView>
             </View>
           </View>
         </View>
@@ -527,7 +370,8 @@ const styles = {
     paddingBottom: 24,
   },
   contentWrap: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 0,
   },
   middleRow: {
     flexDirection: "row",
@@ -535,13 +379,21 @@ const styles = {
     alignItems: "flex-start",
   },
   leftAnalyticsSection: {
-    flex: 7,
     minWidth: 0,
   },
   rightEmptySection: {
-    flex: 3,
     minWidth: 0,
   },
+  stackedSection: { width: "100%", flexGrow: 0, flexShrink: 0 },
+  trainingPanel: {
+    minHeight: 0,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  trainingScroll: { flex: 1, minHeight: 0 },
   emptyBoxCard: {
     backgroundColor: "#FFFFFF",
     borderWidth: 1,

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   ScrollView,
   Text,
@@ -20,6 +21,7 @@ import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import apiClient from "../../services/apiClient";
 import { getCache, setCache } from "../../services/dataStore";
+import { getReportBarangay, getReportLocationHierarchy } from "../../services/argaoLocation";
 
 const INCIDENT_CATEGORIES = [
   {
@@ -71,14 +73,9 @@ const getReportDate = (report) => {
 };
 
 const getLocation = (report) => {
-  const barangay = normalizeText(report?.barangay || report?.barangay_name);
+  const barangay = getReportBarangay(report);
   if (barangay) return barangay;
-  const location = normalizeText(report?.location);
-  if (location) return location;
-  if (report?.latitude != null && report?.longitude != null) {
-    return `${Number(report.latitude).toFixed(4)}, ${Number(report.longitude).toFixed(4)}`;
-  }
-  return "Location not specified";
+  return "Barangay not specified";
 };
 
 const hasCoordinates = (report) => {
@@ -151,9 +148,17 @@ const getLevel = (count) => {
 export default function Admin_Ince_Map() {
   const scrollViewRef = useRef(null);
   const [workspaceY, setWorkspaceY] = useState(0);
+  const [workspaceWidth, setWorkspaceWidth] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [filtersHeight, setFiltersHeight] = useState(0);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailProgress = useRef(new Animated.Value(0)).current;
 
   const { width } = useWindowDimensions();
   const isNarrow = width < 900;
+  // Fill the space below the filters, rather than stretching a card around a
+  // fixed-height map. On small screens the details still expand below the map.
+  const mapWorkspaceHeight = Math.max(380, viewportHeight - filtersHeight - 64);
   
   // Backend data states with local caching support
   const [reports, setReports] = useState(() => getCache("api:/admin/dashboard")?.reports || []);
@@ -167,8 +172,6 @@ export default function Admin_Ince_Map() {
 
   const [selectedReportId, setSelectedReportId] = useState(null);
   const [selectedHotspotKey, setSelectedHotspotKey] = useState(null);
-  const [activeLocationKey, setActiveLocationKey] = useState(null);
-  const [selectedReportSnapshot, setSelectedReportSnapshot] = useState(null);
 
   // Comment pagination state (limit 5 per page)
   const [commentPage, setCommentPage] = useState(1);
@@ -227,10 +230,9 @@ export default function Admin_Ince_Map() {
 
     return reports.filter((report) => {
       if (report.status === "Rejected") return false;
-      const location = normalizeText(report.location);
-      const barangay = normalizeText(report.barangay || report.barangay_name || location.split(",")[0]);
+      const barangay = getReportBarangay(report);
       
-      if (selectedBarangay !== "All" && barangay.toLowerCase() !== selectedBarangay.toLowerCase() && !location.toLowerCase().includes(selectedBarangay.toLowerCase())) return false;
+      if (selectedBarangay === "__unresolved__" ? Boolean(barangay) : selectedBarangay !== "All" && barangay !== selectedBarangay) return false;
       if (selectedCategory !== "All" && normalizeText(report.incident_category || report.category) !== selectedCategory) return false;
       if (selectedIncidentType !== "All" && normalizeText(report.incident_type || report.type) !== selectedIncidentType) return false;
 
@@ -243,12 +245,18 @@ export default function Admin_Ince_Map() {
     });
   }, [from, reports, selectedBarangay, selectedCategory, selectedIncidentType, to]);
 
+  const mapReports = useMemo(() => filteredReports.map((report) => ({
+    ...report,
+    barangay: getReportBarangay(report),
+    location: getReportLocationHierarchy(report).label,
+  })), [filteredReports]);
+
   // Hotspot Grouping & Severity Backend Processing Logic
   const hotspots = useMemo(() => {
     const groups = new Map();
     filteredReports.forEach((report) => {
       const location = getLocation(report);
-      if (!location || location === "Location not specified") return;
+      if (location === "Barangay not specified") return;
       const key = location.toLowerCase();
       if (!groups.has(key)) {
         groups.set(key, { key, location, reports: [] });
@@ -267,33 +275,39 @@ export default function Admin_Ince_Map() {
   const selectedHotspot = hotspots.find((h) => h.key === selectedHotspotKey) || null;
 
   const mapFocusTarget = useMemo(() => {
-    if (selectedHotspot) {
-      return getMapCenterCoordinates(selectedHotspot.reports, selectedBarangay);
-    }
-    if (selectedBarangay !== "All") {
-      const barangayFilteredReports = filteredReports.filter((r) => {
-        const loc = normalizeText(r.location).toLowerCase();
-        const bgy = normalizeText(r.barangay || r.barangay_name).toLowerCase();
-        return bgy === selectedBarangay.toLowerCase() || loc.includes(selectedBarangay.toLowerCase());
-      });
-      return getMapCenterCoordinates(barangayFilteredReports, selectedBarangay);
-    }
     return getMapCenterCoordinates(filteredReports, selectedBarangay);
-  }, [selectedHotspot, filteredReports, selectedBarangay]);
+  }, [filteredReports, selectedBarangay]);
+
+  const selectedReport = filteredReports.find((report) => report.id === selectedReportId) || null;
 
   useEffect(() => {
-    if (selectedHotspot) {
-      if (!selectedHotspot.reports.some((r) => r.id === selectedReportId)) {
-        setSelectedReportId(selectedHotspot.reports[0]?.id ?? null);
-      }
-    } else if (!filteredReports.some((report) => report.id === selectedReportId)) {
-      setSelectedReportId(filteredReports[0]?.id ?? null);
+    // Filtering/refreshing must not silently select the first unrelated report.
+    if (!selectedReport) {
+      setDetailsOpen(false);
+      setSelectedReportId(null);
+      setSelectedHotspotKey(null);
     }
-    setCommentPage(1);
-  }, [filteredReports, selectedHotspot, selectedReportId]);
+  }, [selectedReport]);
 
-  const selectedReport = filteredReports.find((report) => report.id === selectedReportId) ||
-    (selectedReportSnapshot?.id === selectedReportId ? selectedReportSnapshot : null);
+  useEffect(() => {
+    setCommentPage(1);
+  }, [selectedReportId]);
+
+  useEffect(() => {
+    const animation = Animated.timing(detailProgress, {
+      toValue: detailsOpen ? 1 : 0,
+      duration: 280,
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [detailProgress, detailsOpen]);
+
+  const clearSelection = () => {
+    setDetailsOpen(false);
+    setSelectedReportId(null);
+    setSelectedHotspotKey(null);
+  };
   const sentimentCounts = getSentimentCounts(selectedReport);
   const sentimentTotal = sentimentCounts.positive + sentimentCounts.negative + sentimentCounts.neutral;
   const statusColors = getStatusColors(selectedReport?.status);
@@ -315,10 +329,11 @@ export default function Admin_Ince_Map() {
 
     // Bind the report and its location in one interaction so the detail panel
     // can render directly from the clicked marker without a blank transition.
+    if (!filteredReports.some((item) => item.id === report.id)) return;
     setSelectedReportId(report.id);
-    setSelectedReportSnapshot(report);
-    setActiveLocationKey(hotspot?.key || locationKey);
     setSelectedHotspotKey(hotspot?.key || null);
+    setCommentPage(1);
+    setDetailsOpen(true);
     requestAnimationFrame(() => {
       scrollViewRef.current?.scrollTo({
         y: Math.max(0, workspaceY - 12),
@@ -333,19 +348,21 @@ export default function Admin_Ince_Map() {
     <Admin_Layout>
       <ScrollView
         ref={scrollViewRef}
+        onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
         contentContainerStyle={styles.page}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.filters, isNarrow && styles.filtersNarrow]}>
+        <View
+          style={[styles.filters, isNarrow && styles.filtersNarrow]}
+          onLayout={(event) => setFiltersHeight(event.nativeEvent.layout.height)}
+        >
           <BatchFilterDropdown
             label="Location"
             value={selectedBarangay}
-            options={[{ value: "All", label: "All Barangays" }, ...ARGAO_BARANGAYS.map(({ name }) => ({ value: name, label: name }))]}
+            options={[{ value: "All", label: "All Barangays" }, ...ARGAO_BARANGAYS.map(({ name }) => ({ value: name, label: name })), { value: "__unresolved__", label: "Barangay not determined" }]}
             onChange={(val) => {
               setSelectedBarangay(val);
-              setSelectedHotspotKey(null);
-              setActiveLocationKey(null);
-              setSelectedReportSnapshot(null);
+              clearSelection();
             }}
           />
           <BatchFilterDropdown
@@ -354,9 +371,7 @@ export default function Admin_Ince_Map() {
             options={[{ value: "All", label: "All Categories" }, ...INCIDENT_CATEGORIES.map(({ category }) => ({ value: category, label: category }))]}
             onChange={(val) => {
               setSelectedCategory(val);
-              setSelectedHotspotKey(null);
-              setActiveLocationKey(null);
-              setSelectedReportSnapshot(null);
+              clearSelection();
             }}
           />
           <BatchFilterDropdown
@@ -365,9 +380,7 @@ export default function Admin_Ince_Map() {
             options={incidentTypeOptions}
             onChange={(val) => {
               setSelectedIncidentType(val);
-              setSelectedHotspotKey(null);
-              setActiveLocationKey(null);
-              setSelectedReportSnapshot(null);
+              clearSelection();
             }}
           />
           <BatchDateRangeDropdown
@@ -375,32 +388,33 @@ export default function Admin_Ince_Map() {
             to={to}
             onChangeFrom={(value) => {
               setFrom(value);
-              setSelectedReportSnapshot(null);
+              clearSelection();
             }}
             onChangeTo={(value) => {
               setTo(value);
-              setSelectedReportSnapshot(null);
+              clearSelection();
             }}
           />
         </View>
 
         <View
-          style={[styles.workspace, isNarrow && styles.workspaceNarrow]}
+          style={[styles.workspace, isNarrow ? styles.workspaceNarrow : { height: mapWorkspaceHeight }]}
           onLayout={(event) => {
             setWorkspaceY(event.nativeEvent.layout.y);
+            setWorkspaceWidth(event.nativeEvent.layout.width);
           }}
         >
-          {/* Heat Map Panel (60% Width Flex) */}
-          <View style={[styles.mapPanel, isNarrow && styles.mapPanelNarrow]}>
+          {/* Full-width map until a report is selected. */}
+          <View style={[styles.mapPanel, isNarrow && [styles.mapPanelNarrow, { height: mapWorkspaceHeight }]]}>
             <View style={styles.panelHeader}>
               <Text style={styles.panelTitle}>
-                {selectedHotspot ? selectedHotspot.location : selectedBarangay !== "All" ? `${selectedBarangay}, Argao Incidents` : "Argao, Cebu Incidents"}
+                {detailsOpen && selectedReport ? getLocation(selectedReport) : selectedBarangay === "__unresolved__" ? "Barangay not determined" : selectedBarangay !== "All" ? selectedBarangay : "Argao"}
               </Text>
               <Text style={styles.panelMeta}>
-                {selectedHotspot ? `${selectedHotspot.count} reports` : `${filteredReports.length} reports`}
+                {detailsOpen && selectedHotspot ? `${selectedHotspot.count} reports` : `${filteredReports.length} reports`}
               </Text>
             </View>
-            <View style={[styles.mapFrame, isNarrow && styles.mapFrameNarrow]}>
+            <View style={styles.mapFrame}>
               {loading ? (
                 <View style={styles.loading}>
                   <ActivityIndicator color="#23675D" />
@@ -408,8 +422,7 @@ export default function Admin_Ince_Map() {
                 </View>
               ) : (
                 <AdminHeatMap
-                  key={`${selectedBarangay}-${selectedHotspotKey || 'all'}-${filteredReports.length}`}
-                  reports={selectedHotspot ? selectedHotspot.reports : filteredReports}
+                  reports={mapReports}
                   focusTarget={mapFocusTarget}
                   onReportSelect={handleSelectReport}
                 />
@@ -425,14 +438,32 @@ export default function Admin_Ince_Map() {
             </View>
           </View>
 
-          {/* Detailed Report Inspection Panel (40% Width Flex) */}
-          <View
-            key={`inspection-${activeLocationKey || "all"}-${selectedReportId || "none"}`}
-            style={[styles.detailPanel, isNarrow && styles.detailPanelNarrow]}
+          {/* Slide the inspection panel in without remounting the map. */}
+          <Animated.View
+            pointerEvents={detailsOpen ? "auto" : "none"}
+            accessibilityElementsHidden={!detailsOpen}
+            importantForAccessibility={detailsOpen ? "auto" : "no-hide-descendants"}
+            style={[
+              styles.detailReveal,
+              isNarrow ? {
+                height: detailProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 430] }),
+                marginTop: detailProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 16] }),
+              } : {
+                width: detailProgress.interpolate({ inputRange: [0, 1], outputRange: [0, Math.max(0, (workspaceWidth - 16) * 0.4)] }),
+                marginLeft: detailProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 16] }),
+              },
+              { opacity: detailProgress, transform: [{ translateX: detailProgress.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] },
+            ]}
           >
+          <View style={[styles.detailPanel, isNarrow && styles.detailPanelNarrow]}>
             <View style={styles.detailHeader}>
               <Text style={styles.panelTitle}>Detailed Report</Text>
+              <View style={styles.detailHeaderActions}>
               {selectedReport ? <Text style={styles.panelMeta}>ID {String(selectedReport.id).slice(0, 8)}</Text> : null}
+              <Pressable onPress={() => setDetailsOpen(false)} accessibilityRole="button" accessibilityLabel="Close detailed report" style={styles.closeButton}>
+                <Ionicons name="close" size={20} color="#294880" />
+              </Pressable>
+              </View>
             </View>
             {selectedReport ? (
               <ScrollView
@@ -445,7 +476,7 @@ export default function Admin_Ince_Map() {
                 <View style={styles.topHeaderRow}>
                   <View style={styles.headerTitleArea}>
                     <Text style={styles.reportTitle}>{selectedReport.incident_type || "Incident"}</Text>
-                    <Text style={styles.reportLocation}>{selectedReport.location || "Location not specified"}</Text>
+                    <Text style={styles.reportLocation}>{getReportLocationHierarchy(selectedReport).label}</Text>
                     
                     <View style={styles.badges}>
                       <Text style={[styles.badgeStatus, { color: statusColors.color, backgroundColor: statusColors.background }]}>
@@ -475,11 +506,11 @@ export default function Admin_Ince_Map() {
                   <View style={styles.categoryTypeRow}>
                     <View style={styles.categoryTypeCol}>
                       <Text style={styles.infoLabel}>Category</Text>
-                      <Text style={styles.infoValue}>{selectedReport.incident_category || "Public Safety Incidents"}</Text>
+                      <Text style={styles.infoValue}>{selectedReport.incident_category || "Not specified"}</Text>
                     </View>
                     <View style={styles.categoryTypeCol}>
                       <Text style={styles.infoLabel}>Incident Type</Text>
-                      <Text style={styles.infoValue}>{selectedReport.incident_type || "Trespassing"}</Text>
+                      <Text style={styles.infoValue}>{selectedReport.incident_type || "Not specified"}</Text>
                     </View>
                   </View>
 
@@ -558,6 +589,7 @@ export default function Admin_Ince_Map() {
               </View>
             )}
           </View>
+          </Animated.View>
         </View>
       </ScrollView>
     </Admin_Layout>
@@ -566,6 +598,7 @@ export default function Admin_Ince_Map() {
 
 const styles = {
   page: {
+    flexGrow: 1,
     padding: 20,
     paddingBottom: 28,
     gap: 16,
@@ -584,18 +617,20 @@ const styles = {
     elevation: 4,
   },
   filtersNarrow: { padding: 12 },
-  workspace: { flexDirection: "row", alignItems: "stretch", gap: 16 },
+  workspace: { flexDirection: "row", alignItems: "stretch" },
   workspaceNarrow: { flexDirection: "column" },
   mapPanel: { flex: 6, minWidth: 0, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 14, overflow: "hidden", shadowColor: "#0F1E3D", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 10, elevation: 2 },
   mapPanelNarrow: { flex: 0 },
-  detailPanel: { flex: 4, minWidth: 270, height: 398, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 14, overflow: "hidden", shadowColor: "#0F1E3D", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 10, elevation: 2 },
+  detailReveal: { overflow: "hidden", minHeight: 0 },
+  detailPanel: { flex: 1, minWidth: 0, minHeight: 0, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 14, overflow: "hidden", shadowColor: "#0F1E3D", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 10, elevation: 2 },
+  detailHeaderActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  closeButton: { padding: 6, borderRadius: 8 },
   detailPanelNarrow: { flex: 0, minWidth: 0, height: 430 },
-  panelHeader: { height: 48, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
-  detailHeader: { height: 48, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
+  panelHeader: { height: 48, flexShrink: 0, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
+  detailHeader: { height: 48, flexShrink: 0, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
   panelTitle: { fontFamily: "PoppinsSemiBold", fontSize: 14, color: "#294880" },
   panelMeta: { fontFamily: "PoppinsMedium", fontSize: 11, color: "#5D6F92" },
-  mapFrame: { height: 350, overflow: "hidden", position: "relative" },
-  mapFrameNarrow: { height: 330 },
+  mapFrame: { flex: 1, minHeight: 0, overflow: "hidden", position: "relative" },
   legend: { position: "absolute", left: 12, bottom: 12, flexDirection: "row", flexWrap: "wrap", gap: 10, backgroundColor: "rgba(255,255,255,0.96)", borderWidth: 1, borderColor: "#E3EAF6", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 8 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   legendDot: { width: 9, height: 9, borderRadius: 5 },

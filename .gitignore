@@ -49,5 +49,6 @@ yarn-error.*
 /datasets/raw/
 /datasets/processed/
 /datasets/models/
+/datasets/training-runs/
 __pycache__/
 *.py[cod]

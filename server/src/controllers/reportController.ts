@@ -529,11 +529,8 @@ export const getAdminDashboard = async (req: AuthRequest, res: Response) => {
       return false;
     }
     if (barangay) {
-      const locationParts = [
-        report.barangay,
-        ...String(report.location || "").split(","),
-      ].map((part) => String(part || "").trim().toLowerCase());
-      if (!locationParts.includes(barangay)) return false;
+      const resolvedBarangay = String(report.barangay || "").toLowerCase();
+      if (barangay === "__unresolved__" ? Boolean(resolvedBarangay) : resolvedBarangay !== barangay) return false;
     }
     if (Number.isFinite(fromTime) && (!Number.isFinite(createdAt) || createdAt < fromTime)) {
       return false;

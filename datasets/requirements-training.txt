@@ -1,0 +1,8 @@
+numpy==2.5.3
+scikit-learn==1.9.1
+pandas==3.0.6
+skl2onnx==1.20.0
+onnx==1.23.0
+onnxruntime==1.30.0
+joblib==1.6.0
+python-dotenv>=1.0,<2

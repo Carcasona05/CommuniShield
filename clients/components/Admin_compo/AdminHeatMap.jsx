@@ -130,13 +130,11 @@ const MAP_HTML = `
       if (!report) return;
 
       try {
+        var message = JSON.stringify({ type: "report-select", report: report });
         if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(
-            JSON.stringify({
-              type: "report-select",
-              report: report
-            })
-          );
+          window.ReactNativeWebView.postMessage(message);
+        } else if (window.parent !== window) {
+          window.parent.postMessage(message, "*");
         }
       } catch (err) {}
     }
@@ -144,6 +142,33 @@ const MAP_HTML = `
     var markerLayer = L.layerGroup().addTo(map);
     var heatLayer = null;
     var groups = {};
+
+    // The heat canvas is not interactive: use its visible radius to find the
+    // nearest real marker, rather than selecting an unrelated report.
+    map.on("click", function (event) {
+      var closest = null;
+      var closestDistance = 60;
+      Object.keys(groups).forEach(function (key) {
+        var group = groups[key];
+        var point = map.latLngToContainerPoint(group.marker.getLatLng());
+        var distance = point.distanceTo(event.containerPoint);
+        if (distance < closestDistance) {
+          closest = group;
+          closestDistance = distance;
+        }
+      });
+      if (closest) {
+        closest.marker.openPopup();
+        emitSelection(closest.list[closest.idx]);
+      }
+    });
+
+    // Keep tiles and hit targets aligned while the details panel animates.
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(function () {
+        map.invalidateSize({ pan: false });
+      }).observe(document.getElementById("map"));
+    }
 
     function popupHtml(key) {
       var group = groups[key];
@@ -282,6 +307,7 @@ const MAP_HTML = `
             fillColor: SEVERITY_COLOR[sev] || "#294880",
             fillOpacity: 0.95,
             className: "cs-dot",
+            bubblingMouseEvents: false,
           }
         );
 
@@ -366,22 +392,34 @@ const AdminHeatMap = ({
 
   const reportsRef = useRef(reports);
   reportsRef.current = reports;
+  const onReportSelectRef = useRef(onReportSelect);
+  onReportSelectRef.current = onReportSelect;
+
+  const selectReport = (data) => {
+    const payload = typeof data === "string" ? JSON.parse(data) : data;
+    if (payload?.type !== "report-select" || !payload.report?.id) return;
+    // Resolve against current data, not a stale iframe snapshot.
+    const report = reportsRef.current.find((item) => item.id === payload.report.id);
+    if (report) onReportSelectRef.current?.(report);
+  };
 
   const handleMessage = (event) => {
     try {
-      const payload = JSON.parse(event.nativeEvent.data);
-
-      if (
-        payload?.type === "report-select" &&
-        payload.report &&
-        onReportSelect
-      ) {
-        onReportSelect(payload.report);
-      }
+      selectReport(event.nativeEvent.data);
     } catch {
       // Ignore unsupported messages.
     }
   };
+
+  useEffect(() => {
+    if (!isWeb) return;
+    const receive = (event) => {
+      if (event.source !== mapRef.current?.contentWindow) return;
+      try { selectReport(event.data); } catch { /* Ignore unsupported messages. */ }
+    };
+    window.addEventListener("message", receive);
+    return () => window.removeEventListener("message", receive);
+  }, [isWeb]);
 
   const pushInit = () => {
     if (!mapRef.current) return;

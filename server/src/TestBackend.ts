@@ -29,6 +29,67 @@ import { notificationService } from "./services/notificationService.js";
 import { getNotificationPreferences, updateNotificationPreferences } from "./controllers/notificationPreferencesController.js";
 import type { Request, Response } from "express";
 import type { User } from "@supabase/supabase-js";
+import { ARGAO_BARANGAY_NAMES, barangaysAtCoordinates, deriveBarangay } from "./utils/argaoLocation.js";
+import { formatGeocodedAddress } from "./utils/geocode.js";
+import { getAdminDashboard } from "./controllers/reportController.js";
+import { reportService } from "./services/reportService.js";
+import { profileService } from "./services/authService.js";
+
+// Unit/integration tests use bundled artifacts, never the live model pointer.
+process.env.SENTIMENT_MODEL_REGISTRY_ENABLED = "false";
+
+describe("Argao barangay and street hierarchy", () => {
+  test("streets are assigned by their coordinates, not whole-street aliases", () => {
+    assert.equal(deriveBarangay("Carlock Street, Argao, Cebu", { latitude: 9.8784487, longitude: 123.5950192 }), "Lamacan");
+    assert.equal(deriveBarangay("624 Carlock St., Argao"), "");
+    assert.equal(deriveBarangay("Unknown Street, Argao"), "");
+    assert.equal(deriveBarangay("Apo Street, Argao"), "");
+  });
+  test("recognized address barangays are used when coordinates are missing", () => {
+    assert.equal(deriveBarangay("Carlock Street, Brgy. Canbanua, Argao"), "Canbanua");
+    for (const barangay of ARGAO_BARANGAY_NAMES) {
+      assert.equal(deriveBarangay(`Other Street, ${barangay}, Argao`), barangay);
+    }
+  });
+  test("reverse geocoding retains streets below the barangay", () => {
+    assert.equal(formatGeocodedAddress({ suburb: "Lamacan", road: "Carlock Street", town: "Argao", state: "Cebu" }), "Lamacan, Carlock Street, Argao, Cebu");
+    assert.equal(formatGeocodedAddress({ road: "Carlock Street", town: "Argao" }, { latitude: 9.8784487, longitude: 123.5950192 }), "Lamacan, Carlock Street, Argao");
+    assert.equal(formatGeocodedAddress({ suburb: "Canbanua", road: "Carlock Street", town: "Argao" }), "Canbanua, Carlock Street, Argao");
+    assert.equal(formatGeocodedAddress({ road: "Unknown Street", town: "Argao" }), "Unknown Street, Argao");
+  });
+  test("Isidro Kintanar reports appear in the barangay containing each pin", () => {
+    const location = "Isidro Kintanar Street, Argao";
+    assert.equal(deriveBarangay(location, { latitude: 9.881969, longitude: 123.600326 }), "Lamacan");
+    assert.equal(deriveBarangay(location, { latitude: 9.88525, longitude: 123.598033 }), "Canbanua");
+    assert.equal(deriveBarangay(location, { latitude: 9.8802091, longitude: 123.605901 }), "Poblacion");
+    assert.equal(deriveBarangay("Canbanua, Argao", { latitude: 9.881969, longitude: 123.600326 }), "Lamacan");
+    assert.deepEqual(barangaysAtCoordinates(0, 0), []);
+    assert.deepEqual(barangaysAtCoordinates(null, ""), []);
+  });
+  test("reverse geocoding corrects an incorrect suburb using the pin", () => {
+    assert.equal(formatGeocodedAddress({ suburb: "Canbanua", road: "Isidro Kintanar Street", town: "Argao" }, { latitude: 9.881969, longitude: 123.600326 }), "Lamacan, Isidro Kintanar Street, Argao");
+  });
+  test("dashboard filtering uses the resolved barangay, not stale address text", async (t) => {
+    t.mock.method(profileService, "getProfile", async () => ({ data: { role: "admin" }, error: null }));
+    t.mock.method(reportService, "getAdminDashboard", async () => ({
+      data: {
+        summary: {},
+        reports: [
+          { id: "lamacan", barangay: "Lamacan", location: "Isidro Kintanar Street, Canbanua" },
+          { id: "canbanua", barangay: "Canbanua", location: "Other Street, Lamacan" },
+          { id: "unresolved", barangay: "", location: "Unknown Street" },
+        ],
+      }, error: null,
+    }));
+    for (const [barangay, expected] of [["Lamacan", "lamacan"], ["Canbanua", "canbanua"], ["__unresolved__", "unresolved"]]) {
+      const req = { user: { id: "admin-1" }, query: { barangay } } as unknown as Request & { user: User };
+      let body: { reports: { id: string }[] } | undefined;
+      const res = { json(value: typeof body) { body = value; } } as Response;
+      await getAdminDashboard(req, res);
+      assert.deepEqual(body?.reports.map(({ id }) => id), [expected]);
+    }
+  });
+});
 
 describe("user notification preferences", () => {
   test("master switch and crime switch independently control delivery", () => {
@@ -736,6 +797,15 @@ describe("API", () => {
       { method: "POST", path: "/api/upload/image" },
 
       { method: "GET", path: "/api/ai/status" },
+      { method: "GET", path: "/api/sentiment/datasets" },
+      { method: "GET", path: "/api/sentiment/training" },
+      { method: "POST", path: "/api/sentiment/training" },
+      { method: "POST", path: "/api/sentiment/datasets/preview" },
+      { method: "POST", path: "/api/sentiment/datasets" },
+      { method: "GET", path: "/api/sentiment/datasets/00000000-0000-0000-0000-000000000000" },
+      { method: "PATCH", path: "/api/sentiment/datasets/00000000-0000-0000-0000-000000000000/samples/00000000-0000-0000-0000-000000000000" },
+      { method: "POST", path: "/api/sentiment/datasets/00000000-0000-0000-0000-000000000000/review" },
+      { method: "GET", path: "/api/sentiment/datasets/00000000-0000-0000-0000-000000000000/export" },
       { method: "POST", path: `/api/ai/analyze/${UUID}` },
       { method: "POST", path: "/api/ai/batch-analyze" },
       { method: "PUT", path: "/api/ai/toggle" },
