@@ -19,6 +19,8 @@ import {
   getAdminAnnouncements,
 } from "../controllers/reportController.js";
 import { authenticate, requireRole } from "../middlewares/authMiddleware.js";
+import { getHotspotClusters } from "../controllers/hotspotClusteringController.js";
+import { getRiskOutlook } from "../controllers/riskOutlookController.js";
 
 const router = express.Router();
 const adminOnly = requireRole(["admin", "super_admin"]);
@@ -37,6 +39,8 @@ router.get("/incidents/options", authenticate, getIncidentOptions);
 router.get("/admin/posts", authenticate, adminOnly, getAdminPosts);
 router.get("/admin/announcements", authenticate, adminOnly, getAdminAnnouncements);
 router.get("/admin/dashboard", authenticate, adminOnly, getAdminDashboard);
+router.get("/admin/clusters", authenticate, adminOnly, getHotspotClusters);
+router.get("/admin/risk-outlook", authenticate, adminOnly, getRiskOutlook);
 router.get("/admin/analytics", authenticate, adminOnly, getAdminAnalytics);
 router.post("/admin/announcements", authenticate, adminOnly, createAdminAnnouncement);
 router.get("/admin/logs", authenticate, adminOnly, getAdminLogs);

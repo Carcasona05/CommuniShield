@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   TextInput,
@@ -123,6 +123,10 @@ function UserPostReportInner() {
   const [photos, setPhotos] = useState([]);
   const [loadingLocation, setLoadingLocation] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
+  const navigationTimerRef = useRef(null);
+  const [submitStage, setSubmitStage] = useState("");
+  useEffect(() => () => clearTimeout(navigationTimerRef.current), []);
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
 
   const incidentOptions = categoryOptions.length
@@ -307,6 +311,7 @@ function UserPostReportInner() {
   };
 
   const handlePickPhoto = () => {
+    if (submitLockRef.current) return;
     if (photos.length >= 3) {
       toast.error("You can only upload up to 3 photos.");
       return;
@@ -347,10 +352,12 @@ function UserPostReportInner() {
   };
 
   const handleRemovePhoto = (indexToRemove) => {
+    if (submitLockRef.current) return;
     setPhotos((prev) => prev.filter((_, index) => index !== indexToRemove));
   };
 
   const handlePostReport = async () => {
+    if (submitLockRef.current) return;
     const selectedDisplayName =
       displayNameType === "Fullname" ? fullName : username.trim();
 
@@ -368,7 +375,10 @@ function UserPostReportInner() {
       return;
     }
 
+    submitLockRef.current = true;
     setSubmitting(true);
+    setSubmitStage("Preparing report...");
+    let posted = false;
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) {
@@ -376,7 +386,12 @@ function UserPostReportInner() {
         return;
       }
 
-      const photoUrls = await uploadImages(photos);
+      const photoUrls = await uploadImages(photos, {
+        onProgress: ({ completed, total }) => {
+          if (total) setSubmitStage(`Uploading photos ${completed}/${total}...`);
+        },
+      });
+      setSubmitStage("Saving report...");
 
       await apiClient.post(
         "/reports",
@@ -396,6 +411,8 @@ function UserPostReportInner() {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
+      posted = true;
+      setSubmitStage("Report posted");
 
       resetForm();
 
@@ -403,15 +420,22 @@ function UserPostReportInner() {
         "Report submitted successfully. It is now pending review."
       );
 
-      setTimeout(() => {
+      navigationTimerRef.current = setTimeout(() => {
+        submitLockRef.current = false;
+        setSubmitting(false);
+        setSubmitStage("");
         router.replace("/User_Home");
       }, 1200);
     } catch (error) {
       toast.error(
-        error.response?.data?.error || "Could not submit your report. Please try again."
+        error.response?.data?.error || error.message || "Could not submit your report. Please try again."
       );
     } finally {
-      setSubmitting(false);
+      if (!posted) {
+        submitLockRef.current = false;
+        setSubmitting(false);
+        setSubmitStage("");
+      }
     }
   };
 
@@ -684,9 +708,15 @@ function UserPostReportInner() {
             onPress={handlePostReport}
             activeOpacity={0.88}
             disabled={submitting}
+            accessibilityRole="button"
+            accessibilityLabel={submitting ? submitStage : "Post Report"}
+            accessibilityState={{ disabled: submitting, busy: submitting }}
           >
             {submitting ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ThemedText style={styles.postButtonText}>{submitStage}</ThemedText>
+              </View>
             ) : (
               <ThemedText style={styles.postButtonText}>Post Report</ThemedText>
             )}

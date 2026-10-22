@@ -1,53 +1,38 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts } from "expo-font";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
-import apiClient from "../../services/apiClient";
-import useAutoRefresh from "../../hooks/useAutoRefresh";
-import { getCache, setCache } from "../../services/dataStore";
+import SentimentEvidenceChart from "../../components/Admin_compo/SentimentEvidenceChart";
+import RiskOutlookPanel from "../../components/Admin_compo/RiskOutlookPanel";
+import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
+import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
+import { getReportBarangay } from "../../services/argaoLocation";
 import { ARGAO_BARANGAYS as ARGAO_BARANGAY_DATA } from "../../constants/argaoMapData";
+import { buildRiskZones, isActiveRiskReport, RISK_ZONE_LIMIT } from "../../services/riskZones";
 
 const ARGAO_BARANGAYS = [
   "All Barangays",
   ...ARGAO_BARANGAY_DATA.map(({ name }) => name),
 ];
+const EMPTY_REPORTS = [];
+const validOutlookResponse = (data) => Array.isArray(data?.reports) && Boolean(data?.forecast);
 
-const getLikelihoodTheme = (value) => {
-  if (value >= 80) {
-    return {
-      label: "Elevated",
-      color: "#B93838",
-      backgroundColor: "#FDEEEE",
-      iconColor: "#D94841",
-    };
-  }
-  if (value >= 60) {
-    return {
-      label: "Moderate",
-      color: "#C25E00",
-      backgroundColor: "#FFF0E5",
-      iconColor: "#E66C00",
-    };
-  }
-  return {
-    label: "Low",
-    color: "#16794B",
-    backgroundColor: "#EAF8F1",
-    iconColor: "#37956D",
-  };
+const ZONE_SEVERITY_THEME = {
+  Critical: { color: "#B93838", background: "#FDEEEE" },
+  High: { color: "#B45B12", background: "#FFF0E5" },
+  Medium: { color: "#946212", background: "#FFF4DF" },
+  Low: { color: "#16794B", background: "#EAF8F1" },
+  Unknown: { color: "#64748B", background: "#EEF2F6" },
 };
 
 export default function Admin_Risk_Prediction() {
   const scrollViewRef = useRef(null);
-  const [reports, setReports] = useState(() =>
-    getCache("api:/admin/dashboard")?.reports || []
-  );
-  const [loading, setLoading] = useState(
-    () => getCache("api:/admin/dashboard") === undefined
-  );
+  const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollViewRef);
+  const showScrollTopRef = useRef(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [visibleZoneCount, setVisibleZoneCount] = useState(RISK_ZONE_LIMIT);
   
   const [selectedBarangay, setSelectedBarangay] = useState("All Barangays");
   const [selectedMarkerReport, setSelectedMarkerReport] = useState(null);
@@ -55,7 +40,7 @@ export default function Admin_Risk_Prediction() {
   const [commentPage, setCommentPage] = useState(1);
   const COMMENTS_PER_PAGE = 5;
 
-  // Pagination for risk drivers ("Why is it Elevated Risk")
+  // Pagination for observed incident types, not predicted risk drivers.
   const [riskDriverPage, setRiskDriverPage] = useState(1);
   const RISK_DRIVERS_PER_PAGE = 5;
 
@@ -65,37 +50,17 @@ export default function Admin_Risk_Prediction() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const loadPrediction = useCallback(async () => {
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-      const headers = { Authorization: `Bearer ${token}` };
-      const response = await apiClient.get("/admin/dashboard", { headers });
-      const dashboardData = response.data ?? {};
-      setCache("api:/admin/dashboard", dashboardData);
-      if (Array.isArray(dashboardData.reports)) setReports(dashboardData.reports);
-    } catch {
-      const cached = getCache("api:/admin/dashboard");
-      if (Array.isArray(cached?.reports)) setReports(cached.reports);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { data: outlook, loading, refreshing, checkedAt, errorMessage } = useRetainedApiQuery({
+    endpoint: "/admin/risk-outlook",
+    params: { barangay: selectedBarangay === "All Barangays" ? undefined : selectedBarangay },
+    validate: validOutlookResponse,
+  });
+  const reports = outlook?.reports || EMPTY_REPORTS;
 
-  useAutoRefresh(loadPrediction, 60000);
-
-  if (!fontsLoaded) return null;
-
-  const isActive = (report) => !["rejected", "marked fake", "archived", "resolved"].includes(
-    String(report?.status || "").trim().toLowerCase()
-  );
-  const reportBarangay = (report) => String(
-    report?.barangay || report?.barangay_name || String(report?.location || "").split(",")[0]
-  ).trim().toLowerCase();
+  const reportBarangay = (report) => getReportBarangay(report).toLowerCase();
   const selectedReports = useMemo(() => reports.filter((report) =>
-    isActive(report) &&
-    (selectedBarangay === "All Barangays" || reportBarangay(report) === selectedBarangay.toLowerCase() ||
-     String(report?.location || "").toLowerCase().includes(selectedBarangay.toLowerCase()))
+    isActiveRiskReport(report) &&
+    (selectedBarangay === "All Barangays" || reportBarangay(report) === selectedBarangay.toLowerCase())
   ), [reports, selectedBarangay]);
 
   useEffect(() => {
@@ -112,26 +77,24 @@ export default function Admin_Risk_Prediction() {
     setRiskDriverPage(1);
   }, [selectedBarangay]);
 
-  const forecastMapReports = selectedReports.filter((report) =>
+  const currentMapReports = useMemo(() => selectedReports.filter((report) =>
     report.latitude != null && report.longitude != null &&
     Number.isFinite(Number(report.latitude)) && Number.isFinite(Number(report.longitude))
-  );
+  ), [selectedReports]);
   const highSeverityCount = selectedReports.filter((report) =>
     ["high", "critical"].includes(String(report.severity || "").toLowerCase())
   ).length;
-  const riskScore = Math.min(100, selectedReports.length * 10 + highSeverityCount * 15);
-  const likelihoodTheme = getLikelihoodTheme(riskScore);
-  const zones = useMemo(() => {
-    const grouped = new Map();
-    reports.filter(isActive).forEach((report) => {
-      const label = report.barangay || report.barangay_name || String(report.location || "").split(",")[0] || "Unspecified location";
-      const key = String(label).trim().toLowerCase();
-      const current = grouped.get(key) || { location: String(label).trim(), count: 0 };
-      current.count += 1;
-      grouped.set(key, current);
-    });
-    return [...grouped.values()].sort((a, b) => b.count - a.count);
-  }, [reports]);
+  const zones = useMemo(() => buildRiskZones(reports, Infinity), [reports]);
+  const visibleZones = zones.slice(0, visibleZoneCount);
+
+  const handleScroll = (event) => {
+    trackScroll(event);
+    const show = event.nativeEvent.contentOffset.y > 300;
+    if (show !== showScrollTopRef.current) {
+      showScrollTopRef.current = show;
+      setShowScrollTop(show);
+    }
+  };
 
   const crimeTypes = useMemo(() => {
     const grouped = new Map();
@@ -148,31 +111,20 @@ export default function Admin_Risk_Prediction() {
     riskDriverPage * RISK_DRIVERS_PER_PAGE
   );
 
-  const riskReason = useMemo(() => {
-    if (!selectedReports.length) return "No active incident reports are currently recorded for this selection.";
-    const types = crimeTypes.slice(0, 6).map((item) => `${item.label} (${item.value})`).join(", ");
-    const severity = highSeverityCount
-      ? `${highSeverityCount} high or critical-severity report${highSeverityCount === 1 ? "" : "s"}`
-      : "no high or critical-severity reports";
-    return `${selectedReports.length} active report${selectedReports.length === 1 ? "" : "s"} are driving this assessment: ${types || "reported incidents"}. Of these, ${severity}.`;
-  }, [selectedReports, crimeTypes, highSeverityCount]);
-
   const recommendedActions = useMemo(() => {
     const types = new Set(selectedReports.map((report) => String(report.incident_type || report.type || "").toLowerCase()));
     const actions = [];
-    if (selectedReports.length) actions.push(`Prioritize barangay response and verify all ${selectedReports.length} active incident report${selectedReports.length === 1 ? "" : "s"}.`);
+    if (selectedReports.length) actions.push(`Review and verify ${selectedReports.length} active report${selectedReports.length === 1 ? "" : "s"} before making deployment decisions.`);
     if ([...types].some((type) => /fire|flood|drainage|garbage/.test(type))) actions.push("Coordinate with disaster and environmental response teams for the reported hazard.");
-    if ([...types].some((type) => /theft|harass|disturb|suspicious|traffic|accident|vandal/.test(type))) actions.push("Increase patrol and coordinate with local safety officers around the reported locations.");
-    if (!actions.length) actions.push("Continue monitoring; no active incident reports require immediate action.");
+    if ([...types].some((type) => /theft|harass|disturb|suspicious|traffic|accident|vandal/.test(type))) actions.push("Review reported locations with local safety officers; this page does not automatically allocate patrols.");
+    if (!actions.length) actions.push("No qualifying active reports in this view. This is not proof that the area is safe.");
     return actions;
   }, [selectedReports]);
 
   const activeCount = selectedReports.length;
-  const weeklyChange = 0;
-  const maxLikelihood = riskScore;
-  const mapFocusTarget = selectedBarangay !== "All Barangays"
+  const mapFocusTarget = useMemo(() => selectedBarangay !== "All Barangays"
     ? (() => { const place = ARGAO_BARANGAY_DATA.find((item) => item.name.toLowerCase() === selectedBarangay.toLowerCase()); return place ? { latitude: place.lat, longitude: place.lng, zoom: 16 } : null; })()
-    : null;
+    : null, [selectedBarangay]);
 
   const handleMarkerSelect = (report) => {
     setSelectedMarkerReport(report);
@@ -195,13 +147,10 @@ export default function Admin_Risk_Prediction() {
     setShowDropdown(false);
 
     requestAnimationFrame(() => {
-      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      scrollToTop();
     });
   };
 
-  const activeCrimeType = selectedMarkerReport?.crime_type || selectedMarkerReport?.incident_type || crimeTypes[0]?.label || "active incidents";
-  const activeLocation = selectedMarkerReport?.location || selectedBarangay;
-  const possibleScenario = `${recommendedActions[0]} If implemented, this should reduce unresolved ${activeCrimeType.toLowerCase()} reports in ${activeLocation} and improve response visibility.`;
   const selectedComments = selectedMarkerReport?.comments || [];
   const totalCommentPages = Math.max(1, Math.ceil(selectedComments.length / COMMENTS_PER_PAGE));
   const paginatedComments = selectedComments.slice(
@@ -209,36 +158,39 @@ export default function Admin_Risk_Prediction() {
     commentPage * COMMENTS_PER_PAGE
   );
 
+  if (!fontsLoaded) return null;
+
   return (
     <Admin_Layout>
+      <View style={styles.wrapper}>
       <ScrollView
+        testID="risk-prediction-scroll"
         ref={scrollViewRef}
+        onScroll={handleScroll}
+        onScrollBeginDrag={stopScrollAnimation}
+        onTouchStart={stopScrollAnimation}
+        scrollEventThrottle={16}
         contentContainerStyle={styles.page}
         showsVerticalScrollIndicator={false}
-        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        style={{ flex: 1, scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         
-        {/* SUMMARY HEADER WITH DYNAMIC COLOR CODING */}
+        {!!checkedAt && <Text style={styles.muted} testID="risk-refresh-status">{refreshing ? "Checking for updates… · " : ""}{errorMessage ? "Refresh failed; current indicators show previous results · " : ""}Last checked {new Date(checkedAt).toLocaleTimeString()}</Text>}
+        {!!errorMessage && <Text style={[styles.emptyText, { color: "#B93838" }]}>{errorMessage}</Text>}
         <View style={styles.overview}>
-          <View style={styles.likelihood}>
-            <View style={[styles.likelihoodIcon, { backgroundColor: likelihoodTheme.backgroundColor }]}>
-              <Ionicons name="pulse-outline" size={22} color={likelihoodTheme.iconColor} />
+          <View style={styles.indicatorSummary}>
+            <View style={[styles.indicatorIcon, { backgroundColor: "#EAF2FF" }]}>
+              <Ionicons name="pulse-outline" size={22} color="#294880" />
             </View>
-            <View style={styles.likelihoodText}>
+            <View style={styles.indicatorText}>
               <View style={styles.overlineRow}>
-                <Ionicons name="time-outline" size={12} color={likelihoodTheme.color} />
-                <Text style={[styles.overline, { color: likelihoodTheme.color }]}>NEXT 48 HOURS</Text>
+                <Ionicons name="time-outline" size={12} color="#294880" />
+                <Text style={[styles.overline, { color: "#294880" }]}>CURRENT · LAST 30 DAYS</Text>
               </View>
-              <Text style={styles.likelihoodTitle}>
-                {loading ? "Updating forecast..." : `${likelihoodTheme.label} relative likelihood`}
+              <Text style={styles.indicatorTitle}>
+                {loading ? "Updating indicators..." : "Current risk indicators"}
               </Text>
-              <Text style={styles.muted}>
-               
-              </Text>
-            </View>
-            <View style={[styles.likelihoodValueBadge, { backgroundColor: likelihoodTheme.backgroundColor }]}>
-              <Ionicons name="trending-up-outline" size={14} color={likelihoodTheme.color} />
-              <Text style={[styles.likelihoodValue, { color: likelihoodTheme.color }]}>{Math.round(maxLikelihood)}%</Text>
+              <Text style={styles.muted}>{outlook?.current?.spatialHotspotCount ?? "—"} DBSCAN hotspots · not a prediction</Text>
             </View>
           </View>
 
@@ -246,32 +198,34 @@ export default function Admin_Risk_Prediction() {
             <Metric 
               icon="document-text-outline" 
               label="Active reports" 
-              value={activeCount}
+              value={loading || !outlook ? "—" : activeCount}
               valueColor="#294880"
             />
             <Metric 
               icon="warning-outline" 
               label="High severity" 
-              value={highSeverityCount}
+              value={loading || !outlook ? "—" : highSeverityCount}
               valueColor={highSeverityCount > 0 ? "#B93838" : "#16794B"}
             />
             <Metric 
               icon="stats-chart-outline" 
-              label="Week over week" 
-              value={weeklyChange > 0 ? `+${weeklyChange}` : String(weeklyChange)} 
-              valueColor={weeklyChange > 0 ? "#C25E00" : "#16794B"}
+              label="Verified active"
+              value={outlook?.current?.evidence?.verification?.verified ?? "—"}
+              valueColor="#294880"
             />
           </View>
         </View>
 
-        {/* 60% (Map) / 40% (Overview) Split Layout Section */}
+        <RiskOutlookPanel forecast={errorMessage ? null : outlook?.forecast} scope={selectedBarangay} loading={loading} />
+
+        {/* Current report map and evidence, separate from the future outlook. */}
         <View style={styles.splitMainRow}>
           
           {/* Left Column: Map Box (60%) */}
           <View style={styles.leftBox60}>
             <View style={styles.boxHeader}>
               <Ionicons name="map-outline" size={18} color="#294880" />
-              <Text style={styles.boxHeaderTitle}>Possible Crime Forecast Map</Text>
+              <Text style={styles.boxHeaderTitle}>Current report locations · not a forecast map</Text>
             </View>
 
             {/* FILTER PANEL */}
@@ -283,6 +237,7 @@ export default function Admin_Risk_Prediction() {
                 <Text style={styles.filterCardTitle}>Barangay</Text>
 
                 <TouchableOpacity
+                  testID="risk-zone-location-filter"
                   style={styles.dropdownBox}
                   onPress={() => setShowDropdown(!showDropdown)}
                 >
@@ -338,15 +293,15 @@ export default function Admin_Risk_Prediction() {
 
             
 
-            {forecastMapReports.length ? (
+            {currentMapReports.length ? (
               <View style={styles.mapFrame}>
-                <AdminHeatMap reports={forecastMapReports} focusTarget={mapFocusTarget} onReportSelect={handleMarkerSelect} />
+                <AdminHeatMap reports={currentMapReports} focusTarget={mapFocusTarget} onReportSelect={handleMarkerSelect} />
               </View>
             ) : (
               <View style={styles.emptyMapState}>
                 <Ionicons name="map-outline" size={32} color="#91A39B" />
                 <Text style={styles.emptyText}>
-                  {loading ? "Loading mapped reports..." : "No active reports match this Barangay filter."}
+                  {loading ? "Loading mapped reports..." : !outlook ? "Current indicators unavailable." : "No active reports match this Barangay filter."}
                 </Text>
               </View>
             )}
@@ -356,7 +311,7 @@ export default function Admin_Risk_Prediction() {
           <View style={styles.rightBox40}>
             <View style={styles.boxHeader}>
               <Ionicons name="analytics-outline" size={18} color="#294880" />
-              <Text style={styles.boxHeaderTitle}>Intelligence & Action Overview</Text>
+              <Text style={styles.boxHeaderTitle}>Observed evidence & review</Text>
             </View>
 
             {/* SECTION 1: Detail of Report Selected in Map / Risk Drivers with Pagination */}
@@ -365,7 +320,7 @@ export default function Admin_Risk_Prediction() {
                 <View style={styles.subHeader}>
                   <Ionicons name="alert-circle-outline" size={16} color="#C25E00" />
                   <Text style={styles.sectionSubTitle}>
-                    {selectedMarkerReport ? `Selected Report Details (${selectedMarkerReport.id || "Marker"})` : `Why is it ${likelihoodTheme.label} Risk`}
+                    {selectedMarkerReport ? `Selected Report Details (${selectedMarkerReport.id || "Marker"})` : "Reported incident types"}
                   </Text>
                 </View>
 
@@ -393,7 +348,6 @@ export default function Admin_Risk_Prediction() {
 
               {selectedMarkerReport ? (
                 <>
-                  <Text style={styles.riskReason}>{riskReason}</Text>
                   <View style={styles.selectedReportBox}>
                     <View style={styles.reportDetailRow}>
                       <Ionicons name="pricetag-outline" size={13} color="#294880" />
@@ -449,9 +403,6 @@ export default function Admin_Risk_Prediction() {
               ) : (
                 crimeTypes.length ? (
                   <>
-                    <Text style={styles.emptyText}>
-                      {riskReason}
-                    </Text>
                     {paginatedRiskDrivers.map((item, index) => (
                       <View key={`${item.label}-${index}`} style={styles.miniListRow}>
                         <View style={[styles.typeDot, { backgroundColor: item.color || "#C25E00" }]} />
@@ -461,7 +412,7 @@ export default function Admin_Risk_Prediction() {
                     ))}
                   </>
                 ) : (
-                  <Text style={styles.emptyText}>No high-severity reports available.</Text>
+                  <Text style={styles.emptyText}>No qualifying active reports available.</Text>
                 )
               )}
             </View>
@@ -470,7 +421,7 @@ export default function Admin_Risk_Prediction() {
             <View style={styles.contentSection}>
               <View style={styles.subHeader}>
                 <Ionicons name="shield-checkmark-outline" size={16} color="#16794B" />
-                <Text style={styles.sectionSubTitle}>Recommended Action to Take</Text>
+                <Text style={styles.sectionSubTitle}>Suggested human review</Text>
               </View>
               {recommendedActions.length ? (
                 recommendedActions.map((action, index) => (
@@ -488,23 +439,117 @@ export default function Admin_Risk_Prediction() {
             <View style={styles.contentSectionLast}>
               <View style={styles.subHeader}>
                 <Ionicons name="bulb-outline" size={16} color="#294880" />
-                <Text style={styles.sectionSubTitle}>Possible Result for the Action</Text>
+                <Text style={styles.sectionSubTitle}>Interpretation limits</Text>
               </View>
-              <Text style={styles.scenarioText}>{possibleScenario}</Text>
+              <Text style={styles.scenarioText}>Unverified reports, severity labels and sentiment require review. This prototype does not establish real-world danger or prove that a particular deployment will reduce incidents.</Text>
             </View>
 
           </View>
         </View>
 
-        {/* Below the Map: Predicted High Risk Zone */}
+        {/* Current sentiment, verification and severity evidence for the selected scope. */}
+        <View style={styles.bottomSection} testID="current-sentiment-context">
+          <View style={styles.boxHeader}>
+            <Ionicons name="chatbubbles-outline" size={18} color="#294880" />
+            <Text style={styles.boxHeaderTitle}>Current sentiment & verification context · {selectedBarangay}</Text>
+            {!!checkedAt && <Text style={styles.zoneLimit}>Last 30 days</Text>}
+          </View>
+
+          <View style={styles.contextRow}>
+            <View style={styles.contextCard} testID="risk-sentiment-card">
+              <View style={styles.contextCardHeader}>
+                <View style={[styles.contextIconBadge, { backgroundColor: "#EAF2FF" }]}>
+                  <Ionicons name="pulse-outline" size={16} color="#294880" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.contextCardTitle}>Sentiment evidence</Text>
+                  <Text style={styles.contextCardSubtitle}>Successful multilingual analyses only</Text>
+                </View>
+              </View>
+              <SentimentEvidenceChart
+                evidence={outlook?.current?.evidence}
+                activityLabel={selectedBarangay === "All Barangays" ? "active reports in scope" : `active reports in ${selectedBarangay}`}
+              />
+            </View>
+
+            <View style={styles.contextCard} testID="risk-verification-card">
+              <View style={styles.contextCardHeader}>
+                <View style={[styles.contextIconBadge, { backgroundColor: "#EAF8F1" }]}>
+                  <Ionicons name="shield-checkmark-outline" size={16} color="#16794B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.contextCardTitle}>Verification & severity</Text>
+                  <Text style={styles.contextCardSubtitle}>Human review status of active reports</Text>
+                </View>
+              </View>
+
+              <View style={styles.statTiles}>
+                <View style={styles.statTile} testID="verification-verified">
+                  <Text style={styles.statValue}>{outlook?.current?.evidence?.verification?.verified ?? 0}</Text>
+                  <Text style={styles.statLabel}>Verified</Text>
+                </View>
+                <View style={styles.statTile}>
+                  <Text style={styles.statValue}>{outlook?.current?.evidence?.verification?.underVerification ?? 0}</Text>
+                  <Text style={styles.statLabel}>Under verification</Text>
+                </View>
+                <View style={styles.statTile}>
+                  <Text style={styles.statValue}>{outlook?.current?.evidence?.verification?.pendingReview ?? 0}</Text>
+                  <Text style={styles.statLabel}>Pending review</Text>
+                </View>
+                {!!outlook?.current?.evidence?.verification?.other && (
+                  <View style={styles.statTile}>
+                    <Text style={styles.statValue}>{outlook.current.evidence.verification.other}</Text>
+                    <Text style={styles.statLabel}>Other</Text>
+                  </View>
+                )}
+              </View>
+
+              <Text style={styles.contextGroupLabel}>Severity of active reports</Text>
+              <View style={styles.chipRow}>
+                {["Critical", "High", "Medium", "Low", "Unknown"].map((level) => {
+                  const theme = ZONE_SEVERITY_THEME[level];
+                  const count = outlook?.current?.severity?.[level] ?? 0;
+                  return (
+                    <View key={level} style={[styles.zoneSeverity, { backgroundColor: theme.background }]} accessibilityLabel={`${level === "Unknown" ? "Not rated" : level} severity: ${count} reports`}>
+                      <View style={[styles.zoneSeverityDot, { backgroundColor: theme.color }]} />
+                      <Text style={[styles.zoneSeverityText, { color: theme.color }]}>{level === "Unknown" ? "Not rated" : level} {count}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.contextGroupLabel}>Intersecting spatial hotspots</Text>
+              {(outlook?.current?.clusters || []).length ? (
+                outlook.current.clusters.map((cluster) => (
+                  <View key={`${cluster.location}-${cluster.reportIds?.[0] || cluster.location}`} style={styles.hotspotRow}>
+                    <Ionicons name="location-sharp" size={14} color="#294880" />
+                    <Text style={styles.hotspotName}>{cluster.location}</Text>
+                    <Text style={styles.hotspotMeta}>{cluster.reportCount} reports · {cluster.uniqueLocationCount} locations</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyText}>No DBSCAN hotspot intersects this scope. This is not proof that the area is safe.</Text>
+              )}
+
+              {outlook?.current?.snapshotMayBeLimited && <Text style={styles.contextNote}>Current indicators may be limited by the dashboard snapshot. Forecast history uses a separate paginated read.</Text>}
+              <Text style={styles.contextNote}>Severity comes from the automated credibility analysis of each submitted report and still requires human review. These counts are descriptive, not a forecast.</Text>
+            </View>
+          </View>
+
+          <Text style={styles.contextNote}>Sentiment tone and severity labels describe submitted reports for review; they are not evidence of danger and do not change the 7-day outlook. {outlook?.current?.note || ""}</Text>
+        </View>
+
+        {/* Descriptive barangay counts, not predicted zones. */}
         <View style={styles.bottomSection}>
           <View style={styles.boxHeader}>
             <Ionicons name="list-outline" size={18} color="#294880" />
-            <Text style={styles.boxHeaderTitle}>List of Predicted High Risk Zones</Text>
+            <Text style={styles.boxHeaderTitle}>Current report concentrations by barangay</Text>
+            <Text style={styles.zoneLimit}>{visibleZones.length} / {zones.length} zones</Text>
           </View>
           {zones.length ? (
-            zones.map((zone, index) => (
+            visibleZones.map((zone, index) => (
               <TouchableOpacity
+                testID="current-report-zone"
                 key={`${zone.location}-${index}`}
                 onPress={() => handleZoneSelect(zone)}
                 activeOpacity={0.8}
@@ -515,18 +560,41 @@ export default function Admin_Risk_Prediction() {
                 </View>
                 <Ionicons name="location-sharp" size={15} color="#294880" />
                 <Text style={styles.listPrimary}>{zone.location || "Unspecified location"}</Text>
+                <View accessibilityLabel={`Highest active report severity: ${zone.severity === "Unknown" ? "Not rated" : zone.severity}`} style={[styles.zoneSeverity, { backgroundColor: ZONE_SEVERITY_THEME[zone.severity].background }]}>
+                  <View style={[styles.zoneSeverityDot, { backgroundColor: ZONE_SEVERITY_THEME[zone.severity].color }]} />
+                  <Text style={[styles.zoneSeverityText, { color: ZONE_SEVERITY_THEME[zone.severity].color }]}>{zone.severity === "Unknown" ? "Not rated" : zone.severity}</Text>
+                </View>
                 <View style={styles.countBadge}>
                   <Ionicons name="document-text-outline" size={12} color="#647B75" />
-                  <Text style={styles.listValue}>{zone.count} reports</Text>
+                  <Text style={styles.listValue}>{zone.count} report{zone.count === 1 ? "" : "s"}</Text>
                 </View>
               </TouchableOpacity>
             ))
           ) : (
-            <Text style={styles.emptyText}>{loading ? "Loading zone estimates..." : "Insufficient incident data."}</Text>
+            <Text style={styles.emptyText}>{loading ? "Loading current report concentrations..." : !outlook ? "Current indicators unavailable." : "No qualifying active reports."}</Text>
           )}
+          {zones.length > visibleZones.length ? <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="View more current zones"
+            style={styles.viewMoreBtn}
+            onPress={() => setVisibleZoneCount((count) => count + RISK_ZONE_LIMIT)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.viewMoreText}>View more</Text>
+          </TouchableOpacity> : null}
         </View>
 
       </ScrollView>
+      {showScrollTop ? <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel="Back to top"
+        style={styles.scrollTopBtn}
+        onPress={scrollToTop}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="chevron-up" size={22} color="#FFFFFF" />
+      </TouchableOpacity> : null}
+      </View>
     </Admin_Layout>
   );
 }
@@ -544,10 +612,11 @@ function Metric({ icon, label, value, valueColor = "#294880" }) {
 }
 
 const styles = StyleSheet.create({
+  wrapper: { flex: 1, backgroundColor: "#F5F8FC" },
   page: { padding: 24, paddingBottom: 36, gap: 18 },
   
   overview: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
-  likelihood: { 
+  indicatorSummary: {
     flex: 2, 
     minWidth: 300, 
     minHeight: 110, 
@@ -560,21 +629,12 @@ const styles = StyleSheet.create({
     borderRadius: 14, 
     backgroundColor: "#FFFFFF" 
   },
-  likelihoodIcon: { width: 46, height: 46, justifyContent: "center", alignItems: "center", borderRadius: 12 },
-  likelihoodText: { flex: 1, gap: 2 },
+  indicatorIcon: { width: 46, height: 46, justifyContent: "center", alignItems: "center", borderRadius: 12 },
+  indicatorText: { flex: 1, gap: 2 },
   overlineRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   overline: { fontFamily: "PoppinsSemiBold", fontSize: 10, letterSpacing: 0.5 },
-  likelihoodTitle: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 16 },
+  indicatorTitle: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 16 },
   muted: { color: "#647B75", fontFamily: "PoppinsRegular", fontSize: 11 },
-  likelihoodValueBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  likelihoodValue: { fontFamily: "PoppinsSemiBold", fontSize: 18 },
   
   metrics: { 
     flex: 1, 
@@ -596,7 +656,7 @@ const styles = StyleSheet.create({
   rightBox40: { flex: 4, minWidth: 280, padding: 16, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 14, backgroundColor: "#FFFFFF", gap: 12 },
 
   boxHeader: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderBottomColor: "#E8EDF3", paddingBottom: 8 },
-  boxHeaderTitle: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 14 },
+  boxHeaderTitle: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 14, flexShrink: 1 },
 
   filterCard: {
     backgroundColor: "#FFFFFF",
@@ -681,7 +741,6 @@ const styles = StyleSheet.create({
   reportDetailRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   sentimentSection: { marginTop: 8, gap: 5, borderTopWidth: 1, borderTopColor: "#EDF0F4", paddingTop: 8 },
   infoLabel: { color: "#647B75", fontFamily: "PoppinsSemiBold", fontSize: 10, textTransform: "uppercase" },
-  riskReason: { color: "#43536A", fontFamily: "PoppinsRegular", fontSize: 11, lineHeight: 16, paddingVertical: 4 },
   commentsHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   commentCount: { color: "#607087", fontFamily: "PoppinsMedium", fontSize: 10 },
   commentItem: { paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: "#EDF0F4", gap: 2 },
@@ -701,6 +760,22 @@ const styles = StyleSheet.create({
   clearSelectionText: { color: "#294880", fontFamily: "PoppinsMedium", fontSize: 11, textDecorationLine: "underline" },
 
   bottomSection: { padding: 16, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 14, backgroundColor: "#FFFFFF", gap: 8 },
+  contextRow: { flexDirection: "row", flexWrap: "wrap", gap: 14, marginTop: 4 },
+  contextCard: { flex: 1, minWidth: 300, gap: 12, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: "#E8EEF7", backgroundColor: "#F9FBFE" },
+  contextCardHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  contextIconBadge: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: 9 },
+  contextCardTitle: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 13 },
+  contextCardSubtitle: { color: "#718096", fontFamily: "PoppinsRegular", fontSize: 10 },
+  contextGroupLabel: { color: "#64748B", fontFamily: "PoppinsSemiBold", fontSize: 10, letterSpacing: 0.3, textTransform: "uppercase", marginTop: 2 },
+  statTiles: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  statTile: { flexGrow: 1, flexBasis: 92, maxWidth: 150, gap: 2, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: "#E8EEF7", backgroundColor: "#FFFFFF" },
+  statValue: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 18 },
+  statLabel: { color: "#718096", fontFamily: "PoppinsRegular", fontSize: 10, lineHeight: 14 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  hotspotRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 34, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E8EEF7" },
+  hotspotName: { flex: 1, color: "#3B4A5F", fontFamily: "PoppinsMedium", fontSize: 11 },
+  hotspotMeta: { color: "#718096", fontFamily: "PoppinsRegular", fontSize: 10 },
+  contextNote: { color: "#718096", fontFamily: "PoppinsRegular", fontSize: 10, lineHeight: 16 },
   listRow: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderBottomColor: "#EDF0F4" },
   miniListRow: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 8 },
   zoneMarker: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#E8EFFB" },
@@ -708,6 +783,13 @@ const styles = StyleSheet.create({
   typeDot: { width: 8, height: 8, borderRadius: 4 },
   listPrimary: { flex: 1, color: "#3B4A5F", fontFamily: "PoppinsMedium", fontSize: 12 },
   countBadge: { flexDirection: "row", alignItems: "center", gap: 4 },
+  zoneLimit: { color: "#64748B", fontFamily: "PoppinsMedium", fontSize: 10, backgroundColor: "#F0F4FA", paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10 },
+  zoneSeverity: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12 },
+  zoneSeverityDot: { width: 5, height: 5, borderRadius: 3 },
+  zoneSeverityText: { fontFamily: "PoppinsMedium", fontSize: 10 },
+  viewMoreBtn: { alignSelf: "center", marginTop: 16, marginBottom: 6, paddingHorizontal: 30, paddingVertical: 12, borderRadius: 12, backgroundColor: "#294880" },
+  viewMoreText: { color: "#FFFFFF", fontSize: 14, fontFamily: "PoppinsSemiBold" },
+  scrollTopBtn: { position: "absolute", right: 26, bottom: 30, width: 44, height: 44, borderRadius: 22, backgroundColor: "#294880", alignItems: "center", justifyContent: "center", zIndex: 20, elevation: 6, shadowColor: "#000000", shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   listValue: { color: "#607087", fontFamily: "PoppinsMedium", fontSize: 11 },
   scenarioText: { color: "#43536A", fontFamily: "PoppinsRegular", fontSize: 12, lineHeight: 18, paddingTop: 2 },
   emptyText: { paddingVertical: 8, color: "#718096", fontFamily: "PoppinsRegular", fontSize: 12 },

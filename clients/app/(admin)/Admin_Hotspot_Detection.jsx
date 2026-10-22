@@ -1,6 +1,5 @@
 
 import React, {
-  useCallback,
   useMemo,
   useRef,
   useState,
@@ -17,16 +16,15 @@ import {
 } from "react-native";
 
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts } from "expo-font";
 
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
-import useAutoRefresh from "../../hooks/useAutoRefresh";
-import apiClient from "../../services/apiClient";
-import { getCache, setCache } from "../../services/dataStore";
+import HotspotSentimentSummary from "../../components/Admin_compo/HotspotSentimentSummary";
+import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
 
-const CACHE_KEY = "api:/admin/dashboard";
+const EMPTY_REPORTS = [];
+const validHotspotResponse = (data) => Array.isArray(data?.reports) && Array.isArray(data?.clustering?.clusters);
 
 const PERIODS = [
   { label: "Any date", value: "all" },
@@ -56,28 +54,6 @@ const getDate = (report) => {
 
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const getLocation = (report) => {
-  const barangay = textValue(
-    report?.barangay || report?.barangay_name
-  );
-
-  if (barangay) return barangay;
-
-  const location = textValue(report?.location);
-  if (location) return location;
-
-  if (
-    report?.latitude != null &&
-    report?.longitude != null
-  ) {
-    return `${Number(report.latitude).toFixed(4)}, ${Number(
-      report.longitude
-    ).toFixed(4)}`;
-  }
-
-  return "Location not specified";
 };
 
 const getCategory = (report) =>
@@ -116,6 +92,7 @@ const hasCoordinates = (report) => {
 };
 
 const getHotspotCenter = (hotspot) => {
+  if (hotspot?.center) return { ...hotspot.center, zoom: 17 };
   const mappedReports = (hotspot?.reports || []).filter(
     hasCoordinates
   );
@@ -140,7 +117,7 @@ const getHotspotCenter = (hotspot) => {
 const isExcluded = (report) => {
   const status = textValue(report?.status).toLowerCase();
 
-  return ["rejected", "archived", "marked fake"].includes(
+  return ["rejected", "archived", "marked fake", "fake", "resolved"].includes(
     status
   );
 };
@@ -310,20 +287,6 @@ export default function Admin_Hotspot_Detection() {
   const { width } = useWindowDimensions();
   const isNarrow = width < 1000;
 
-  const [reports, setReports] = useState(() => {
-    const cached = getCache(CACHE_KEY);
-
-    return Array.isArray(cached?.reports)
-      ? cached.reports
-      : [];
-  });
-
-  const [loading, setLoading] = useState(
-    () => getCache(CACHE_KEY) === undefined
-  );
-
-  const [errorMessage, setErrorMessage] = useState("");
-
   // FILTER STATES
   // Location filter has been removed.
 
@@ -333,7 +296,7 @@ export default function Admin_Hotspot_Detection() {
   const [selectedType, setSelectedType] =
     useState("All Incident Types");
 
-  const [period, setPeriod] = useState("all");
+  const [period, setPeriod] = useState("30d");
 
   const [selectedLevel, setSelectedLevel] =
     useState("All");
@@ -356,64 +319,17 @@ export default function Admin_Hotspot_Detection() {
   // LOAD REPORTS
   // =====================================================
 
-  const loadReports = useCallback(async () => {
-    try {
-      const token = await AsyncStorage.getItem(
-        "access_token"
-      );
-
-      if (!token) {
-        setErrorMessage(
-          "Your session is missing. Please sign in again."
-        );
-        return;
-      }
-
-      const response = await apiClient.get(
-        "/admin/dashboard",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data = response.data ?? {};
-
-      if (!Array.isArray(data.reports)) {
-        throw new Error(
-          "The dashboard response does not contain a reports array."
-        );
-      }
-
-      setCache(CACHE_KEY, data);
-      setReports(data.reports);
-      setErrorMessage("");
-    } catch (error) {
-      const cached = getCache(CACHE_KEY);
-
-      if (Array.isArray(cached?.reports)) {
-        setReports(cached.reports);
-      }
-
-      const status = error?.response?.status;
-
-      if (status === 401 || status === 403) {
-        setErrorMessage(
-          "Access denied. Your session may have expired or your account may not have administrator access."
-        );
-      } else {
-        setErrorMessage(
-          error?.message ||
-            "Unable to retrieve reports. Check your connection and server."
-        );
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useAutoRefresh(loadReports, 60000);
+  const { data, loading, refreshing, checkedAt, errorMessage } = useRetainedApiQuery({
+    endpoint: "/admin/clusters",
+    params: {
+      period,
+      category: selectedCategory === "All Categories" ? undefined : selectedCategory,
+      incidentType: selectedType === "All Incident Types" ? undefined : selectedType,
+    },
+    validate: validHotspotResponse,
+  });
+  const reports = data?.reports || EMPTY_REPORTS;
+  const clustering = data?.clustering || null;
 
   // =====================================================
   // FILTER OPTIONS
@@ -524,72 +440,20 @@ export default function Admin_Hotspot_Detection() {
   // =====================================================
 
   const hotspots = useMemo(() => {
-    const groups = new Map();
-
-    filteredReports.forEach((report) => {
-      const location = getLocation(report);
-
-      if (
-        !location ||
-        location === "Location not specified"
-      ) {
-        return;
-      }
-
-      const key = location.toLowerCase();
-
-      if (!groups.has(key)) {
-        groups.set(key, {
-          key,
-          location,
-          reports: [],
-        });
-      }
-
-      groups.get(key).reports.push(report);
+    const byId = new Map(validReports.map((report) => [report.id, report]));
+    return (clustering?.clusters || []).map((cluster) => {
+      const members = cluster.reportIds.map((id) => byId.get(id)).filter(Boolean);
+      return {
+        ...cluster,
+        reports: members,
+        count: members.length,
+        mappedCount: members.length,
+        latestDate: getDate({ created_at: cluster.latestReportAt }),
+        types: [...new Set(members.map(getIncidentType).filter(Boolean))],
+        level: getLevel(members.length),
+      };
     });
-
-    return Array.from(groups.values())
-      .map((group) => {
-        const latestDate = group.reports.reduce(
-          (latest, report) => {
-            const date = getDate(report);
-
-            if (!date) return latest;
-            if (!latest || date > latest) return date;
-
-            return latest;
-          },
-          null
-        );
-
-        const types = [
-          ...new Set(
-            group.reports
-              .map(
-                (report) =>
-                  getIncidentType(report) ||
-                  getCategory(report)
-              )
-              .filter(Boolean)
-          ),
-        ];
-
-        const mappedCount = group.reports.filter(
-          hasCoordinates
-        ).length;
-
-        return {
-          ...group,
-          count: group.reports.length,
-          mappedCount,
-          latestDate,
-          types,
-          level: getLevel(group.reports.length),
-        };
-      })
-      .sort((a, b) => b.count - a.count);
-  }, [filteredReports]);
+  }, [validReports, clustering]);
 
   const visibleHotspots = useMemo(() => {
     return hotspots.filter(
@@ -607,6 +471,7 @@ export default function Admin_Hotspot_Detection() {
     visibleHotspots.find(
       (item) => item.key === selectedHotspotKey
     ) || null;
+  const hotspotFocusTarget = useMemo(() => selectedHotspot ? getHotspotCenter(selectedHotspot) : null, [selectedHotspot]);
 
   // =====================================================
   // MAP REPORTS
@@ -625,12 +490,18 @@ export default function Admin_Hotspot_Detection() {
         .filter(hasCoordinates);
     }
 
-    return filteredReports.filter(hasCoordinates);
+    const eligibleIds = new Set([
+      ...(clustering?.noiseReportIds || []),
+      ...hotspots.flatMap((hotspot) => hotspot.reportIds),
+    ]);
+    return filteredReports.filter((report) => eligibleIds.has(report.id) && hasCoordinates(report));
   }, [
     selectedHotspot,
     selectedLevel,
     visibleHotspots,
     filteredReports,
+    clustering,
+    hotspots,
   ]);
 
   // =====================================================
@@ -678,7 +549,7 @@ export default function Admin_Hotspot_Detection() {
   const resetFilters = () => {
     setSelectedCategory("All Categories");
     setSelectedType("All Incident Types");
-    setPeriod("all");
+    setPeriod("30d");
     setSelectedLevel("All");
     setSelectedHotspotKey(null);
     setShowAllHotspots(false);
@@ -708,6 +579,7 @@ export default function Admin_Hotspot_Detection() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {!!checkedAt && <Text style={styles.filterResultsText} testID="hotspot-refresh-status">{refreshing ? "Checking for updates… · " : ""}{errorMessage ? "Refresh failed; showing previous results · " : ""}Last checked {new Date(checkedAt).toLocaleTimeString()}</Text>}
         {!!errorMessage && (
           <View style={styles.errorBox}>
             <Ionicons
@@ -735,9 +607,9 @@ export default function Admin_Hotspot_Detection() {
 
           <SummaryCard
             icon="location-outline"
-            label="Detected Locations"
+            label="Detected Hotspots"
             value={summary.locations}
-            subtext="Identified locations"
+            subtext="Spatial clusters"
             subColor="#294880"
             color="#294880"
             background="#E8EFFB"
@@ -747,7 +619,7 @@ export default function Admin_Hotspot_Detection() {
             icon="warning-outline"
             label="High Concentration"
             value={summary.high}
-            subtext="Needs attention"
+            subtext="Higher report volume"
             subColor="#E45757"
             color="#E45757"
             background="#FDEEEE"
@@ -956,19 +828,11 @@ export default function Admin_Hotspot_Detection() {
                       : "all-hotspots"
                   }
                   reports={mapReports}
-                  focusTarget={
-                    selectedHotspot
-                      ? getHotspotCenter(selectedHotspot)
-                      : null
-                  }
+                  focusTarget={hotspotFocusTarget}
                   resetView={!selectedHotspot}
                   onReportSelect={(report) => {
-                    const reportLocation = getLocation(report);
-
                     const match = visibleHotspots.find(
-                      (item) =>
-                        item.key ===
-                        reportLocation.toLowerCase()
+                      (item) => item.reportIds.includes(report.id)
                     );
 
                     if (match) {
@@ -1036,6 +900,7 @@ export default function Admin_Hotspot_Detection() {
 
           {/* RIGHT SIDE - DETECTED LOCATIONS */}
           <View
+            testID="hotspot-list-panel"
             style={[
               styles.panel,
               styles.locationsPanel,
@@ -1045,16 +910,16 @@ export default function Admin_Hotspot_Detection() {
             <View style={styles.listHeader}>
               <View style={styles.listHeaderText}>
                 <Text style={styles.sectionTitle}>
-                  Detected Locations
+                  DBSCAN Hotspots
                 </Text>
 
                 <Text style={styles.sectionSubtitle}>
-                  Ranked by report count.
+                  Ranked by report count across distinct locations.
                 </Text>
               </View>
 
               <Text style={styles.countText}>
-                {visibleHotspots.length} locations
+                {visibleHotspots.length} {visibleHotspots.length === 1 ? "hotspot" : "hotspots"}
               </Text>
             </View>
 
@@ -1066,7 +931,7 @@ export default function Admin_Hotspot_Detection() {
               showsVerticalScrollIndicator
               nestedScrollEnabled
             >
-              {loading && reports.length === 0 ? (
+              {loading ? (
                 <View style={styles.emptyState}>
                   <ActivityIndicator
                     size="large"
@@ -1085,11 +950,11 @@ export default function Admin_Hotspot_Detection() {
                   />
 
                   <Text style={styles.stateText}>
-                    No matching locations
+                    No spatial hotspots detected
                   </Text>
 
                   <Text style={styles.stateSubtext}>
-                    Try changing the selected filters.
+                    A hotspot requires at least 4 distinct locations within 300 m neighbourhoods. Repeated reports at one pin alone do not qualify.
                   </Text>
                 </View>
               ) : (
@@ -1108,6 +973,7 @@ export default function Admin_Hotspot_Detection() {
                         return (
                           <Pressable
                             key={hotspot.key}
+                            testID="spatial-hotspot-card"
                             onPress={() =>
                               selectHotspot(hotspot)
                             }
@@ -1152,7 +1018,7 @@ export default function Admin_Hotspot_Detection() {
                                   ? "report"
                                   : "reports"}
                                 {" · "}
-                                {hotspot.mappedCount} mapped
+                                {hotspot.uniqueLocationCount} distinct locations
                               </Text>
 
                               <View
@@ -1200,6 +1066,7 @@ export default function Admin_Hotspot_Detection() {
                                   {hotspot.latestDate.toLocaleDateString()}
                                 </Text>
                               )}
+                              <HotspotSentimentSummary evidence={hotspot.evidence} />
                             </View>
 
                             <View
@@ -1292,26 +1159,18 @@ export default function Admin_Hotspot_Detection() {
 
           <View style={styles.qualityContent}>
             <Text style={styles.qualityTitle}>
-              Data quality
+              Synthetic-data prototype · DBSCAN
             </Text>
 
             <Text style={styles.qualityText}>
-              {summary.unmapped} report(s) matching the
-              selected filters lack valid map coordinates.
-              Reports without coordinates can still
-              contribute to location grouping when their
-              location text is available.
+              {clustering?.summary?.eligibleReportCount ?? 0} eligible reports · {clustering?.summary?.uniqueLocationCount ?? 0} distinct locations · {clustering?.summary?.repeatedPinReports ?? 0} additional reports at shared pins · {clustering?.summary?.noiseLocationCount ?? 0} unclustered locations.
+              {" "}{clustering?.summary?.excluded?.outsideBoundary ?? 0} outside-boundary and {clustering?.summary?.excluded?.invalidCoordinates ?? 0} invalid-coordinate reports excluded.
             </Text>
           </View>
         </View>
 
         <Text style={styles.disclaimer}>
-          Hotspot concentration reflects report volume,
-          not confirmed danger. Current levels use temporary
-          report-count thresholds and should be calibrated
-          against geographic distance, time period,
-          duplicates, and verification status before
-          operational use.
+          Synthetic test data only—not actual danger, future incident probability, or evidence of policing effectiveness. DBSCAN uses a 300 m neighbourhood and 4 distinct locations (including the point itself); shared pins retain report counts but cannot establish density alone. Levels describe report volume, not forecast risk.
         </Text>
       </ScrollView>
     </Admin_Layout>
@@ -1669,19 +1528,25 @@ const styles = StyleSheet.create({
   },
 
   mapPanel: {
-    flex: 3,
+    flexGrow: 3,
+    flexShrink: 1,
+    flexBasis: 0,
     minWidth: 0,
     height: 650,
   },
 
   locationsPanel: {
-    flex: 2,
+    flexGrow: 2,
+    flexShrink: 1,
+    flexBasis: 0,
     minWidth: 0,
     height: 650,
   },
 
   stackedPanel: {
-    flex: 0,
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "auto",
     width: "100%",
   },
 

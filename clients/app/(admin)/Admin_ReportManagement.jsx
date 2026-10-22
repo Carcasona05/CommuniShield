@@ -26,10 +26,12 @@ import ToastProvider, { useToast } from "../../components/Toast";
 import apiClient from "../../services/apiClient";
 import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
+import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 
 const FILTER_STATUSES = ["All", "Pending Review", "Under Verification", "Resolved", "Rejected", "Marked Fake"];
 const REPORT_TYPES = ["All", "Incident", "Announcement", "Blotter"];
 const POST_BY_OPTIONS = ["All", "Admin", "Super Admin"];
+const PAGE_SIZE = 10;
 
 const csvValue = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
 
@@ -191,6 +193,11 @@ export default function Admin_ReportManagementWrapper() {
 
 function Admin_ReportManagement() {
   const { error: showError, success: showSuccess } = useToast();
+  const scrollRef = useRef(null);
+  const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const showScrollTopRef = useRef(false);
   const [reports, setReports] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -232,7 +239,13 @@ function Admin_ReportManagement() {
           params: { from: params.from, to: params.to },
         }),
       ]);
-      setReports(Array.isArray(reportResponse.data?.reports) ? reportResponse.data.reports : []);
+      // Archived reports only ever appear under Logs > Archived reports.
+      setReports(
+        (Array.isArray(reportResponse.data?.reports)
+          ? reportResponse.data.reports
+          : []
+        ).filter((item) => item.status !== "Archived")
+      );
       setAnnouncements(Array.isArray(announcementResponse.data?.announcements) ? announcementResponse.data.announcements : []);
       setLogs(Array.isArray(logResponse.data?.logs) ? logResponse.data.logs : []);
     } catch (error) {
@@ -319,6 +332,21 @@ function Admin_ReportManagement() {
       return matchesPostBy && matchesType && matchesStatus && matchesDate;
     });
   }, [from, postBy, reportType, status, to, visibleRecords]);
+
+  const displayedRecords = filteredRecords.slice(0, visibleCount);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [from, to, status, reportType, postBy]);
+
+  const handleScroll = (event) => {
+    trackScroll(event);
+    const show = event.nativeEvent.contentOffset.y > 300;
+    if (show !== showScrollTopRef.current) {
+      showScrollTopRef.current = show;
+      setShowScrollTop(show);
+    }
+  };
 
   const openRecordPreview = (record, successMessage) => {
     setPreviewRecord(record);
@@ -507,6 +535,12 @@ function Admin_ReportManagement() {
     <Admin_Layout>
       <View style={styles.wrapper}>
         <ScrollView
+          testID="report-management-scroll"
+          ref={scrollRef}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          onScrollBeginDrag={stopScrollAnimation}
+          onTouchStart={stopScrollAnimation}
           style={[styles.container, { scrollbarWidth: "none", msOverflowStyle: "none" }]}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -607,7 +641,7 @@ function Admin_ReportManagement() {
                 <Text style={styles.emptyTitle}>No records found</Text>
                 <Text style={styles.emptyText}>Try changing the selected filters.</Text>
               </View>
-            ) : filteredRecords.map((record, index) => {
+            ) : displayedRecords.map((record, index) => {
               const icon = ["Incident", "Blotter"].includes(record.kind)
                 ? "document-text-outline"
                 : record.kind === "Announcement"
@@ -617,6 +651,7 @@ function Admin_ReportManagement() {
               const iconBackground = record.kind === "Activity" ? "#FFF4E5" : "#EAF2FF";
               return (
                 <TouchableOpacity
+                  testID="admin-managed-record"
                   key={record.id}
                   style={[styles.recordRow, index > 0 && styles.recordRowBorder]}
                   onPress={() => openRecordPreview(record)}
@@ -643,15 +678,31 @@ function Admin_ReportManagement() {
                       {!!record.actor && <Text style={styles.recordMeta}>{record.actor}</Text>}
                     </View>
                     {!!record.details && <Text style={styles.recordDetails} numberOfLines={2}>{record.details}</Text>}
-                    <View style={styles.recordBottomRow}>
-                      
-                    </View>
+                    <View style={styles.recordBottomRow} />
                   </View>
                 </TouchableOpacity>
               );
             })}
+            {!loading && filteredRecords.length > displayedRecords.length ? <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="View more records"
+              style={styles.viewMoreBtn}
+              onPress={() => setVisibleCount((count) => count + PAGE_SIZE)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.viewMoreText}>View more</Text>
+            </TouchableOpacity> : null}
           </View>
         </ScrollView>
+        {showScrollTop ? <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Back to top"
+          style={styles.scrollTopBtn}
+          onPress={scrollToTop}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="chevron-up" size={22} color="#FFFFFF" />
+        </TouchableOpacity> : null}
       </View>
       <Admin_AddReportModal
         visible={addReportVisible}
@@ -801,6 +852,9 @@ const styles = StyleSheet.create({
   listHeader: { minHeight: 82, paddingHorizontal: 22, paddingVertical: 18, borderBottomWidth: 1, borderBottomColor: "#D9E2F0", backgroundColor: "#F7F9FD", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
   listTitle: { fontSize: 21, fontFamily: "PoppinsSemiBold", color: "#294880" },
   count: { fontSize: 15, fontFamily: "PoppinsMedium", color: "#294880" },
+  viewMoreBtn: { alignSelf: "center", marginTop: 16, marginBottom: 18, paddingHorizontal: 30, paddingVertical: 12, borderRadius: 12, backgroundColor: "#294880" },
+  viewMoreText: { color: "#FFFFFF", fontSize: 14, fontFamily: "PoppinsSemiBold" },
+  scrollTopBtn: { position: "absolute", right: 26, bottom: 30, width: 44, height: 44, borderRadius: 22, backgroundColor: "#294880", alignItems: "center", justifyContent: "center", zIndex: 20, elevation: 6, shadowColor: "#000000", shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   recordRow: { paddingHorizontal: 22, paddingVertical: 20, backgroundColor: "#FFFFFF", flexDirection: "row", alignItems: "flex-start", gap: 16 },
   recordRowBorder: { borderTopWidth: 1, borderTopColor: "#E4EAF3" },
   recordIcon: { width: 52, height: 52, borderRadius: 17, alignItems: "center", justifyContent: "center" },

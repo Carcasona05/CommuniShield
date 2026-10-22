@@ -50,5 +50,8 @@ yarn-error.*
 /datasets/processed/
 /datasets/models/
 /datasets/training-runs/
+/datasets/synthetic-hotspots/generated/
+/datasets/synthetic-risk-outlook/generated/
+/artifacts/hotspot-sentiment/
 __pycache__/
 *.py[cod]

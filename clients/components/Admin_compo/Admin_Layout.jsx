@@ -103,7 +103,7 @@ function Admin_Layout({ children }) {
       route: "/(admin)/Admin_Risk_Prediction",
       path: "/Admin_Risk_Prediction",
       icon: "trending-up-outline",
-      description: "Review predicted risk zones and time windows",
+      description: "Review current indicators and a 7-day report-volume outlook",
     },
     {
       label: "Incident Management",

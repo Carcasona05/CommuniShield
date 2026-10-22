@@ -497,7 +497,8 @@ const attempt = async <T>(fn: () => Promise<T>): Promise<AssistAttempt<T>> => {
 
 const predict = async (
   textValue: string,
-  context?: string
+  context?: string,
+  localOnly = false
 ): Promise<{ prediction: SentimentPrediction; errorCode: string }> => {
   const text = normalizeText(textValue);
   if (!text) {
@@ -517,13 +518,13 @@ const predict = async (
     detectedLanguage === "filipino" ||
     (detectedLanguage === "cebuano" && cebuanoMode === "local");
   const shouldUseLocal = localEnabled && localLanguage;
-  let shouldUseGemini = geminiEnabled && geminiConfigured();
+  let shouldUseGemini = !localOnly && geminiEnabled && geminiConfigured();
 
   if (detectedLanguage === "cebuano") {
     if (cebuanoMode === "disabled") {
       shouldUseGemini = false;
     } else {
-      shouldUseGemini = geminiEnabled && geminiConfigured();
+      shouldUseGemini = !localOnly && geminiEnabled && geminiConfigured();
     }
   }
 
@@ -638,6 +639,8 @@ export const __testing = {
 type SentimentRequest = {
   force?: boolean;
   requestId?: string;
+  /** Disable external Gemini calls for this request without changing settings. */
+  localOnly?: boolean;
 };
 
 type StoredSentimentRow = {
@@ -1075,7 +1078,7 @@ export const sentimentService = {
         continue;
       }
 
-      const { prediction, errorCode } = await predict(subject.text, subject.context);
+      const { prediction, errorCode } = await predict(subject.text, subject.context, options.localOnly);
       const status: SentimentStatus = errorCode
         ? prediction.provider === "none"
           ? "unavailable"

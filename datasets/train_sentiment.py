@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypedDict, cast
@@ -26,6 +27,11 @@ DATASET_DIR = Path(__file__).resolve().parent / "processed"
 MODEL_DIR = Path(__file__).resolve().parent / "models"
 REQUIRED_COLUMNS = {"text", "language", "label", "split"}
 ZERO_DIVISION = cast(Any, 0)
+PLACEHOLDER_PATTERN = re.compile(
+    r"sample\s+training\s+phrase\s+\d+|prototype\s+dataset\s+\d+|"
+    r"synthetic\s+(?:negative|positive|neutral)\s+safety\s+wording",
+    re.IGNORECASE,
+)
 
 
 class LabelMetrics(TypedDict):
@@ -72,6 +78,8 @@ def load_splits(data_dir: Path) -> dict[str, pd.DataFrame]:
         )
         if bool(frame["text"].eq("").any()):
             raise ValueError(f"{path} contains empty text")
+        if bool(frame["text"].str.contains(PLACEHOLDER_PATTERN, na=False).any()):
+            raise ValueError(f"{path} contains seed placeholder phrases, not labeled training examples")
         if not bool(frame["label"].isin(LABELS).all()):
             raise ValueError(f"{path} contains unsupported sentiment labels")
         frames[split] = frame.reset_index(drop=True)

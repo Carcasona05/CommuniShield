@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   View,
   Text,
   ScrollView,
@@ -16,8 +17,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import { ListSkeleton } from "../../components/PageSkeletons";
+import ToastProvider, { useToast } from "../../components/Toast";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
+import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { toReportCode, hashReportIdsInText } from "../../services/dataStore";
 
 const formatLogTime = (iso) => {
@@ -110,6 +113,7 @@ const STATUS_OPTIONS = [
   "Report Verified",
   "Report Mapped",
   "Report Rejected",
+  "Report Archived",
   "Report Deleted",
   "AI Analysis Completed",
   "Admin Added",
@@ -123,6 +127,11 @@ const STATUS_OPTIONS = [
 
 const POST_BY_OPTIONS = ["All", "User", "Admin", "Super Admin"];
 const DATE_OPTIONS = ["All Time", "Today", "Last 7 Days", "Last 30 Days", "This Month"];
+
+const LOG_TABS = [
+  { key: "activity", label: "Activity logs", icon: "list-outline" },
+  { key: "archived", label: "Archived reports", icon: "archive-outline" },
+];
 
 function DropdownFilter({ label, value, options, onChange }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -177,9 +186,23 @@ function DropdownFilter({ label, value, options, onChange }) {
   );
 }
 
-export default function Admin_Logs() {
+export default function Admin_LogsWrapper() {
+  return (
+    <ToastProvider>
+      <Admin_Logs />
+    </ToastProvider>
+  );
+}
+
+function Admin_Logs() {
+  const toast = useToast();
   const searchParams = useLocalSearchParams();
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("activity");
+  const [archivedReports, setArchivedReports] = useState([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+  const [archivedVisibleCount, setArchivedVisibleCount] = useState(PAGE_SIZE);
+  const [restoringId, setRestoringId] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [selectedPostBy, setSelectedPostBy] = useState("All");
   const [selectedDate, setSelectedDate] = useState("All Time");
@@ -199,6 +222,7 @@ export default function Admin_Logs() {
   const [highlightId, setHighlightId] = useState(null);
   const highlightConsumedRef = useRef(null);
   const scrollRef = useRef(null);
+  const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
   const logsCardTopRef = useRef(null);
   const rowOffsetsRef = useRef({});
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -225,6 +249,60 @@ export default function Admin_Logs() {
   }, []);
 
   useAutoRefresh(loadLogs, 60000);
+
+  const loadArchived = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+
+      setArchivedLoading(true);
+      const res = await apiClient.get("/admin/dashboard", {
+        params: { status: "Archived" },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setArchivedReports(
+        Array.isArray(res.data?.reports) ? res.data.reports : []
+      );
+    } catch {
+      // keep last loaded data on failure
+    } finally {
+      setArchivedLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "archived") loadArchived();
+  }, [activeTab, loadArchived]);
+
+  const handleRestoreReport = async (report) => {
+    if (restoringId) return;
+
+    const reportCode = toReportCode(report.id);
+    setRestoringId(report.id);
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) return;
+
+      await apiClient.post(
+        `/reports/${report.id}/status`,
+        { status: "Pending Review", is_verified: false },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setArchivedReports((current) =>
+        current.filter((item) => item.id !== report.id)
+      );
+      loadLogs();
+      toast.success(`Report ${reportCode} restored to Pending Review.`);
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.error || "Could not restore this report."
+      );
+    } finally {
+      setRestoringId(null);
+    }
+  };
 
   const matchesDateRange = (dateValue, option) => {
     if (!dateValue || option === "All Time") return true;
@@ -282,12 +360,14 @@ export default function Admin_Logs() {
   }, [selectedStatus, selectedPostBy, selectedDate, logs]);
 
   const visibleLogs = filteredLogs.slice(0, visibleCount);
+  const visibleArchived = archivedReports.slice(0, archivedVisibleCount);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [selectedStatus, selectedPostBy, selectedDate]);
 
   const handleScroll = (e) => {
+    trackScroll(e);
     const next = e.nativeEvent.contentOffset.y > 300;
     if (next !== showScrollTopRef.current) {
       showScrollTopRef.current = next;
@@ -399,6 +479,14 @@ export default function Admin_Logs() {
       };
     }
 
+    if (type === "Report Archived") {
+      return {
+        icon: "archive-outline",
+        color: "#64748B",
+        bg: "#EEF2F6",
+      };
+    }
+
     if (type === "AI Analysis Completed") {
       return {
         icon: "sparkles-outline",
@@ -453,6 +541,13 @@ export default function Admin_Logs() {
       };
     }
 
+    if (type === "Report Archived") {
+      return {
+        bg: "#EEF2F6",
+        color: "#64748B",
+      };
+    }
+
     if (type === "AI Analysis Completed") {
       return {
         bg: "#F3E8FF",
@@ -495,68 +590,102 @@ export default function Admin_Logs() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
+          onScrollBeginDrag={stopScrollAnimation}
+          onTouchStart={stopScrollAnimation}
           scrollEventThrottle={16}
         >
-          <View style={styles.statsRow}>
-            <StatCard
-              icon="list-outline"
-              title="Total Logs"
-              value={totalLogs}
-              color="#294880"
-              bg="#EAF2FF"
-            />
-
-            <StatCard
-              icon="shield-checkmark-outline"
-              title="Verified Actions"
-              value={verifiedLogs}
-              color="#22A06B"
-              bg="#EAF8F1"
-            />
-
-            <StatCard
-              icon="close-circle-outline"
-              title="Rejected Reports"
-              value={rejectedLogs}
-              color="#E45757"
-              bg="#FFF5F5"
-            />
-
-            <StatCard
-              icon="sparkles-outline"
-              title="AI Logs"
-              value={aiLogs}
-              color="#7C3AED"
-              bg="#F3E8FF"
-            />
+          <View style={styles.tabBar} accessibilityRole="tablist">
+            {LOG_TABS.map((tab) => {
+              const isActive = activeTab === tab.key;
+              return (
+                <TouchableOpacity
+                  key={tab.key}
+                  style={[styles.tabButton, isActive && styles.tabButtonActive]}
+                  onPress={() => setActiveTab(tab.key)}
+                  accessibilityRole="tab"
+                  accessibilityLabel={tab.label}
+                  accessibilityState={{ selected: isActive }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={tab.icon}
+                    size={16}
+                    color={isActive ? "#294880" : "#7A8BA8"}
+                  />
+                  <Text
+                    style={[styles.tabText, isActive && styles.tabTextActive]}
+                  >
+                    {tab.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
-          <View style={styles.filterCard}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterRow}
-            >
-              <DropdownFilter
-                label="Post by"
-                value={selectedPostBy}
-                options={POST_BY_OPTIONS}
-                onChange={setSelectedPostBy}
-              />
-              <DropdownFilter
-                label="Status"
-                value={selectedStatus}
-                options={STATUS_OPTIONS}
-                onChange={setSelectedStatus}
-              />
-              <DropdownFilter
-                label="Date"
-                value={selectedDate}
-                options={DATE_OPTIONS}
-                onChange={setSelectedDate}
-              />
-            </ScrollView>
-          </View>
+          {activeTab === "activity" ? (
+            <>
+              <View style={styles.statsRow}>
+                <StatCard
+                  icon="list-outline"
+                  title="Total Logs"
+                  value={totalLogs}
+                  color="#294880"
+                  bg="#EAF2FF"
+                />
+
+                <StatCard
+                  icon="shield-checkmark-outline"
+                  title="Verified Actions"
+                  value={verifiedLogs}
+                  color="#22A06B"
+                  bg="#EAF8F1"
+                />
+
+                <StatCard
+                  icon="close-circle-outline"
+                  title="Rejected Reports"
+                  value={rejectedLogs}
+                  color="#E45757"
+                  bg="#FFF5F5"
+                />
+
+                <StatCard
+                  icon="sparkles-outline"
+                  title="AI Logs"
+                  value={aiLogs}
+                  color="#7C3AED"
+                  bg="#F3E8FF"
+                />
+              </View>
+
+              <View style={styles.filterCard}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.filterRow}
+                >
+                  <DropdownFilter
+                    label="Post by"
+                    value={selectedPostBy}
+                    options={POST_BY_OPTIONS}
+                    onChange={setSelectedPostBy}
+                  />
+                  <DropdownFilter
+                    label="Status"
+                    value={selectedStatus}
+                    options={STATUS_OPTIONS}
+                    onChange={setSelectedStatus}
+                  />
+                  <DropdownFilter
+                    label="Date"
+                    value={selectedDate}
+                    options={DATE_OPTIONS}
+                    onChange={setSelectedDate}
+                  />
+                </ScrollView>
+              </View>
+            </>
+          ) : null}
 
           <View
             style={styles.logsCard}
@@ -566,19 +695,32 @@ export default function Admin_Logs() {
           >
             <View style={styles.listHeader}>
               <View>
-                <Text style={styles.sectionTitle}>Recent Activity</Text>
+                <Text style={styles.sectionTitle}>
+                  {activeTab === "activity"
+                    ? "Recent Activity"
+                    : "Archived reports"}
+                </Text>
                 <Text style={styles.sectionSubtitle}>
-                  Unified admin and super admin activity across the system.
+                  {activeTab === "activity"
+                    ? "Unified admin and super admin activity across the system."
+                    : "Reports moved out of every active feed and feature."}
                 </Text>
               </View>
 
               <Text style={styles.resultText}>
-                {filteredLogs.length} result
-                {filteredLogs.length === 1 ? "" : "s"}
+                {activeTab === "activity"
+                  ? filteredLogs.length
+                  : archivedReports.length}{" "}
+                result
+                {(activeTab === "activity"
+                  ? filteredLogs.length
+                  : archivedReports.length) === 1
+                  ? ""
+                  : "s"}
               </Text>
             </View>
 
-            {filteredLogs.length === 0 ? (
+            {activeTab !== "activity" ? null : filteredLogs.length === 0 ? (
               <View style={styles.emptyState}>
                 <Ionicons name="document-outline" size={42} color="#5D6F92" />
                 <Text style={styles.emptyTitle}>No logs found</Text>
@@ -679,24 +821,156 @@ export default function Admin_Logs() {
               })
             )}
 
-            {filteredLogs.length > visibleLogs.length && (
-              <TouchableOpacity
-                style={styles.viewMoreBtn}
-                onPress={() => setVisibleCount((count) => count + PAGE_SIZE)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.viewMoreText}>View more</Text>
-              </TouchableOpacity>
-            )}
+            {activeTab === "archived" ? (
+              archivedLoading ? (
+                <View style={styles.emptyState}>
+                  <ActivityIndicator size="small" color="#294880" />
+                  <Text style={[styles.emptyText, styles.loadingText]}>
+                    Loading archived reports...
+                  </Text>
+                </View>
+              ) : archivedReports.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Ionicons name="archive-outline" size={42} color="#5D6F92" />
+                  <Text style={styles.emptyTitle}>No archived reports</Text>
+                  <Text style={styles.emptyText}>
+                    Reports moved to the archive appear here.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  {visibleArchived.map((report, index) => (
+                    <View
+                      key={report.id}
+                      testID="archived-report-row"
+                      style={[
+                        styles.logRow,
+                        index !== 0 && styles.logRowBorder,
+                      ]}
+                    >
+                      <View
+                        style={[styles.logIconBox, { backgroundColor: "#EEF2F6" }]}
+                      >
+                        <Ionicons
+                          name="archive-outline"
+                          size={25}
+                          color="#64748B"
+                        />
+                      </View>
+
+                      <View style={styles.logContent}>
+                        <View style={styles.logTopRow}>
+                          <View style={styles.logTitleBox}>
+                            <Text style={styles.logTitle}>
+                              {report.incident_type || "Incident"}
+                            </Text>
+                            <Text style={styles.logMeta}>
+                              {report.reporter_name || "Anonymous User"} •{" "}
+                              {formatLogTime(report.created_at)}
+                            </Text>
+                          </View>
+
+                          <View
+                            style={[
+                              styles.actionBadge,
+                              { backgroundColor: "#EEF2F6" },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.actionBadgeText,
+                                { color: "#64748B" },
+                              ]}
+                            >
+                              Archived
+                            </Text>
+                          </View>
+                        </View>
+
+                        <Text style={styles.logDetails}>
+                          {[report.location, report.incident_category]
+                            .filter(Boolean)
+                            .join(" • ") || "Location not specified"}
+                        </Text>
+
+                        <View style={styles.statusChangeBox}>
+                          <View style={styles.statusItem}>
+                            <Text style={styles.statusLabel}>Report ID</Text>
+                            <Text style={styles.statusValue}>
+                              {toReportCode(report.id)}
+                            </Text>
+                          </View>
+
+                          <View style={styles.statusItem}>
+                            <Text style={styles.statusLabel}>Status</Text>
+                            <Text style={styles.statusValue}>Archived</Text>
+                          </View>
+
+                          <View style={styles.statusItem}>
+                            <Text style={styles.statusLabel}>Severity</Text>
+                            <Text style={styles.statusValue}>
+                              {report.severity || "Medium"}
+                            </Text>
+                          </View>
+
+                          <TouchableOpacity
+                            style={styles.restoreBtn}
+                            onPress={() => handleRestoreReport(report)}
+                            disabled={Boolean(restoringId)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Restore report ${toReportCode(report.id)}`}
+                            activeOpacity={0.85}
+                          >
+                            {restoringId === report.id ? (
+                              <ActivityIndicator size="small" color="#294880" />
+                            ) : (
+                              <Ionicons
+                                name="refresh-outline"
+                                size={15}
+                                color="#294880"
+                              />
+                            )}
+                            <Text style={styles.restoreText}>Restore</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+
+                  {archivedReports.length > visibleArchived.length && (
+                    <TouchableOpacity
+                      style={styles.viewMoreBtn}
+                      onPress={() =>
+                        setArchivedVisibleCount((count) => count + PAGE_SIZE)
+                      }
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.viewMoreText}>View more</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )
+            ) : null}
+
+            {activeTab === "activity" &&
+              filteredLogs.length > visibleLogs.length && (
+                <TouchableOpacity
+                  style={styles.viewMoreBtn}
+                  onPress={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.viewMoreText}>View more</Text>
+                </TouchableOpacity>
+              )}
           </View>
         </ScrollView>
 
         {showScrollTop && (
           <TouchableOpacity
             style={styles.scrollTopBtn}
-            onPress={() =>
-              scrollRef.current?.scrollTo({ y: 0, animated: true })
-            }
+            accessibilityRole="button"
+            accessibilityLabel="Back to top"
+            onPress={scrollToTop}
             activeOpacity={0.8}
           >
             <Ionicons name="chevron-up" size={22} color="#FFFFFF" />
@@ -907,6 +1181,73 @@ const styles = StyleSheet.create({
     borderColor: "#D9E2F0",
     borderRadius: 16,
     overflow: "hidden",
+  },
+
+  tabBar: {
+    flexDirection: "row",
+    gap: 8,
+    padding: 5,
+    marginBottom: 18,
+    borderRadius: 14,
+    backgroundColor: "#F0F3F8",
+    borderWidth: 1,
+    borderColor: "#E4EAF3",
+  },
+
+  tabButton: {
+    flex: 1,
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+  },
+
+  tabButtonActive: {
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000000",
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+
+  tabText: {
+    fontSize: 14,
+    fontFamily: "PoppinsMedium",
+    color: "#7A8BA8",
+    textAlign: "center",
+  },
+
+  tabTextActive: {
+    fontFamily: "PoppinsSemiBold",
+    color: "#294880",
+  },
+
+  restoreBtn: {
+    minWidth: 160,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#C9D6EC",
+    backgroundColor: "#EAF2FF",
+  },
+
+  restoreText: {
+    fontSize: 13,
+    fontFamily: "PoppinsMedium",
+    color: "#294880",
+  },
+
+  loadingText: {
+    marginTop: 12,
   },
 
   listHeader: {

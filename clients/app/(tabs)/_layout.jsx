@@ -26,6 +26,14 @@ const COMMUNISHIELD_BLUE = "#294880";
 export default function TabLayout() {
   const router = useRouter();
   const pathname = usePathname();
+  // Computed up front: the web layout returns early below, but the effects
+  // registered above that return still run and read this value.
+  const isChildScreen =
+    pathname.includes("User_RepPostView") ||
+    pathname.includes("MyUser_RepPostView") ||
+    pathname.includes("MyUser_RepPostView_Edit") ||
+    pathname.includes("User_ProfileSettings") ||
+    pathname.includes("User_Notification");
   const colorScheme = useColorScheme();
 
   const [fontsLoaded] = useFonts({
@@ -122,20 +130,9 @@ export default function TabLayout() {
     guard();
   }, []);
 
-  if (Platform.OS === "web") {
-    return null;
-  }
-
   if (!fontsLoaded) return null;
 
   const isDark = colorScheme === "dark";
-
-  const isChildScreen =
-    pathname.includes("User_RepPostView") ||
-    pathname.includes("MyUser_RepPostView") ||
-    pathname.includes("MyUser_RepPostView_Edit") ||
-    pathname.includes("User_ProfileSettings") ||
-    pathname.includes("User_Notification");
 
   const showBottomNav = !isChildScreen;
 

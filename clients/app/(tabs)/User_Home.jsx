@@ -19,6 +19,7 @@ import ReportByAdmin from "../../components/ReportByAdmin";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
+import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
 import { publishNavVisibility, subscribeNavVisibility } from "../../services/navBus";
 import { getCache, setCache, patchCachedReports } from "../../services/dataStore";
@@ -41,7 +42,6 @@ const statusOptions = [
   "Under Verification",
   "Resolved",
   "Rejected",
-  "Archived",
 ];
 
 const sourceOptions = ["All", "User", "Admin"];
@@ -344,6 +344,7 @@ const User_Home = () => {
   const [navShown, setNavShown] = useState(true);
   const [arrowReady, setArrowReady] = useState(false);
   const scrollRef = useScrollToTop();
+  const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
 
   const loadReports = useCallback(async () => {
     try {
@@ -387,6 +388,9 @@ const User_Home = () => {
 
   const filteredReports = useMemo(() => {
     return reports.filter((report) => {
+      // Archived reports are removed from every user-facing surface.
+      if (report.status === "Archived") return false;
+
       const matchesTimeRange =
         selectedTimeRange === "Past 24 Hours"
           ? isWithinPastHours(report.datePosted, 24)
@@ -427,6 +431,7 @@ const User_Home = () => {
   const lastScrollYRef = useRef(0);
 
   const handleScroll = (event) => {
+    trackScroll(event);
     const y = event.nativeEvent.contentOffset.y;
     setShowScrollTop(y > 300);
 
@@ -510,6 +515,8 @@ const User_Home = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
+        onScrollBeginDrag={stopScrollAnimation}
+        onTouchStart={stopScrollAnimation}
         scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
@@ -655,9 +662,9 @@ const User_Home = () => {
         <TouchableOpacity
           style={styles.scrollTopBtn}
           activeOpacity={0.8}
-          onPress={() =>
-            scrollRef.current?.scrollTo?.({ y: 0, animated: true })
-          }
+          accessibilityRole="button"
+          accessibilityLabel="Back to top"
+          onPress={scrollToTop}
         >
           <Ionicons name="arrow-up" size={22} color="#FFFFFF" />
         </TouchableOpacity>

@@ -16,6 +16,7 @@ import SAdmin_Layout from "../../components/SAdmin_Compo/SAdmin_Layout";
 import { ListSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
+import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { getCache, setCache, toReportCode, hashReportIdsInText } from "../../services/dataStore";
 
 const formatLogTime = (iso) => {
@@ -254,6 +255,7 @@ export default function SAdmin_AuditLogs() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
   const scrollRef = useRef(null);
+  const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -331,6 +333,7 @@ export default function SAdmin_AuditLogs() {
   }, [searchText, selectedFilter]);
 
   const handleScroll = (e) => {
+    trackScroll(e);
     const next = e.nativeEvent.contentOffset.y > 300;
     if (next !== showScrollTopRef.current) {
       showScrollTopRef.current = next;
@@ -371,6 +374,8 @@ export default function SAdmin_AuditLogs() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
+          onScrollBeginDrag={stopScrollAnimation}
+          onTouchStart={stopScrollAnimation}
           scrollEventThrottle={16}
         >
           <View style={styles.summaryGrid}>
@@ -527,9 +532,9 @@ export default function SAdmin_AuditLogs() {
         {showScrollTop && (
           <TouchableOpacity
             style={styles.scrollTopBtn}
-            onPress={() =>
-              scrollRef.current?.scrollTo({ y: 0, animated: true })
-            }
+            accessibilityRole="button"
+            accessibilityLabel="Back to top"
+            onPress={scrollToTop}
             activeOpacity={0.8}
           >
             <Ionicons name="chevron-up" size={22} color="#FFFFFF" />

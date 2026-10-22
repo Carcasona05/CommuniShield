@@ -19,6 +19,7 @@ import Admin_AddAnnouncementModal from "../../components/Admin_compo/Admin_AddAn
 import apiClient from "../../services/apiClient";
 import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
+import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { getCache, setCache } from "../../services/dataStore";
 import { useToast } from "../../components/Toast";
 
@@ -46,7 +47,10 @@ const formatSubmittedAt = (iso) => {
 };
 
 const mapValidationReports = (list) =>
-  (list || []).map((r) => ({
+  (list || [])
+    // Archived reports live in the admin Logs archive only.
+    .filter((r) => r.status !== "Archived")
+    .map((r) => ({
     id: r.id,
     title: `${r.incident_type || "Incident"} in ${r.barangay || "Argao"}`,
     category: r.incident_category || "",
@@ -94,6 +98,7 @@ export default function SAdmin_Validation() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
   const scrollRef = useRef(null);
+  const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -149,7 +154,6 @@ export default function SAdmin_Validation() {
     "Under Verification",
     "Resolved",
     "Rejected",
-    "Archived",
   ];
 
   const weeklyRanges = ["All Weeks", "This Week", "Last Week"];
@@ -372,6 +376,7 @@ export default function SAdmin_Validation() {
   }, [selectedStatus, selectedWeekRange]);
 
   const handleScroll = (e) => {
+    trackScroll(e);
     const next = e.nativeEvent.contentOffset.y > 300;
     if (next !== showScrollTopRef.current) {
       showScrollTopRef.current = next;
@@ -492,7 +497,7 @@ export default function SAdmin_Validation() {
     setSelectedCompiledGroup(null);
   };
 
-  const applyValidation = async (target, newStatus) => {
+  const applyValidation = async (target, newStatus, successMessage) => {
     if (!target || validating) return;
 
     setValidating(true);
@@ -517,7 +522,7 @@ export default function SAdmin_Validation() {
         )
       );
 
-      toast.success(`Report status updated to "${newStatus}".`);
+      toast.success(successMessage || `Report status updated to "${newStatus}".`);
       setViewVisible(false);
       setSelectedCompiledGroup(null);
       loadValidation();
@@ -547,6 +552,10 @@ export default function SAdmin_Validation() {
 
   const handleMarkAsFake = (report, group) => {
     applyValidation(group || report, "Marked Fake");
+  };
+
+  const handleArchiveReport = (report, group, message) => {
+    applyValidation(report, "Archived", message);
   };
 
   const handleReanalyze = async (group) => {
@@ -689,6 +698,8 @@ export default function SAdmin_Validation() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
+          onScrollBeginDrag={stopScrollAnimation}
+          onTouchStart={stopScrollAnimation}
           scrollEventThrottle={16}
         >
           <View style={styles.statsRow}>
@@ -1054,9 +1065,9 @@ export default function SAdmin_Validation() {
         {showScrollTop && (
           <TouchableOpacity
             style={styles.scrollTopBtn}
-            onPress={() =>
-              scrollRef.current?.scrollTo({ y: 0, animated: true })
-            }
+            accessibilityRole="button"
+            accessibilityLabel="Back to top"
+            onPress={scrollToTop}
             activeOpacity={0.8}
           >
             <Ionicons name="chevron-up" size={22} color="#FFFFFF" />
@@ -1071,6 +1082,7 @@ export default function SAdmin_Validation() {
           onReject={handleReject}
           onMapAndVerify={handleMapAndVerify}
           onMarkAsFake={handleMarkAsFake}
+          onArchiveReport={handleArchiveReport}
           onReanalyze={handleReanalyze}
           reanalyzing={reanalyzing}
           validating={validating}

@@ -21,6 +21,7 @@ import {
 } from "../../components/Admin_compo/AdminBatchFilters";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
+import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { getCache, setCache } from "../../services/dataStore";
 import ToastProvider, { useToast } from "../../components/Toast";
 import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
@@ -49,7 +50,10 @@ const formatSubmittedAt = (iso) => {
 };
 
 const mapValidationReports = (list) =>
-  (list || []).map((r) => ({
+  (list || [])
+    // Archived reports live in Logs > Archived reports only.
+    .filter((r) => r.status !== "Archived")
+    .map((r) => ({
     id: r.id,
     title: `${r.incident_type || "Incident"} in ${r.barangay || "Argao"}`,
     category: r.incident_category || "",
@@ -141,6 +145,7 @@ function Admin_Validation() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
   const scrollRef = useRef(null);
+  const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
   const loadedFiltersRef = useRef({
     status: selectedStatus,
     category: selectedCategory,
@@ -462,6 +467,7 @@ function Admin_Validation() {
   }, [fromDate, selectedBarangay, selectedCategory, selectedIncidentType, selectedStatus, toDate, viewParam]);
 
   const handleScroll = (e) => {
+    trackScroll(e);
     const next = e.nativeEvent.contentOffset.y > 300;
     if (next !== showScrollTopRef.current) {
       showScrollTopRef.current = next;
@@ -610,7 +616,7 @@ function Admin_Validation() {
     setSelectedCompiledGroup(null);
   };
 
-  const applyValidation = async (target, newStatus) => {
+  const applyValidation = async (target, newStatus, successMessage) => {
     if (!target || validating) return;
 
     setValidating(true);
@@ -637,7 +643,7 @@ function Admin_Validation() {
 
       setViewVisible(false);
       setSelectedCompiledGroup(null);
-      toast.success(`Report status updated to "${newStatus}".`);
+      toast.success(successMessage || `Report status updated to "${newStatus}".`);
       loadValidation();
     } catch (error) {
       toast.error(
@@ -662,6 +668,10 @@ function Admin_Validation() {
 
   const handleMarkAsFake = (report, group) => {
     applyValidation(group || report, "Marked Fake");
+  };
+
+  const handleArchiveReport = (report, group, message) => {
+    applyValidation(report, "Archived", message);
   };
 
   const handleReanalyze = async (group) => {
@@ -759,6 +769,8 @@ function Admin_Validation() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
+          onScrollBeginDrag={stopScrollAnimation}
+          onTouchStart={stopScrollAnimation}
           scrollEventThrottle={16}
         >
           <View style={styles.statsRow}>
@@ -1035,6 +1047,8 @@ function Admin_Validation() {
                         <TouchableOpacity
                           style={styles.viewButton}
                           onPress={() => openCompiledGroup(group)}
+                          accessibilityRole="button"
+                          accessibilityLabel="View Posts"
                           activeOpacity={0.85}
                         >
                           <Ionicons
@@ -1068,9 +1082,9 @@ function Admin_Validation() {
         {showScrollTop && (
           <TouchableOpacity
             style={styles.scrollTopBtn}
-            onPress={() =>
-              scrollRef.current?.scrollTo({ y: 0, animated: true })
-            }
+            accessibilityRole="button"
+            accessibilityLabel="Back to top"
+            onPress={scrollToTop}
             activeOpacity={0.8}
           >
             <Ionicons name="chevron-up" size={22} color="#FFFFFF" />
@@ -1085,6 +1099,7 @@ function Admin_Validation() {
         onReject={handleReject}
         onMapAndVerify={handleMapAndVerify}
         onMarkAsFake={handleMarkAsFake}
+        onArchiveReport={handleArchiveReport}
         onReanalyze={handleReanalyze}
         reanalyzing={reanalyzing}
         validating={validating}

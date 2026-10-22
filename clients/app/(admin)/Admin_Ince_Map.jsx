@@ -229,7 +229,8 @@ export default function Admin_Ince_Map() {
     const end = to ? new Date(`${to}T23:59:59.999`) : null;
 
     return reports.filter((report) => {
-      if (report.status === "Rejected") return false;
+      if (report.status === "Rejected" || report.status === "Archived")
+        return false;
       const barangay = getReportBarangay(report);
       
       if (selectedBarangay === "__unresolved__" ? Boolean(barangay) : selectedBarangay !== "All" && barangay !== selectedBarangay) return false;

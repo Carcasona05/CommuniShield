@@ -1,0 +1,901 @@
+{
+  "activeVersion": "2b7c0779-3689-4d9f-9941-33df53fcf67f-8e206b9d9c60",
+  "activeDirectory": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\communishield-models\\2b7c0779-3689-4d9f-9941-33df53fcf67f-8e206b9d9c60",
+  "activeCorrect": 21,
+  "candidateCorrect": 35,
+  "total": 38,
+  "checks": [
+    {
+      "text": "Maayo nga wala ka nagpataka og pasangil. Kini nga report sa Canbanua bahin sa fire incident makatabang sa among pag-amping. Padayon sa maayong pagpakabana.",
+      "expected": "positive",
+      "active": {
+        "label": "negative",
+        "confidence": 0.49942752718925476,
+        "probabilities": [
+          0.49942752718925476,
+          0.15629646182060242,
+          0.34427598118782043
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.9324677586555481,
+        "probabilities": [
+          0.06261246651411057,
+          0.004919786937534809,
+          0.9324677586555481
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Maayo nga wala ka nagpataka og pasangil.",
+      "expected": "positive",
+      "active": {
+        "label": "negative",
+        "confidence": 0.5897359251976013,
+        "probabilities": [
+          0.5897359251976013,
+          0.30879566073417664,
+          0.10146844387054443
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.9759957790374756,
+        "probabilities": [
+          0.015592069365084171,
+          0.00841218139976263,
+          0.9759957790374756
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Salamat kay wala ka nagpakalat og tsismis.",
+      "expected": "positive",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.6985828876495361,
+        "probabilities": [
+          0.14206144213676453,
+          0.6985828876495361,
+          0.15935571491718292
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.9522498250007629,
+        "probabilities": [
+          0.004262540955096483,
+          0.04348766803741455,
+          0.9522498250007629
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Salamat nga wala nimo gipasanginlan dayon ang silingan.",
+      "expected": "positive",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.6920074820518494,
+        "probabilities": [
+          0.12530171871185303,
+          0.6920074820518494,
+          0.1826907992362976
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.6826755404472351,
+        "probabilities": [
+          0.0035156020894646645,
+          0.3138088285923004,
+          0.6826755404472351
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Bilib ko nimo kay wala ka moapil sa pagpangdaot.",
+      "expected": "positive",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.8998112082481384,
+        "probabilities": [
+          0.08274887502193451,
+          0.8998112082481384,
+          0.017439987510442734
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.5723192095756531,
+        "probabilities": [
+          0.0045079439878463745,
+          0.42317286133766174,
+          0.5723192095756531
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Maayo nga wala ka naghimo og istorya bahin sa sunog.",
+      "expected": "positive",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.5873929858207703,
+        "probabilities": [
+          0.3554314374923706,
+          0.5873929858207703,
+          0.05717557668685913
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.8228930234909058,
+        "probabilities": [
+          0.03907977044582367,
+          0.13802722096443176,
+          0.8228930234909058
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Nindot nga wala ka magpataka og ingong sad-an siya.",
+      "expected": "positive",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.6887895464897156,
+        "probabilities": [
+          0.18225686252117157,
+          0.6887895464897156,
+          0.12895363569259644
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.9371392130851746,
+        "probabilities": [
+          0.0032984581775963306,
+          0.05956226587295532,
+          0.9371392130851746
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Salamat sa imong klarong report bahin sa bangga sa motor.",
+      "expected": "positive",
+      "active": {
+        "label": "positive",
+        "confidence": 0.5743903517723083,
+        "probabilities": [
+          0.11632723361253738,
+          0.30928242206573486,
+          0.5743903517723083
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.7627688646316528,
+        "probabilities": [
+          0.030016761273145676,
+          0.2072143256664276,
+          0.7627688646316528
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Maayo nga wala ka nagpakalat og wala pa mapamatud-i.",
+      "expected": "positive",
+      "active": {
+        "label": "negative",
+        "confidence": 0.5410948395729065,
+        "probabilities": [
+          0.5410948395729065,
+          0.3686693012714386,
+          0.09023582935333252
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.8670405149459839,
+        "probabilities": [
+          0.05239451304078102,
+          0.08056502044200897,
+          0.8670405149459839
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Salamat sa imong pagpakabana bisan makahahadlok ang sunog.",
+      "expected": "positive",
+      "active": {
+        "label": "positive",
+        "confidence": 0.5938624143600464,
+        "probabilities": [
+          0.3868240714073181,
+          0.019313586875796318,
+          0.5938624143600464
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.6392576694488525,
+        "probabilities": [
+          0.35911130905151367,
+          0.0016309592174366117,
+          0.6392576694488525
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Bilib ko sa imong kalma nga pagreport bahin sa aksidente.",
+      "expected": "positive",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.913612425327301,
+        "probabilities": [
+          0.06560680270195007,
+          0.913612425327301,
+          0.020780770108103752
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.5498558878898621,
+        "probabilities": [
+          0.08313022553920746,
+          0.5498558878898621,
+          0.3670139014720917
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "gwapo",
+      "expected": "positive",
+      "active": {
+        "label": "positive",
+        "confidence": 0.9784313440322876,
+        "probabilities": [
+          0.019120939075946808,
+          0.0024477667175233364,
+          0.9784313440322876
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.9805790185928345,
+        "probabilities": [
+          0.018229803070425987,
+          0.0011911900946870446,
+          0.9805790185928345
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "ka gwapo jud aning jobert oy",
+      "expected": "positive",
+      "active": {
+        "label": "positive",
+        "confidence": 0.971961259841919,
+        "probabilities": [
+          0.012592779472470284,
+          0.015445922501385212,
+          0.971961259841919
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.9738202095031738,
+        "probabilities": [
+          0.017206763848662376,
+          0.008973062969744205,
+          0.9738202095031738
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "gwapa ka",
+      "expected": "positive",
+      "active": {
+        "label": "positive",
+        "confidence": 0.9920493960380554,
+        "probabilities": [
+          0.0046925717033445835,
+          0.0032580900005996227,
+          0.9920493960380554
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.9946767091751099,
+        "probabilities": [
+          0.0038574859499931335,
+          0.0014657751889899373,
+          0.9946767091751099
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "salamat kaayo",
+      "expected": "positive",
+      "active": {
+        "label": "positive",
+        "confidence": 0.9634683728218079,
+        "probabilities": [
+          0.03475876897573471,
+          0.0017728853272274137,
+          0.9634683728218079
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.9968265891075134,
+        "probabilities": [
+          0.0029482468962669373,
+          0.0002252227859571576,
+          0.9968265891075134
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "nindot kaayo",
+      "expected": "positive",
+      "active": {
+        "label": "positive",
+        "confidence": 0.9901498556137085,
+        "probabilities": [
+          0.009725523181259632,
+          0.0001245946332346648,
+          0.9901498556137085
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.9970597624778748,
+        "probabilities": [
+          0.0029133730567991734,
+          0.000026832603907678276,
+          0.9970597624778748
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Nagpataka ka og pasangil.",
+      "expected": "negative",
+      "active": {
+        "label": "negative",
+        "confidence": 0.5038661360740662,
+        "probabilities": [
+          0.5038661360740662,
+          0.47686660289764404,
+          0.019267255440354347
+        ]
+      },
+      "candidate": {
+        "label": "negative",
+        "confidence": 0.8872737288475037,
+        "probabilities": [
+          0.8872737288475037,
+          0.09680003672838211,
+          0.015926163643598557
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Makalagot kay nagpasangil ka nga walay pruweba.",
+      "expected": "negative",
+      "active": {
+        "label": "negative",
+        "confidence": 0.6690505743026733,
+        "probabilities": [
+          0.6690505743026733,
+          0.298739492893219,
+          0.03220999240875244
+        ]
+      },
+      "candidate": {
+        "label": "negative",
+        "confidence": 0.9664345979690552,
+        "probabilities": [
+          0.9664345979690552,
+          0.022721758112311363,
+          0.01084366999566555
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Dili maayo nga nagpakalat ka og tsismis bahin sa silingan.",
+      "expected": "negative",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.5816236138343811,
+        "probabilities": [
+          0.26688292622566223,
+          0.5816236138343811,
+          0.1514934003353119
+        ]
+      },
+      "candidate": {
+        "label": "negative",
+        "confidence": 0.5404151678085327,
+        "probabilities": [
+          0.5404151678085327,
+          0.05190113186836243,
+          0.4076836407184601
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Dili ko gusto nimo.",
+      "expected": "negative",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.9947633147239685,
+        "probabilities": [
+          0.0024934522807598114,
+          0.9947633147239685,
+          0.002743210643529892
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.7861418724060059,
+        "probabilities": [
+          0.21300114691257477,
+          0.7861418724060059,
+          0.0008569707861170173
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "guba na kaayo",
+      "expected": "negative",
+      "active": {
+        "label": "positive",
+        "confidence": 0.6695389747619629,
+        "probabilities": [
+          0.31176960468292236,
+          0.018691442906856537,
+          0.6695389747619629
+        ]
+      },
+      "candidate": {
+        "label": "negative",
+        "confidence": 0.8749580383300781,
+        "probabilities": [
+          0.8749580383300781,
+          0.006114521529525518,
+          0.11892742663621902
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "buang ka",
+      "expected": "negative",
+      "active": {
+        "label": "negative",
+        "confidence": 0.7452757358551025,
+        "probabilities": [
+          0.7452757358551025,
+          0.17996235191822052,
+          0.07476188987493515
+        ]
+      },
+      "candidate": {
+        "label": "negative",
+        "confidence": 0.8843294382095337,
+        "probabilities": [
+          0.8843294382095337,
+          0.09671077877283096,
+          0.018959805369377136
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Delikado na",
+      "expected": "negative",
+      "active": {
+        "label": "negative",
+        "confidence": 0.6904576420783997,
+        "probabilities": [
+          0.6904576420783997,
+          0.18625055253505707,
+          0.12329182028770447
+        ]
+      },
+      "candidate": {
+        "label": "negative",
+        "confidence": 0.8242635130882263,
+        "probabilities": [
+          0.8242635130882263,
+          0.12140963971614838,
+          0.05432679131627083
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Makahadlok kini para sa mga bata sa pikas balay.",
+      "expected": "negative",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.5380258560180664,
+        "probabilities": [
+          0.3437570631504059,
+          0.5380258560180664,
+          0.11821702867746353
+        ]
+      },
+      "candidate": {
+        "label": "negative",
+        "confidence": 0.6086521744728088,
+        "probabilities": [
+          0.6086521744728088,
+          0.33782118558883667,
+          0.053526632487773895
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Makaguol nga adunay nasamad sa bangga.",
+      "expected": "negative",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.6557154059410095,
+        "probabilities": [
+          0.2823635935783386,
+          0.6557154059410095,
+          0.06192103400826454
+        ]
+      },
+      "candidate": {
+        "label": "negative",
+        "confidence": 0.6238712072372437,
+        "probabilities": [
+          0.6238712072372437,
+          0.37336716055870056,
+          0.0027616298757493496
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Nasuko ko sa imong bakak nga istorya bahin sa sunog.",
+      "expected": "negative",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.5998865365982056,
+        "probabilities": [
+          0.384884774684906,
+          0.5998865365982056,
+          0.015228789299726486
+        ]
+      },
+      "candidate": {
+        "label": "negative",
+        "confidence": 0.711830198764801,
+        "probabilities": [
+          0.711830198764801,
+          0.26443347334861755,
+          0.023736266419291496
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Dili nindot ang pag-akusar nga walay basihan.",
+      "expected": "negative",
+      "active": {
+        "label": "positive",
+        "confidence": 0.450488805770874,
+        "probabilities": [
+          0.13662108778953552,
+          0.41289010643959045,
+          0.450488805770874
+        ]
+      },
+      "candidate": {
+        "label": "positive",
+        "confidence": 0.5194785594940186,
+        "probabilities": [
+          0.4337003231048584,
+          0.046821229159832,
+          0.5194785594940186
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Wala gyud ayo ang serbisyo ninyo, nakadugang lang sa problema.",
+      "expected": "negative",
+      "active": {
+        "label": "positive",
+        "confidence": 0.5621407628059387,
+        "probabilities": [
+          0.22803451120853424,
+          0.20982468128204346,
+          0.5621407628059387
+        ]
+      },
+      "candidate": {
+        "label": "negative",
+        "confidence": 0.7989149689674377,
+        "probabilities": [
+          0.7989149689674377,
+          0.1356946974992752,
+          0.06539031118154526
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "kaila man ko ani niya oh",
+      "expected": "neutral",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.9368419647216797,
+        "probabilities": [
+          0.035841554403305054,
+          0.9368419647216797,
+          0.027316469699144363
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.9354201555252075,
+        "probabilities": [
+          0.04413171485066414,
+          0.9354201555252075,
+          0.020448176190257072
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "kaila man ko ani oh",
+      "expected": "neutral",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.9493516087532043,
+        "probabilities": [
+          0.03181817755103111,
+          0.9493516087532043,
+          0.018830208107829094
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.9426437616348267,
+        "probabilities": [
+          0.04406147450208664,
+          0.9426437616348267,
+          0.013294809497892857
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "kaila ko nimo",
+      "expected": "neutral",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.9854177832603455,
+        "probabilities": [
+          0.005213738884776831,
+          0.9854177832603455,
+          0.009368506260216236
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.9912359118461609,
+        "probabilities": [
+          0.003958499524742365,
+          0.9912359118461609,
+          0.004805568605661392
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "naa ra ko diri",
+      "expected": "neutral",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.9673885107040405,
+        "probabilities": [
+          0.01844867132604122,
+          0.9673885107040405,
+          0.014162866398692131
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.9926656484603882,
+        "probabilities": [
+          0.0030387628357857466,
+          0.9926656484603882,
+          0.004295584745705128
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Unsang oras gisumite ang report sa sunog?",
+      "expected": "neutral",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.7158241868019104,
+        "probabilities": [
+          0.21344037353992462,
+          0.7158241868019104,
+          0.0707353949546814
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.9153388142585754,
+        "probabilities": [
+          0.062277838587760925,
+          0.9153388142585754,
+          0.02238335646688938
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Wala pa ko kabalo kinsa ang nagmaneho sa motor.",
+      "expected": "neutral",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.9820327162742615,
+        "probabilities": [
+          0.016690298914909363,
+          0.9820327162742615,
+          0.0012769661843776703
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.9866393804550171,
+        "probabilities": [
+          0.012640457600355148,
+          0.9866393804550171,
+          0.0007201041444204748
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Naa ba ni sa Canbanua o sa Lamacan?",
+      "expected": "neutral",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.9536168575286865,
+        "probabilities": [
+          0.02466665580868721,
+          0.9536168575286865,
+          0.021716518327593803
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.9030483365058899,
+        "probabilities": [
+          0.06781687587499619,
+          0.9030483365058899,
+          0.029134832322597504
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Dili pa klaro pila ka tawo ang naa sa lugar.",
+      "expected": "neutral",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.8457759022712708,
+        "probabilities": [
+          0.1305183470249176,
+          0.8457759022712708,
+          0.023705704137682915
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.9343295097351074,
+        "probabilities": [
+          0.04283730313181877,
+          0.9343295097351074,
+          0.02283327467739582
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Wala pa mi nadawat nga kumpirmasyon.",
+      "expected": "neutral",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.7014880180358887,
+        "probabilities": [
+          0.21738290786743164,
+          0.7014880180358887,
+          0.08112901449203491
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.7898196578025818,
+        "probabilities": [
+          0.13963425159454346,
+          0.7898196578025818,
+          0.07054603099822998
+        ]
+      },
+      "routedLanguage": "cebuano"
+    },
+    {
+      "text": "Kaila ko sa tag-iya sa motor.",
+      "expected": "neutral",
+      "active": {
+        "label": "neutral",
+        "confidence": 0.973484456539154,
+        "probabilities": [
+          0.015700165182352066,
+          0.973484456539154,
+          0.010815371759235859
+        ]
+      },
+      "candidate": {
+        "label": "neutral",
+        "confidence": 0.9916905164718628,
+        "probabilities": [
+          0.004593743942677975,
+          0.9916905164718628,
+          0.0037157300394028425
+        ]
+      },
+      "routedLanguage": "cebuano"
+    }
+  ],
+  "test": {
+    "active": {
+      "macroF1": 0.721438729724528,
+      "recalls": {
+        "negative": 0.7806215722120659,
+        "neutral": 0.8079690094078583,
+        "positive": 0.6173570019723866
+      }
+    },
+    "candidate": {
+      "macroF1": 0.7224712183144777,
+      "recalls": {
+        "negative": 0.8135283363802559,
+        "neutral": 0.8002213613724405,
+        "positive": 0.6074950690335306
+      }
+    }
+  }
+}

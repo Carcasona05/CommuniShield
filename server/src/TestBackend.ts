@@ -1,6 +1,6 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { after, before, describe, test } from "node:test";
+import { after, before, describe, test, type TestContext } from "node:test";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import app from "../api/index.js";
@@ -31,8 +31,9 @@ import type { Request, Response } from "express";
 import type { User } from "@supabase/supabase-js";
 import { ARGAO_BARANGAY_NAMES, barangaysAtCoordinates, deriveBarangay } from "./utils/argaoLocation.js";
 import { formatGeocodedAddress } from "./utils/geocode.js";
-import { getAdminDashboard } from "./controllers/reportController.js";
+import { getAdminDashboard, validateReport } from "./controllers/reportController.js";
 import { reportService } from "./services/reportService.js";
+import { supabaseAdmin } from "./config/supabaseAdmin.js";
 import { profileService } from "./services/authService.js";
 
 // Unit/integration tests use bundled artifacts, never the live model pointer.
@@ -88,6 +89,253 @@ describe("Argao barangay and street hierarchy", () => {
       await getAdminDashboard(req, res);
       assert.deepEqual(body?.reports.map(({ id }) => id), [expected]);
     }
+  });
+});
+
+describe("archived reports", () => {
+  test("archiving records its own audit action and stays off the admin broadcast", async (t) => {
+    t.mock.method(profileService, "getProfile", async () => ({ data: { role: "admin", fullname: "Ada Admin" }, error: null }));
+    const statusUpdate = t.mock.method(reportService, "validateReport", async () => ({
+      data: {
+        id: "11111111-1111-4111-8111-111111111111",
+        ownerId: "owner-1",
+        location: "Lamacan, Argao",
+        previousStatus: "Pending Review",
+        previousVerified: true,
+        incidentType: "Theft",
+      },
+      error: null,
+    }));
+    const auditLogs: Parameters<typeof reportService.insertAuditLog>[0][] = [];
+    t.mock.method(reportService, "insertAuditLog", async (input: Parameters<typeof reportService.insertAuditLog>[0]) => {
+      auditLogs.push(input);
+      return { data: null, error: null };
+    });
+    const broadcast = t.mock.method(notificationService, "notifyAllAdmins", async () => ({ data: null, error: null }));
+    const ownerNotice = t.mock.method(notificationService, "createNotification", async () => ({ data: null, error: null }));
+
+    const req = {
+      user: { id: "admin-1" },
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: { status: "Archived", is_verified: true },
+    } as unknown as Request & { user: User };
+    let body: { status?: string } | undefined;
+    const res = {
+      json(value: typeof body) { body = value; },
+      status() { return this; },
+    } as unknown as Response;
+
+    await validateReport(req, res);
+
+    assert.equal(statusUpdate.mock.callCount(), 1);
+    assert.deepEqual(statusUpdate.mock.calls[0]?.arguments[1], {
+      status: "Archived",
+      is_verified: false,
+    });
+    assert.equal(auditLogs[0]?.actionType, "Report Archived");
+    assert.equal(auditLogs[0]?.newValue, "Archived");
+    assert.equal(ownerNotice.mock.callCount(), 1);
+    assert.equal(broadcast.mock.callCount(), 0);
+    assert.equal(body?.status, "Archived");
+  });
+
+  test("report feeds and dashboards never select archived rows", async (t) => {
+    const queries: { table: string; filters: string[] }[] = [];
+    const rowsByTable: Record<string, unknown[]> = {
+      reports: [
+        {
+          id: "22222222-2222-4222-8222-222222222222",
+          user_id: "33333333-3333-4333-8333-333333333333",
+          location: "Lamacan, Argao",
+          latitude: 9.881969,
+          longitude: 123.600326,
+          details: "Sample report",
+          poster_name: "Juan",
+          display_name_type: "",
+          status: "Pending Review",
+          is_verified: false,
+          created_at: "2026-10-20T10:00:00.000Z",
+          incident_type_id: "44444444-4444-4444-8444-444444444444",
+          role: "user",
+        },
+      ],
+    };
+    const filterMethods = new Set(["eq", "neq", "in", "gte", "lte", "not"]);
+    const makeBuilder = (table: string) => {
+      const query = { table, filters: [] as string[] };
+      queries.push(query);
+      const builder: Record<string, unknown> = {};
+      const chain =
+        (name: string) =>
+        (...args: unknown[]) => {
+          if (filterMethods.has(name)) {
+            query.filters.push(`${name}:${String(args[0])}:${String(args[1])}`);
+          }
+          return builder;
+        };
+      ["select", "order", "limit", "eq", "neq", "in", "gte", "lte", "not"].forEach(
+        (name) => {
+          builder[name] = chain(name);
+        }
+      );
+      builder.then = (resolve: unknown, reject: unknown) =>
+        Promise.resolve({ data: rowsByTable[table] ?? [], error: null }).then(
+          resolve as never,
+          reject as never
+        );
+      return builder;
+    };
+    t.mock.method(supabaseAdmin, "from", makeBuilder as unknown as typeof supabaseAdmin.from);
+
+    const feed = await reportService.listReports();
+    assert.equal(feed.error, null);
+    assert.equal(feed.data?.length, 1);
+    assert.ok(
+      queries.find((q) => q.table === "reports")?.filters.includes("neq:status:Archived"),
+      "report feeds must exclude archived reports"
+    );
+
+    queries.length = 0;
+    const dashboard = await reportService.getAdminDashboard();
+    assert.equal(dashboard.error, null);
+    assert.ok(
+      queries.find((q) => q.table === "reports")?.filters.includes("neq:status:Archived"),
+      "the admin dashboard must exclude archived reports"
+    );
+
+    queries.length = 0;
+    const archived = await reportService.getAdminDashboard({ status: "Archived" });
+    assert.equal(archived.error, null);
+    assert.deepEqual(
+      queries.find((q) => q.table === "reports")?.filters,
+      ["eq:status:Archived"],
+      "the Logs archive view asks for archived reports explicitly"
+    );
+  });
+});
+
+describe("dashboard relation batching", () => {
+  function fixture(t: TestContext, failSecondAnalysisBatch = false, empty = false,
+    options: { reportCount?: number; replies?: number; failCommentPage?: boolean } = {}) {
+    const reports = Array.from({ length: empty ? 0 : options.reportCount ?? 640 }, (_, i) => ({
+      id: `report-${i}`, user_id: `poster-${i}`, location: "Lamacan, Argao, Cebu",
+      latitude: 9.880192, longitude: 123.583668, details: "Synthetic test",
+      poster_name: "Poster", status: "Pending Review", is_verified: false,
+      created_at: "2026-10-22T10:00:00Z", incident_type_id: "type", role: "user",
+    }));
+    const comments = reports.flatMap((r, i) => Array.from({ length: options.replies ?? 2 }, (_, n) => ({
+      id: `comment-${i}-${n}`, report_id: r.id, user_id: `commenter-${i}`,
+      content: "Synthetic comment", created_at: "2026-10-22T11:00:00Z",
+    })));
+    const sentiment = (id: string) => ({ subject_id: id, label: "neutral", confidence: 0.9,
+      language: "english", provider: "local", model: "test", status: "succeeded",
+      error_code: "", analyzed_at: "2026-10-22T12:00:00Z" });
+    const calls: Array<{ table: string; ids: string[] }> = [];
+    t.mock.method(supabaseAdmin, "from", ((table: string) => {
+      let ids: string[] = [];
+      let subjectType = "";
+      let range: [number, number] | undefined;
+      const builder: Record<string, unknown> = {};
+      for (const method of ["select", "order", "neq", "gte", "lte"]) builder[method] = () => builder;
+      builder.range = (from: number, to: number) => { range = [from, to]; return builder; };
+      builder.eq = (column: string, value: string) => { if (column === "subject_type") subjectType = value; return builder; };
+      builder.in = (_column: string, values: string[]) => {
+        assert.ok(values.length <= 100, `${table} must never send oversized IN filters`);
+        ids = values;
+        calls.push({ table, ids: [...ids] });
+        return builder;
+      };
+      builder.then = (resolve: never, reject: never) => {
+        let data: unknown[] = [];
+        let error: { message: string } | null = null;
+        if (table === "incident_types") data = [{ id: "type", name: "Theft", incident_categories: { name: "Property" } }];
+        if (table === "reports") data = reports;
+        if (table === "profiles") data = ids.map((id) => ({ id, fullname: `Name ${id}`, user_name: id }));
+        if (table === "report_comments") data = comments.filter((c) => ids.includes(c.report_id));
+        if (table === "report_comments" && options.failCommentPage && range && range[0] >= 500) error = { message: "Comment page failed" };
+        if (table === "report_images") data = ids.map((id) => ({ report_id: id, image_url: `https://example.test/${id}.png` }));
+        if (table === "report_credibility_analysis") {
+          if (failSecondAnalysisBatch && calls.filter((c) => c.table === table).length === 2) error = { message: "Second analysis batch failed" };
+          else data = ids.map((id) => ({ report_id: id, ai_score: 60, severity: "Low", credibility_review: "Synthetic" }));
+        }
+        if (table === "sentiment_analysis") {
+          const valid = subjectType === "comment" ? comments.map((c) => c.id) : reports.map((r) => r.id);
+          data = ids.filter((id) => valid.includes(id)).map(sentiment);
+        }
+        if (range) data = data.slice(range[0], range[1] + 1);
+        return Promise.resolve({ data: error ? null : data, error }).then(resolve, reject);
+      };
+      return builder;
+    }) as unknown as typeof supabaseAdmin.from);
+    return { calls, reports, comments };
+  }
+
+  test("640 reports and 1280 comments retain all profiles, sentiment and images across batches", async (t) => {
+    const { calls } = fixture(t);
+    const result = await reportService.getAdminDashboard();
+    assert.equal(result.error, null);
+    assert.equal(result.data?.summary.total, 640);
+    assert.equal(result.data?.reports.reduce((sum, r) => sum + r.comments.length, 0), 1280);
+    assert.equal(calls.filter((c) => c.table === "report_credibility_analysis").length, 7);
+    assert.equal(calls.filter((c) => c.table === "profiles").length, 14);
+    assert.equal(calls.filter((c) => c.table === "sentiment_analysis").length, 20);
+    for (const [index, report] of (result.data?.reports || []).entries()) {
+      assert.equal(report.reporter_name, `Name poster-${index}`);
+      assert.equal(report.ai_score, 60);
+      assert.equal(report.sentiment, "neutral");
+      assert.equal(report.images.length, 1);
+      assert.equal(report.comments.length, 2);
+      for (const comment of report.comments) {
+        assert.equal(comment.user, `Name commenter-${index}`);
+        assert.equal(comment.sentiment, "neutral");
+      }
+    }
+  });
+
+  test("a failed later batch returns an error rather than a partial dashboard", async (t) => {
+    fixture(t, true);
+    const result = await reportService.getAdminDashboard();
+    assert.equal(result.data, null);
+    assert.equal(result.error, "Second analysis batch failed");
+  });
+
+  test("empty dashboards skip all relation queries", async (t) => {
+    const { calls } = fixture(t, false, true);
+    const result = await reportService.getAdminDashboard();
+    assert.equal(result.error, null);
+    assert.equal(result.data?.summary.total, 0);
+    assert.deepEqual(calls, []);
+  });
+
+  test("analytics paginates reports and busy threads and batches all sentiment UUIDs", async (t) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    t.after(() => { if (apiKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = apiKey; });
+    const { reports, comments } = fixture(t, false, false, { reportCount: 1100, replies: 12 });
+    const result = await reportService.getAdminAnalytics();
+    assert.equal(result.error, null);
+    assert.equal(result.data?.summary.activeIncidents, reports.length);
+    assert.equal(result.data?.summary.sentimentTotal, reports.length + comments.length);
+    assert.equal(result.data?.summary.sentimentAnalyzed, reports.length + comments.length);
+    assert.equal(result.data?.summary.sentimentDistribution.find(r => r.label === "neutral")?.count, 14300);
+  });
+
+  test("analytics returns errors instead of silently aggregating partial comment pages", async (t) => {
+    fixture(t, false, false, { replies: 12, failCommentPage: true });
+    const result = await reportService.getAdminAnalytics();
+    assert.equal(result.data, null);
+    assert.equal(result.error, "Comment page failed");
+  });
+
+  test("empty analytics skips relation reads", async (t) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    t.after(() => { if (apiKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = apiKey; });
+    const { calls } = fixture(t, false, true);
+    const result = await reportService.getAdminAnalytics();
+    assert.equal(result.error, null);
+    assert.equal(result.data?.summary.sentimentTotal, 0);
+    assert.deepEqual(calls, []);
   });
 });
 
@@ -776,6 +1024,7 @@ describe("API", () => {
       { method: "GET", path: "/api/incidents/options" },
       { method: "GET", path: "/api/admin/posts" },
       { method: "GET", path: "/api/admin/dashboard" },
+      { method: "GET", path: "/api/admin/risk-outlook" },
       { method: "GET", path: "/api/admin/analytics" },
       { method: "POST", path: "/api/admin/announcements" },
       { method: "GET", path: "/api/admin/announcements" },

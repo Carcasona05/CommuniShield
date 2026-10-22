@@ -175,7 +175,10 @@ export default function Admin_Dashboard() {
     return { color: "#D97A1E", bg: "#FFF4E5" };
   };
 
-  const incidentFeed = reports.slice(0, 12).map((r) => {
+  const incidentFeed = reports
+    .filter((r) => r.status !== "Archived")
+    .slice(0, 12)
+    .map((r) => {
     const style = getFeedStyle(r);
     return {
       id: r.id,
@@ -199,7 +202,8 @@ export default function Admin_Dashboard() {
       r.longitude != null &&
       Number.isFinite(Number(r.latitude)) &&
       Number.isFinite(Number(r.longitude)) &&
-      r.status !== "Rejected"
+      r.status !== "Rejected" &&
+      r.status !== "Archived"
   );
 
   const filteredMapReports =
