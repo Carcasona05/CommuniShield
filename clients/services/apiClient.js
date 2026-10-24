@@ -26,8 +26,7 @@ export const clearDisabledReason = async () => {
 };
 
 const apiClient = axios.create({
-  // baseURL: BASE_URL,
-  baseURL: "http://192.168.1.37:3000/api",
+  baseURL: "http://192.168.8.134:3000/api",
   timeout: 180000,
   headers: {
     "Content-Type": "application/json",
@@ -56,18 +55,6 @@ apiClient.interceptors.response.use(
       try {
         await AsyncStorage.setItem(DISABLED_KEY, message);
       } catch {}
-    }
-
-    if (status === 401 && error.response?.data?.code === "DEVICE_VERIFICATION_REQUIRED") {
-      // Old/password-only sessions must return to sign-in, never bypass the code.
-      // Ignore stale requests from a previous session after a new login completes.
-      const token = await AsyncStorage.getItem("access_token");
-      if (token && error.config?.headers?.Authorization === `Bearer ${token}`) {
-        const { clearAuth } = await import("./auth");
-        await clearAuth();
-        const { router } = await import("expo-router");
-        router.replace(Platform.OS === "web" ? "/(auth)/Admin_Login" : "/(auth)/User_Login");
-      }
     }
 
     return Promise.reject(error);
