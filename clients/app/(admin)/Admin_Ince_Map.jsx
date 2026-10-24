@@ -600,8 +600,9 @@ export default function Admin_Ince_Map() {
 const styles = {
   page: {
     flexGrow: 1,
-    padding: 20,
+    paddingTop: 0,
     paddingBottom: 28,
+    paddingHorizontal: 0,
     gap: 16,
     backgroundColor: "#F5F8FC",
   },

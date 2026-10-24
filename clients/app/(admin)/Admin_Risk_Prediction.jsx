@@ -579,7 +579,7 @@ function Metric({ icon, label, value, valueColor = "#294880" }) {
 
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: "#F5F8FC" },
-  page: { padding: 24, paddingBottom: 36, gap: 18 },
+  page: { paddingTop: 0, paddingBottom: 36, paddingHorizontal: 0, gap: 18 },
   
   overview: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
   indicatorSummary: {

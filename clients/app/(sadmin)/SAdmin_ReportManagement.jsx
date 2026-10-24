@@ -785,7 +785,7 @@ function SAdmin_ReportManagementPage() {
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: "#F5F8FC" },
   container: { flex: 1, backgroundColor: "#F5F8FC" },
-  scrollContent: { padding: 22, paddingBottom: 36 },
+  scrollContent: { paddingTop: 0, paddingBottom: 36, paddingHorizontal: 0 },
   statsRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 18 },
   statCard: { flex: 1, minWidth: 190, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center" },
   statIcon: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center", marginRight: 10 },

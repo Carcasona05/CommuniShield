@@ -1394,8 +1394,9 @@ function SummaryCard({
 
 const styles = StyleSheet.create({
   page: {
-    padding: 20,
+    paddingTop: 0,
     paddingBottom: 32,
+    paddingHorizontal: 0,
     gap: 16,
     backgroundColor: "#F8FAFC",
   },
