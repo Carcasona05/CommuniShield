@@ -996,7 +996,7 @@ const styles = {
     height: 54,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
+    paddingHorizontal: 15,
     borderRadius: 15,
   },
 
@@ -1007,14 +1007,14 @@ const styles = {
   },
 
   navIcon: {
-    width: 22,
+    width: 29,
     alignItems: "center",
-    marginRight: 6,
+    marginRight: 13,
   },
 
   navText: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: "PoppinsMedium",
     color: "#5F6F8C",
   },
