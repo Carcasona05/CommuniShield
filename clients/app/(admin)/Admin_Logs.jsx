@@ -8,7 +8,6 @@ import {
   StyleSheet,
   Platform,
   Pressable,
-  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
@@ -16,6 +15,7 @@ import { useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
+import { BatchFilterDropdown } from "../../components/Admin_compo/AdminBatchFilters";
 import { ListSkeleton } from "../../components/PageSkeletons";
 import ToastProvider, { useToast } from "../../components/Toast";
 import apiClient from "../../services/apiClient";
@@ -132,59 +132,6 @@ const LOG_TABS = [
   { key: "activity", label: "Activity logs", icon: "list-outline" },
   { key: "archived", label: "Archived reports", icon: "archive-outline" },
 ];
-
-function DropdownFilter({ label, value, options, onChange }) {
-  const [isOpen, setIsOpen] = useState(false);
-
-  return (
-    <View style={styles.dropdownWrapper}>
-      <Text style={styles.dropdownLabel}>{label}</Text>
-      <TouchableOpacity
-        style={styles.dropdownButton}
-        onPress={() => setIsOpen(true)}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.dropdownButtonText}>{value}</Text>
-        <Ionicons name="chevron-down" size={16} color="#5D6F92" />
-      </TouchableOpacity>
-
-      <Modal
-        visible={isOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsOpen(false)}
-      >
-        <Pressable style={styles.dropdownOverlay} onPress={() => setIsOpen(false)}>
-          <View style={styles.dropdownMenu}>
-            {options.map((option) => (
-              <TouchableOpacity
-                key={option}
-                style={[
-                  styles.dropdownOption,
-                  value === option && styles.dropdownOptionActive,
-                ]}
-                onPress={() => {
-                  onChange(option);
-                  setIsOpen(false);
-                }}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.dropdownOptionText,
-                    value === option && styles.dropdownOptionTextActive,
-                  ]}
-                >
-                  {option}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </Pressable>
-      </Modal>
-    </View>
-  );
-}
 
 export default function Admin_LogsWrapper() {
   return (
@@ -659,30 +606,26 @@ function Admin_Logs() {
               </View>
 
               <View style={styles.filterCard}>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.filterRow}
-                >
-                  <DropdownFilter
+                <View style={styles.filterRow}>
+                  <BatchFilterDropdown
                     label="Post by"
                     value={selectedPostBy}
                     options={POST_BY_OPTIONS}
                     onChange={setSelectedPostBy}
                   />
-                  <DropdownFilter
+                  <BatchFilterDropdown
                     label="Status"
                     value={selectedStatus}
                     options={STATUS_OPTIONS}
                     onChange={setSelectedStatus}
                   />
-                  <DropdownFilter
+                  <BatchFilterDropdown
                     label="Date"
                     value={selectedDate}
                     options={DATE_OPTIONS}
                     onChange={setSelectedDate}
                   />
-                </ScrollView>
+                </View>
               </View>
             </>
           ) : null}
@@ -1076,6 +1019,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 18,
     marginBottom: 18,
+    zIndex: 30,
   },
 
   searchBox: {
@@ -1102,77 +1046,9 @@ const styles = StyleSheet.create({
 
   filterRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "flex-end",
     gap: 12,
-  },
-
-  dropdownWrapper: {
-    flex: 1,
-    minWidth: 180,
-  },
-
-  dropdownLabel: {
-    fontSize: 12,
-    color: "#5D6F92",
-    fontFamily: "PoppinsMedium",
-    marginBottom: 6,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-
-  dropdownButton: {
-    height: 46,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#D9E2F0",
-    backgroundColor: "#F7F9FD",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-
-  dropdownButtonText: {
-    fontSize: 14,
-    color: "#294880",
-    fontFamily: "PoppinsMedium",
-  },
-
-  dropdownOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(17, 24, 39, 0.25)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 18,
-  },
-
-  dropdownMenu: {
-    width: "100%",
-    maxWidth: 360,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: "#D9E2F0",
-  },
-
-  dropdownOption: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-
-  dropdownOptionActive: {
-    backgroundColor: "#EAF2FF",
-  },
-
-  dropdownOptionText: {
-    fontSize: 15,
-    color: "#294880",
-    fontFamily: "PoppinsRegular",
-  },
-
-  dropdownOptionTextActive: {
-    fontFamily: "PoppinsSemiBold",
   },
 
   logsCard: {

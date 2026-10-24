@@ -593,11 +593,7 @@ function Admin_ReportManagement() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.batchFilterRow}
-            >
+            <View style={styles.batchFilterRow}>
               <BatchFilterDropdown
                 label="Post by"
                 value={postBy}
@@ -615,7 +611,6 @@ function Admin_ReportManagement() {
                 value={status}
                 options={FILTER_STATUSES}
                 onChange={setStatus}
-                chips
               />
               <BatchDateRangeDropdown
                 from={from}
@@ -623,7 +618,7 @@ function Admin_ReportManagement() {
                 onChangeFrom={setFrom}
                 onChangeTo={setTo}
               />
-            </ScrollView>
+            </View>
           </View>
 
           <View style={styles.recordsCard}>
@@ -797,7 +792,7 @@ const styles = StyleSheet.create({
   statTextBox: { flex: 1, minWidth: 0 },
   statValue: { fontSize: 22, fontFamily: "PoppinsSemiBold", color: "#2F4267" },
   statTitle: { fontSize: 12, color: "#5D6F92", marginTop: 3, fontFamily: "PoppinsMedium" },
-  filterCard: { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 16, padding: 18, marginBottom: 18 },
+  filterCard: { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 16, padding: 18, marginBottom: 18, zIndex: 30 },
   filterTopRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 14, marginBottom: 16 },
   filterHeaderTitleBox: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 240 },
   filterMainIconBox: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#EAF2FF", alignItems: "center", justifyContent: "center" },
@@ -834,7 +829,7 @@ const styles = StyleSheet.create({
   previewPrimaryButtonText: { color: "#FFFFFF", fontFamily: "PoppinsSemiBold", fontSize: 13 },
   previewSecondaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#EEF2F8", alignItems: "center", justifyContent: "center" },
   previewSecondaryButtonText: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 13 },
-  batchFilterRow: { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingBottom: 2, width: "100%" },
+  batchFilterRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-end", gap: 10, paddingBottom: 2, width: "100%" },
   criteriaInput: { flexGrow: 1, minWidth: 145, height: 42, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 8, backgroundColor: "#FFFFFF", paddingHorizontal: 12, color: "#2F4267", fontFamily: "PoppinsRegular", fontSize: 13 },
   searchInput: { flexGrow: 2, minWidth: 220 },
   filterBody: { flexDirection: "row", flexWrap: "wrap", gap: 18 },

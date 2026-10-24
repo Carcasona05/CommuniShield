@@ -261,9 +261,10 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
                 </View>
               </View>
 
-              <View style={styles.field}>
+              <View style={[styles.field, styles.fieldRaisedHigh]}>
                 <Text style={styles.label}>Barangay</Text>
                 <Dropdown
+                  hover
                   options={ARGAO_BARANGAYS.map((value) => ({ value, label: value }))}
                   selectedValue={form.barangay}
                   placeholder="Select barangay"
@@ -284,9 +285,10 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
                 {errors.location ? <Text style={styles.errorText}>{errors.location}</Text> : null}
               </View>
 
-              <View style={styles.field}>
+              <View style={[styles.field, styles.fieldRaisedMedium]}>
                 <Text style={styles.label}>Type of Incident</Text>
                 <Dropdown
+                  hover
                   options={BLOTTER_TYPES.map((value) => ({ value, label: value }))}
                   selectedValue={form.incidentType}
                   placeholder="Select incident type"
@@ -388,9 +390,10 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
               </View>
 
               <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Admin Info</Text>
-              <View style={styles.field}>
+              <View style={[styles.field, styles.fieldRaisedLow]}>
                 <Text style={styles.label}>Status</Text>
                 <Dropdown
+                  hover
                   options={STATUS_OPTIONS}
                   selectedValue={form.status}
                   placeholder="Select status"
@@ -553,6 +556,15 @@ const styles = StyleSheet.create({
   field: {
     marginBottom: 12,
     marginHorizontal: 20,
+  },
+  fieldRaisedHigh: {
+    zIndex: 30,
+  },
+  fieldRaisedMedium: {
+    zIndex: 20,
+  },
+  fieldRaisedLow: {
+    zIndex: 10,
   },
   label: {
     fontSize: 14,

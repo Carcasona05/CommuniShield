@@ -856,11 +856,7 @@ function Admin_Validation() {
 
             </View>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.batchFilterRow}
-            >
+            <View style={styles.batchFilterRow}>
               <BatchFilterDropdown
                 label="Location"
                 value={selectedBarangay}
@@ -899,9 +895,8 @@ function Admin_Validation() {
                 value={selectedStatus}
                 options={statusFilters}
                 onChange={setSelectedStatus}
-                chips
               />
-            </ScrollView>
+            </View>
           </View>
 
           <View style={styles.reportsCard}>
@@ -1178,6 +1173,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 18,
     marginBottom: 18,
+    zIndex: 30,
   },
 
   filterTopRow: {
@@ -1248,6 +1244,7 @@ const styles = StyleSheet.create({
 
   batchFilterRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "flex-end",
     gap: 10,
     paddingBottom: 2,

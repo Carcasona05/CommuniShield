@@ -83,6 +83,7 @@ test("synthetic DBSCAN UI distinguishes repeated pins from spatial density and f
     await cards.first().waitFor();
     assert.equal(await cards.count(), 1);
     assert.match(await cards.first().innerText(), /23 reports.*4 distinct locations/s);
+    await page.getByTestId("hotspot-details-toggle").first().click();
     const evidence = page.getByTestId("hotspot-sentiment-summary");
     await evidence.waitFor();
     assert.match(await evidence.getByTestId("hotspot-report-sentiment").innerText(), /22\/23 usable/);

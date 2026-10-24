@@ -5,7 +5,7 @@ import { useFonts } from "expo-font";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
 import SentimentEvidenceChart from "../../components/Admin_compo/SentimentEvidenceChart";
-import RiskOutlookPanel from "../../components/Admin_compo/RiskOutlookPanel";
+import { BatchFilterDropdown } from "../../components/Admin_compo/AdminBatchFilters";
 import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { getReportBarangay } from "../../services/argaoLocation";
@@ -17,7 +17,7 @@ const ARGAO_BARANGAYS = [
   ...ARGAO_BARANGAY_DATA.map(({ name }) => name),
 ];
 const EMPTY_REPORTS = [];
-const validOutlookResponse = (data) => Array.isArray(data?.reports) && Boolean(data?.forecast);
+const validOutlookResponse = (data) => Array.isArray(data?.reports);
 
 const ZONE_SEVERITY_THEME = {
   Critical: { color: "#B93838", background: "#FDEEEE" },
@@ -36,7 +36,6 @@ export default function Admin_Risk_Prediction() {
   
   const [selectedBarangay, setSelectedBarangay] = useState("All Barangays");
   const [selectedMarkerReport, setSelectedMarkerReport] = useState(null);
-  const [showDropdown, setShowDropdown] = useState(false);
   const [commentPage, setCommentPage] = useState(1);
   const COMMENTS_PER_PAGE = 5;
 
@@ -144,7 +143,6 @@ export default function Admin_Risk_Prediction() {
     // filter recalculates selectedReports, the map, and the right-side panel.
     setSelectedBarangay(canonicalBarangay);
     setSelectedMarkerReport(null);
-    setShowDropdown(false);
 
     requestAnimationFrame(() => {
       scrollToTop();
@@ -216,16 +214,14 @@ export default function Admin_Risk_Prediction() {
           </View>
         </View>
 
-        <RiskOutlookPanel forecast={errorMessage ? null : outlook?.forecast} scope={selectedBarangay} loading={loading} />
-
-        {/* Current report map and evidence, separate from the future outlook. */}
+        {/* Current report map and evidence. */}
         <View style={styles.splitMainRow}>
           
           {/* Left Column: Map Box (60%) */}
           <View style={styles.leftBox60}>
             <View style={styles.boxHeader}>
               <Ionicons name="map-outline" size={18} color="#294880" />
-              <Text style={styles.boxHeaderTitle}>Current report locations · not a forecast map</Text>
+              <Text style={styles.boxHeaderTitle}>Current report locations</Text>
             </View>
 
             {/* FILTER PANEL */}
@@ -234,19 +230,20 @@ export default function Admin_Risk_Prediction() {
                 <View style={styles.filterIconBadge}>
                   <Ionicons name="options-outline" size={16} color="#294880" />
                 </View>
-                <Text style={styles.filterCardTitle}>Barangay</Text>
 
-                <TouchableOpacity
+                <BatchFilterDropdown
                   testID="risk-zone-location-filter"
-                  style={styles.dropdownBox}
-                  onPress={() => setShowDropdown(!showDropdown)}
-                >
-                  <View style={styles.dropdownLabelRow}>
-                    <Ionicons name="location-outline" size={16} color="#294880" />
-                    <Text style={styles.dropdownText}>{selectedBarangay}</Text>
-                  </View>
-                  <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={16} color="#63728A" />
-                </TouchableOpacity>
+                  label="Barangay"
+                  value={selectedBarangay}
+                  options={ARGAO_BARANGAYS}
+                  onChange={(value) => {
+                    setSelectedBarangay(value);
+                    setSelectedMarkerReport(null);
+                  }}
+                  searchable
+                  searchPlaceholder="Type a barangay..."
+                  style={styles.filterDropdownField}
+                />
 
                 {selectedBarangay !== "All Barangays" && (
                   <TouchableOpacity onPress={() => {
@@ -258,37 +255,6 @@ export default function Admin_Risk_Prediction() {
                   </TouchableOpacity>
                 )}
               </View>
-
-              {showDropdown && (
-                <View style={styles.dropdownListContainer}>
-                  <ScrollView
-                    style={{ maxHeight: 160, scrollbarWidth: "none", msOverflowStyle: "none" }}
-                    nestedScrollEnabled
-                    showsVerticalScrollIndicator={false}
-                  >
-                    {ARGAO_BARANGAYS.map((brgy) => (
-                      <TouchableOpacity
-                        key={brgy}
-                        style={[styles.dropdownItem, selectedBarangay === brgy && styles.dropdownItemActive]}
-                        onPress={() => {
-                          setSelectedBarangay(brgy);
-                          setSelectedMarkerReport(null);
-                          setShowDropdown(false);
-                        }}
-                      >
-                        <Ionicons 
-                          name={selectedBarangay === brgy ? "checkmark-circle" : "ellipse-outline"} 
-                          size={14} 
-                          color={selectedBarangay === brgy ? "#294880" : "#82918B"} 
-                        />
-                        <Text style={[styles.dropdownItemText, selectedBarangay === brgy && styles.dropdownItemTextActive]}>
-                          {brgy}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
             </View>
 
             
@@ -531,12 +497,12 @@ export default function Admin_Risk_Prediction() {
                 <Text style={styles.emptyText}>No DBSCAN hotspot intersects this scope. This is not proof that the area is safe.</Text>
               )}
 
-              {outlook?.current?.snapshotMayBeLimited && <Text style={styles.contextNote}>Current indicators may be limited by the dashboard snapshot. Forecast history uses a separate paginated read.</Text>}
+              {outlook?.current?.snapshotMayBeLimited && <Text style={styles.contextNote}>Current indicators may be limited by the dashboard snapshot.</Text>}
               <Text style={styles.contextNote}>Severity comes from the automated credibility analysis of each submitted report and still requires human review. These counts are descriptive, not a forecast.</Text>
             </View>
           </View>
 
-          <Text style={styles.contextNote}>Sentiment tone and severity labels describe submitted reports for review; they are not evidence of danger and do not change the 7-day outlook. {outlook?.current?.note || ""}</Text>
+          <Text style={styles.contextNote}>Sentiment tone and severity labels describe submitted reports for review; they are not evidence of danger. {outlook?.current?.note || ""}</Text>
         </View>
 
         {/* Descriptive barangay counts, not predicted zones. */}
@@ -667,64 +633,39 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   filterLineRow: {
-    minHeight: 42,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     gap: 8,
   },
-  filterHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  filterTitleContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+  filterDropdownField: {
     flex: 1,
+    minWidth: 200,
   },
   filterIconBadge: {
     width: 36,
     height: 36,
+    marginBottom: 5,
     borderRadius: 10,
     backgroundColor: "#EAF2FF",
     alignItems: "center",
     justifyContent: "center",
   },
-  filterCardTitle: {
-    fontFamily: "PoppinsSemiBold",
-    fontSize: 13,
-    color: "#294880",
-  },
-  filterCardSubtitle: {
-    fontFamily: "PoppinsRegular",
-    fontSize: 10,
-    color: "#5D6F92",
-  },
   resetFilterButton: {
+    height: 46,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
+    gap: 5,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#D9E2F0",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F7F9FD",
   },
   resetFilterButtonText: {
     fontFamily: "PoppinsMedium",
-    fontSize: 10,
+    fontSize: 12,
     color: "#294880",
   },
-  dropdownBox: { flex: 1, minWidth: 0, height: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 10, backgroundColor: "#FFFFFF" },
-  dropdownLabelRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  dropdownText: { color: "#294880", fontFamily: "PoppinsMedium", fontSize: 12 },
-  dropdownListContainer: { position: "absolute", top: 48, left: 0, right: 0, maxHeight: 260, borderWidth: 1, borderColor: "#DCE3ED", borderRadius: 10, backgroundColor: "#FFFFFF", elevation: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, zIndex: 99 },
-  dropdownItem: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: "#F0F3F7" },
-  dropdownItemActive: { backgroundColor: "#EAF2FF" },
-  dropdownItemText: { color: "#3B4A5F", fontFamily: "PoppinsRegular", fontSize: 12 },
-  dropdownItemTextActive: { color: "#294880", fontFamily: "PoppinsSemiBold" },
 
   mapNoteBox: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#F2F6FC", paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8 },
   mapNote: { flex: 1, color: "#4B5D7A", fontFamily: "PoppinsRegular", fontSize: 11 },

@@ -627,8 +627,9 @@ export default function Admin_AddReportModal({
                 Incident Category
               </Text>
 
-              <View style={styles.dropdownField}>
+              <View style={[styles.dropdownField, styles.dropdownFieldRaised]}>
                 <Dropdown
+                  hover
                   placeholder="Select Incident Category"
                   selectedValue={incidentCategory}
                   options={incidentOptions.map((option) => ({
@@ -651,8 +652,9 @@ export default function Admin_AddReportModal({
                 Incident Type
               </Text>
 
-              <View style={styles.dropdownField}>
+              <View style={[styles.dropdownField, styles.dropdownFieldRaisedLower]}>
                 <Dropdown
+                  hover
                   placeholder={
                     incidentCategory
                       ? "Select Incident Type"
@@ -939,6 +941,14 @@ const styles = StyleSheet.create({
 
   dropdownField: {
     marginHorizontal: 20,
+  },
+
+  dropdownFieldRaised: {
+    zIndex: 30,
+  },
+
+  dropdownFieldRaisedLower: {
+    zIndex: 20,
   },
 
   errorText: {

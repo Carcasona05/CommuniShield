@@ -230,12 +230,19 @@ export default function Admin_Dashboard() {
                 style={styles.summaryCard}
                 activeOpacity={0.85}
                 onPress={() => {
-                  if (
-                    card.title === "Pending Validation" ||
-                    card.title === "Verified Reports" ||
-                    card.title === "Rejected Reports"
-                  ) {
-                    router.push("/(admin)/Admin_Validation");
+                  const viewByCard = {
+                    "Pending Validation": "pending",
+                    "Verified Reports": "verified",
+                    "Rejected Reports": "rejected",
+                  };
+
+                  if (viewByCard[card.title]) {
+                    router.push({
+                      pathname: "/(admin)/Admin_Validation",
+                      params: { view: viewByCard[card.title] },
+                    });
+                  } else if (card.title === "Critical Hotspots") {
+                    router.push("/(admin)/Admin_Hotspot_Detection");
                   }
                 }}
               >
@@ -420,7 +427,15 @@ export default function Admin_Dashboard() {
                         index !== 0 && styles.feedRowBorder,
                       ]}
                       activeOpacity={0.8}
-                      onPress={() => router.push("/(admin)/Admin_Validation")}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/(admin)/Admin_Validation",
+                          params: {
+                            openReport: item.id,
+                            notifNonce: String(Date.now()),
+                          },
+                        })
+                      }
                     >
                       <View style={styles.feedTopRow}>
                         <View style={styles.feedTitleWrap}>
