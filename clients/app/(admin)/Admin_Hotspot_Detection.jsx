@@ -1521,7 +1521,7 @@ const styles = StyleSheet.create({
 
   filterTitle: {
     fontFamily: "PoppinsSemiBold",
-    fontSize: 19,
+    fontSize: 16,
     color: "#294880",
   },
 
