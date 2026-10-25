@@ -193,9 +193,9 @@ not falsely relabelled as new supporting-model decisions.
 ## Verification
 
 - Backend `npm test`: routing decisions, immutable primary, API authorization.
-- Python `unittest discover -s datasets -p "test_*.py"`: calibration, abstention,
+- Python `unittest discover -s tests -t .`: calibration, abstention,
   worker gates, immutable training behavior and the progress-report formatting.
-- Optional `server/tests/supportingModelPool.postgres.mjs`: actual isolated
+- Optional `tests/database/supportingModelPool.postgres.mjs`: actual isolated
   PostgreSQL transactions, bounded coexistence, lifecycle, stale results,
   dependency invalidation, permissions, retained audit records, fresh-mode
   enqueue/claim/complete protocol checks.

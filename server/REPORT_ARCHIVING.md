@@ -42,12 +42,12 @@ feed; only its entry in the activity log is skipped.
 
 ## Tests
 
-- `server/src/TestBackend.ts` — archive audit action, `is_verified` forcing, no
+- `tests/server/Backend.test.ts` — archive audit action, `is_verified` forcing, no
   admin broadcast, and the query-level exclusion for feeds and dashboards.
-- `server/tests/reportArchiving.postgres.mjs` — the migration (run twice, to
+- `tests/database/reportArchiving.postgres.mjs` — the migration (run twice, to
   prove it is repeatable) against real PostgreSQL via PGlite.
-- `server/tests/reportArchive.browser.mjs` — archive from Incident Management,
+- `tests/browser/reportArchive.browser.mjs` — archive from Incident Management,
   confirm it only appears under Logs, restore it, and confirm a user feed hides
   an archived report.
-- `clients/tests/archivedReports.test.mjs` — every screen keeps archived rows
+- `tests/clients/archivedReports.test.mjs` — every screen keeps archived rows
   out of its list, and the archive/restore actions stay wired up.

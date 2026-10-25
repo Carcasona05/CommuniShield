@@ -140,7 +140,7 @@ Suggested research wording:
 
 ## Tests
 
-`server/src/SyntheticHotspots.test.ts` covers reproducibility, input/truth
+`tests/server/SyntheticHotspots.test.ts` covers reproducibility, input/truth
 integrity, coordinates, held-out isolation, known metric values, noise,
 duplicate-resistant scoring and missing/excluded reports. It runs with
 `npm test` alongside the engine's existing tests. The commands above exercise

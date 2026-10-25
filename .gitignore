@@ -53,5 +53,7 @@ yarn-error.*
 /datasets/synthetic-hotspots/generated/
 /datasets/synthetic-risk-outlook/generated/
 /artifacts/hotspot-sentiment/
+/artifacts/expressive-comments/
+/artifacts/private-test-analysis/
 __pycache__/
 *.py[cod]

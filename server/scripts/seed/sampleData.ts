@@ -7,7 +7,7 @@
  * interior points of the real Argao barangay polygons, generated purely to
  * exercise clustering, sentiment and forecasting code.
  *
- * Guarantees, verified by server/src/SampleSeed.test.ts:
+ * Guarantees, verified by tests/server/SampleSeed.test.ts:
  *  - every coordinate is generated inside the real Argao barangay polygon it
  *    is labelled with, so the location -> barangay resolver accepts it;
  *  - the history spans SEED_HISTORY_DAYS with reports on nearly every day,

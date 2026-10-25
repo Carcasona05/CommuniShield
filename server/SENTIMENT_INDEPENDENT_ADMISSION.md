@@ -155,7 +155,7 @@ The monitor identifies independent results as awaiting manual review, not enable
 - Python tests: independent per-class/evidence gates, validation-only threshold
   selection, no baseline scoring, no comparative selection in either mode,
   worker artifact preservation and failing candidates publishing nothing.
-- `server/tests/sentimentIndependentAdmission.postgres.mjs`: actual PostgreSQL,
+- `tests/database/sentimentIndependentAdmission.postgres.mjs`: actual PostgreSQL,
   migration applied twice, one-row approval without training, manual queue/enable,
   malformed/weak evidence, worker fencing, private helper grants and pool limits.
 - Backend tests: independent policy parsing, primary/support disagreement,

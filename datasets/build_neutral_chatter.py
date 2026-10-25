@@ -174,7 +174,7 @@ def main() -> None:
         merged.to_csv(path, index=False)
         print(f"{split}: added {len(texts)} neutral rows -> {len(merged)} total")
 
-    print("\napplied. run datasets/retrain_all.py to retrain.")
+    print("\napplied. Review datasets/BUILTIN_RETRAINING.md for offline candidate evaluation. No built-in model was replaced.")
 
 
 if __name__ == "__main__":

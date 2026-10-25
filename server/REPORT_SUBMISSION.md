@@ -63,11 +63,11 @@ retries; that would need a separate persistent request-key design.
 
 ## Verification
 
-- `src/ReportSubmission.test.ts`: HTTP acknowledgement while a real tracked
+- `../tests/server/ReportSubmission.test.ts`: HTTP acknowledgement while a real tracked
   background promise is deliberately blocked; persistence-before-success;
   failure isolation; preserved points/notification behaviour; no geocoder or
   location reread; photo-link persistence; unique parallel storage paths.
-- `clients/tests/uploadBatch.test.mjs`: concurrent execution, bounded work,
+- `tests/clients/uploadBatch.test.mjs`: concurrent execution, bounded work,
   order/progress, failure visibility and waiting for in-flight work.
 - `tests/reportSubmission.browser.mjs`: actual user form with mocked API/storage,
   duplicate clicks, saving progress, retry after a save error, navigation with

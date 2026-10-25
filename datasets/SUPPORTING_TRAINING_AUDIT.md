@@ -1,5 +1,9 @@
 # Supporting candidate training audit and validation-only repair
 
+> Old trial upload CSVs and generated trial reports were removed during schema
+> finalization. The findings below remain as historical diagnostic context, not
+> recommendations to upload those failed examples. See `uploads/README.md`.
+
 ## Why another small CSV was not the solution
 
 The 270 authored additions are only 90 per language, compared with 56,377 English,

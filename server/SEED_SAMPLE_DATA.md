@@ -106,7 +106,7 @@ npm run seed:generate
 npm test
 ```
 
-`src/SampleSeed.test.ts` checks file freshness, byte size, determinism, account
+`../tests/server/SampleSeed.test.ts` checks file freshness, byte size, determinism, account
 preservation, complete owner distribution, quoted UUIDs, schema columns, CHECK
 vocabulary, row counts, coordinate/barangay resolution, production DBSCAN and
 submitted-report outlook gates. The generated SQL, PL/pgSQL guard bodies and

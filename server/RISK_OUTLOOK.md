@@ -103,7 +103,7 @@ No method/threshold was changed after inspecting those held-out outcomes.
 
 ## Tests
 
-`src/RiskOutlook.test.ts` covers history policy, UTC timing, non-overlapping
+`../tests/server/RiskOutlook.test.ts` covers history policy, UTC timing, non-overlapping
 past-only backtests, baseline/error-band output, sentiment independence,
 authorization, current-versus-resolved history, pagination and failure states.
 The updated `tests/riskPrediction.browser.mjs` checks the honest UI labels,

@@ -70,7 +70,7 @@ does not prove improved combined-system quality.
 
 ## Verification
 
-- `server/tests/sentimentLanguageScope.postgres.mjs`: all seven combinations,
+- `tests/database/sentimentLanguageScope.postgres.mjs`: all seven combinations,
   reverse input order, partial qualification, explicit dataset selection, old
   mixed uploads followed by new Cebuano data, zero-qualified rejection,
   weak/missing evidence, malformed manifests and stale-worker rejection.

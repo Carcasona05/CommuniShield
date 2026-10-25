@@ -70,7 +70,7 @@ sensitivity, multilingual model performance and usability. Do not present the
 present corpus or the previous all-points DBSCAN preview as real incident
 patterns or predictive validation.
 
-Tests: `npm test` includes `src/HotspotClustering.test.ts` for duplicates,
+Tests: `npm test` includes `../tests/server/HotspotClustering.test.ts` for duplicates,
 coordinates/boundaries, date/status/filter exclusion, determinism, density
 connectivity, metre distances and API access/validation.
 
@@ -80,7 +80,7 @@ See `datasets/synthetic-hotspots/README.md`. From `server/`, run
 `npm run hotspots:generate` followed by `npm run hotspots:evaluate`.
 This creates separate source/truth files, a 16-setting tuning table, a
 held-out evaluation and a Markdown report. No database access or changes to
-the deployed clustering settings occur. `src/SyntheticHotspots.test.ts` is
+the deployed clustering settings occur. `../tests/server/SyntheticHotspots.test.ts` is
 included in `npm test`.
 
 ## Sentiment context (implemented)
@@ -112,7 +112,7 @@ Hotspot Detection renders this through `HotspotSentimentSummary.jsx`.
 - The stored model/provider names used in the usable evidence are retained in
   the API for provenance. No personal risk or patrol-allocation score is made.
 
-`src/HotspotSentiment.test.ts` and `tests/hotspotClustering.browser.mjs` cover
+`../tests/server/HotspotSentiment.test.ts` and `../tests/browser/hotspotClustering.browser.mjs` cover
 coverage, failure/unknown handling, weighting, comparisons and UI rendering.
 This implements contextual integration; it does NOT validate the combined
 feature's safety-domain accuracy. Human-reviewed multilingual safety examples

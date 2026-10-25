@@ -182,7 +182,7 @@ pass merely because additional data was uploaded. Review labels and data quality
 ## Verification
 
 ```powershell
-.\.venv-data\Scripts\python.exe -m unittest discover -s datasets -p "test_*.py"
+.\.venv-data\Scripts\python.exe -m unittest discover -s tests -t .
 ```
 
 From `server/`, `npm test` covers API access and registry behavior. Optional

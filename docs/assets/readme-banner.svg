@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title description">
+  <title id="title">CommuniShield</title>
+  <desc id="description">Community reporting, multilingual insights and human-led review for Argao, Cebu. Blue shield and connected location markers on a navy background.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#101d38"/>
+      <stop offset="1" stop-color="#24477c"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity="0.05"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="320" rx="20" fill="url(#background)"/>
+  <rect width="1200" height="320" rx="20" fill="url(#grid)"/>
+  <circle cx="1100" cy="70" r="190" fill="#6cb7ff" opacity="0.06"/>
+  <circle cx="1030" cy="270" r="145" fill="#5eead4" opacity="0.05"/>
+  <path d="M83 88L151 61L219 88V150C219 201 184 238 151 255C118 238 83 201 83 150Z" fill="#2b5088" stroke="#9acaff" stroke-width="3"/>
+  <path d="M151 111C130 111 115 126 115 145C115 171 151 205 151 205C151 205 187 171 187 145C187 126 172 111 151 111Z" fill="#eaf4ff"/>
+  <circle cx="151" cy="145" r="12" fill="#2b5088"/>
+  <text x="267" y="99" fill="#a9d3ff" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="600" letter-spacing="4">COMMUNITY SAFETY AWARENESS</text>
+  <text x="263" y="171" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="66" font-weight="700" letter-spacing="-2">CommuniShield</text>
+  <text x="267" y="214" fill="#dbe9fc" font-family="Segoe UI, Arial, sans-serif" font-size="24">Community reporting. Multilingual insights. Human-led review.</text>
+  <rect x="267" y="243" width="153" height="30" rx="15" fill="#ffffff" fill-opacity="0.09"/>
+  <text x="287" y="264" fill="#dbe9fc" font-family="Segoe UI, Arial, sans-serif" font-size="15">ARGAO, CEBU</text>
+  <g fill="none" stroke="#9acaff" stroke-opacity="0.5" stroke-width="2">
+    <path d="M995 91L1086 136L1023 213L1141 259"/>
+    <circle cx="995" cy="91" r="7" fill="#9acaff"/>
+    <circle cx="1086" cy="136" r="7" fill="#9acaff"/>
+    <circle cx="1023" cy="213" r="7" fill="#9acaff"/>
+    <circle cx="1141" cy="259" r="7" fill="#9acaff"/>
+  </g>
+</svg>

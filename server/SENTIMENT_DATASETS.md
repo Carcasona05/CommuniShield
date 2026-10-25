@@ -86,14 +86,12 @@ unchanged and their examples are excluded from imports to prevent leakage.
 This is also where imports are deduplicated against your original training corpus;
 the web preview only knows about DB examples, not local CSV files.
 
-Evaluate per-language macro-F1, per-class recall, and Cebuano regression phrases
-against the active model before deployment. Training/activation/rollback are
-  can now use the separate automatic worker described in `SENTIMENT_AUTOTRAIN.md`;
-  activation remains an explicit super-admin action, not an upload side effect. Do **not** expose
-`datasets/retrain_all.py` as an upload handler: it performs historical repairs
-and overwrites active artifacts. Existing in-memory ONNX sessions need a restart
-or deployment to load a new model. Old report sentiment is unchanged unless
-explicitly reanalyzed.
+Use the final language-scoped worker described in
+`SENTIMENT_LANGUAGE_SCOPED_TRAINING.md`. Each selected language is evaluated
+independently; passing candidates require explicit super-admin enabling. Approval
+does not start training. The unsafe historical `retrain_all.py` repair-and-copy
+wrapper was retired; it is not part of the supporting-model flow. Built-ins are
+permanent, and old report sentiment is unchanged unless explicitly reanalyzed.
 
 ## Verification
 
@@ -102,14 +100,14 @@ cd server
 npm test
 ```
 
-`src/SentimentDataset.test.ts` covers CSV parsing, normalization, validation,
+`../tests/server/SentimentDataset.test.ts` covers CSV parsing, normalization, validation,
 duplicates/conflicts, permissions/errors, previews, version passing, and exports.
 For real PostgreSQL transaction checks without touching Supabase, install
 `@electric-sql/pglite@0.5.10` in a temporary folder, set `PGLITE_MODULE` to its
 `dist/index.js` **file URL**, then run:
 
 ```powershell
-node --test tests/sentimentDataset.postgres.mjs
+node --test ../tests/database/sentimentDataset.postgres.mjs
 ```
 
 These tests run the actual migration twice, verify atomic rollback, uniqueness,
@@ -121,7 +119,7 @@ temporary folder, set `PLAYWRIGHT_MODULE` to its `index.mjs` file URL,
 executable. From `server`, run:
 
 ```powershell
-node --import tsx --test tests/sentimentDataset.browser.mjs
+node --import tsx --test ../tests/browser/sentimentDataset.browser.mjs
 ```
 
 This uses the real exported UI and CSV parser with a mocked API to verify manual

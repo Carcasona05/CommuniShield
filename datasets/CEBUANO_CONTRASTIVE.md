@@ -24,7 +24,7 @@ Not every sentiment mistake is resolved; inspect `report.json` for misses and
 per-class tradeoffs before activation. Do not repeatedly tune against test labels.
 
 ```powershell
-python datasets/test_cebuano_contrastive_examples.py
+python -m unittest tests.datasets.test_cebuano_contrastive_examples
 python -u datasets/train_cebuano_contrastive.py
 cd server
 node --import tsx scripts/seed/checkContrastiveCandidate.ts ../artifacts/cebuano-contrastive/<timestamp>
