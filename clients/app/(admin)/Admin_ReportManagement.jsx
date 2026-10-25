@@ -25,6 +25,7 @@ import {
 import ToastProvider, { useToast } from "../../components/Toast";
 import ConfirmModal from "../../components/modals/ConfirmModal";
 import apiClient from "../../services/apiClient";
+import { getCache, getCachedPage } from "../../services/dataStore";
 import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
@@ -226,11 +227,13 @@ function Admin_ReportManagement() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
-  const [reports, setReports] = useState([]);
-  const [blotters, setBlotters] = useState([]);
-  const [announcements, setAnnouncements] = useState([]);
-  const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [reports, setReports] = useState(() => (getCachedPage("/admin/dashboard", { source: "Admin" })?.reports || [])
+    .filter((item) => item.status !== "Archived"));
+  const [blotters, setBlotters] = useState(() => getCache("api:/admin/blotters")?.blotters || []);
+  const [announcements, setAnnouncements] = useState(() => getCachedPage("/admin/announcements", { source: "Admin" })?.announcements || []);
+  const [logs, setLogs] = useState(() => getCache("api:/admin/logs")?.logs || []);
+  const [loading, setLoading] = useState(() => !getCachedPage("/admin/dashboard", { source: "Admin" }) ||
+    !getCachedPage("/admin/announcements", { source: "Admin" }) || !getCache("api:/admin/logs"));
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [status, setStatus] = useState("All");

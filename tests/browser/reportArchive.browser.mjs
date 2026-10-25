@@ -73,8 +73,8 @@ test("archiving removes reports from active views and lists them under Logs", as
       data = { logs };
     } else if (path.endsWith("/admin/announcements")) {
       data = { announcements: [] };
-    } else if (path.endsWith("/profile")) {
-      data = { role: "admin", fullname: "Test Admin", name: "Test Admin" };
+    } else if (/\/(profile|session)$/.test(path)) {
+      data = { userId: request.headers().authorization === "Bearer user-token" ? "fixture-user" : "fixture-admin", role: request.headers().authorization === "Bearer user-token" ? "user" : "admin", fullname: "Test Admin", name: "Test Admin" };
     } else if (path.includes("notifications")) {
       data = { notifications: [], unreadCount: 0 };
     } else if (path.endsWith("/reports")) {
@@ -135,7 +135,7 @@ test("archiving removes reports from active views and lists them under Logs", as
     userPage.on("pageerror", (error) => errors.push(error.message));
     await userPage.addInitScript(() => {
       localStorage.removeItem("communishield_data_cache");
-      localStorage.setItem("access_token", "test-token");
+      localStorage.setItem("access_token", "user-token");
       localStorage.setItem("user_role", "user");
     });
     await userPage.route("**/api/**", handleApi);

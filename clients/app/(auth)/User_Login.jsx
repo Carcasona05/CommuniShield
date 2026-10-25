@@ -57,10 +57,10 @@ function UserLoginInner() {
   const [sendingOtp, setSendingOtp] = useState(false);
   const [, setAdminTapCount] = useState(0);
   const { beginLogin, verificationModalProps } = useDeviceLogin(async (data) => {
-    await saveAuth({ token: data.access_token, role: "user" });
+    await saveAuth({ token: data.access_token, role: "user", userId: data.user?.id });
     prefetchAllData();
     toast.success("Login successful! Welcome back.");
-    setTimeout(() => router.replace("/(tabs)/User_Home"), 800);
+    router.replace("/(tabs)/User_Home");
   });
 
   useFocusEffect(

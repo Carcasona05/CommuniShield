@@ -55,3 +55,8 @@ For a single backend/browser test requiring TypeScript, run from `server/`:
 Benchmark `test.csv` files, model-evaluation tools and optional database-seeding
 scripts are **not automated test suites**. They stay with their data/tools so
 training paths, provenance and operational commands do not break.
+
+Session/preload coverage is documented in
+[`docs/SESSION_DATA_LOADING.md`](../docs/SESSION_DATA_LOADING.md). Its browser
+test uses mocked login/email-verification responses; it sends no real emails and
+does not use production accounts or credentials.

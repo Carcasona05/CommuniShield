@@ -216,6 +216,16 @@ export const adminRegister = async (
   }
 };
 
+export const getSession = async (req: AuthRequest, res: Response) => {
+  if (!req.user || !req.token) return res.status(401).json({ error: "Unauthorized" });
+  const session = res.locals.verifiedSession;
+  if (!session || session.userId !== req.user.id || !["user", "admin", "super_admin"].includes(session.role)) {
+    return res.status(503).json({ error: "Account verification is temporarily unavailable." });
+  }
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ userId: session.userId, role: session.role });
+};
+
 export const getProfile = async (
   req: AuthRequest,
   res: Response

@@ -13,6 +13,7 @@ import {
   getIncidentOptions,
   getAdminPosts,
   getAdminDashboard,
+  getAdminOverview,
   getAdminAnalytics,
   createAdminAnnouncement,
   getAdminLogs,
@@ -49,6 +50,7 @@ router.post("/admin/blotters", authenticate, adminOnly, createAdminBlotter);
 router.put("/admin/blotters/:id", authenticate, adminOnly, updateAdminBlotter);
 router.delete("/admin/blotters/:id", authenticate, adminOnly, deleteAdminBlotter);
 router.get("/admin/dashboard", authenticate, adminOnly, getAdminDashboard);
+router.get("/admin/overview", authenticate, adminOnly, getAdminOverview);
 router.get("/admin/clusters", authenticate, adminOnly, getHotspotClusters);
 router.get("/admin/risk-outlook", authenticate, adminOnly, getRiskOutlook);
 router.get("/admin/analytics", authenticate, adminOnly, getAdminAnalytics);

@@ -27,7 +27,7 @@ test("report management reveals ten at a time, exports all matches, and animates
     await page.route("**/api/**", async (route) => {
       if (route.request().method() === "OPTIONS") { await route.fulfill({ status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "GET,OPTIONS" } }); return; }
       const path = new URL(route.request().url()).pathname;
-      const data = path.endsWith("/admin/dashboard") ? { reports } : path.endsWith("/admin/announcements") ? { announcements } : path.endsWith("/admin/logs") ? { logs } : path.endsWith("/profile") ? { role: "admin", name: "Test Admin" } : path.includes("notifications") ? { notifications: [], unreadCount: 0 } : {};
+      const data = path.endsWith("/admin/dashboard") ? { reports } : path.endsWith("/admin/announcements") ? { announcements } : path.endsWith("/admin/logs") ? { logs } : /\/(profile|session)$/.test(path) ? { userId: "fixture-admin", role: "admin", name: "Test Admin" } : path.includes("notifications") ? { notifications: [], unreadCount: 0 } : {};
       await route.fulfill({ json: data, headers: { "Access-Control-Allow-Origin": "*" } });
     });
     await page.goto(`http://127.0.0.1:${server.address().port}/Admin_ReportManagement`);

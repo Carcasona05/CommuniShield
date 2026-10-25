@@ -109,14 +109,10 @@ restart the backend/Expo process after changing configuration.
 
 #### Important: set the actual API address
 
-> [!IMPORTANT]
-> The client currently uses a hardcoded LAN API address. Check the active Axios
-> `baseURL` before troubleshooting connection errors.
-
-`clients/services/apiClient.js` currently passes a hardcoded
-`http://192.168.1.37:3000/api` to Axios; its environment-based `BASE_URL` is not
-currently used. **Setting `EXPO_PUBLIC_API_URL` alone does not redirect those
-requests.** Update the active Axios `baseURL` in that file for your environment:
+`clients/services/apiClient.js` uses `EXPO_PUBLIC_API_URL` on web and native.
+Set it in `clients/.env` locally or in the frontend hosting/build environment.
+Production builds require an explicit URL; development alone retains the existing
+`http://192.168.1.37:3000/api` fallback. Choose the address for your environment:
 
 - Same-computer web/emulator setup where reachable: `http://localhost:3000/api`.
 - Android Studio emulator: normally `http://10.0.2.2:3000/api`.
@@ -126,6 +122,12 @@ requests.** Update the active Axios `baseURL` in that file for your environment:
 
 `localhost` on a phone points to the phone, not your computer. Use HTTPS in
 production; local HTTP testing must stay on a trusted private network.
+
+To keep the frontend on Vercel and move the API to Render, follow the
+[Render deployment guide](docs/RENDER_DEPLOYMENT.md). **Render Free blocks the
+SMTP ports used by this app's sign-in/reset emails**; use a compatible paid
+service or change email delivery before switching. Redeploy Expo web/native
+builds after changing the API environment variable.
 
 ### Set up the database
 
@@ -338,6 +340,13 @@ are verified. Analysis failures and insufficient-data states must remain visible
 <a id="ai-models"></a>
 
 ## 5. How the AI and models work
+
+> [!TIP]
+> **Faster startup and browser refresh:** dashboards load a small count-only
+> overview first and fetch details in the background. Short-lived, user/role-scoped
+> IndexedDB previews contain only overview counts and incident catalogs; private
+> records stay memory-only. Session validation always precedes restoration.
+> See [loading, caching and the three-second target](docs/SESSION_DATA_LOADING.md).
 
 | Component | Question it addresses | What it does **not** establish |
 | :--- | :--- | :--- |

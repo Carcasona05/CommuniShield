@@ -44,18 +44,22 @@ const sentimentColor = (label) => {
   }
 };
 
+const cachedOverview = () => getCache("api:/admin/overview") || getCache("preview:/admin/overview") || getCache("api:/admin/dashboard");
+
 export default function Admin_Dashboard() {
   const router = useRouter();
 
   const [summary, setSummary] = useState(() => {
-    const cached = getCache("api:/admin/dashboard");
+    const cached = cachedOverview();
     return cached?.summary || { total: 0, pending: 0, verified: 0, rejected: 0, hotspots: 0 };
   });
   const [reports, setReports] = useState(() => {
     const cached = getCache("api:/admin/dashboard");
     return cached?.reports || [];
   });
-  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
+  const [loading, setLoading] = useState(() => cachedOverview() === undefined);
+  const [dataStatus, setDataStatus] = useState(() => getCache("preview:/admin/overview")
+    ? "Saved overview — updating live reports…" : "Loading live overview…");
   const [showFilter, setShowFilter] = useState(false);
   const [selectedSeverity, setSelectedSeverity] = useState("All");
 
@@ -81,28 +85,26 @@ export default function Admin_Dashboard() {
         }
       }
 
+      let overviewLoaded = false;
       await Promise.allSettled([
+        apiClient.get("/admin/overview", { headers, timeout: 10000 }).then((res) => {
+          overviewLoaded = true;
+          setSummary(res.data.summary);
+          setLoading(false);
+          setDataStatus("Overview updated. Report details refresh in the background.");
+        }).catch(() => {
+          setLoading(false);
+          setDataStatus("Overview refresh unavailable. Any saved counts may be outdated.");
+        }),
         apiClient.get("/admin/dashboard", { headers }).then((res) => {
           setCache("api:/admin/dashboard", res.data ?? {});
           const data = res.data ?? {};
-          if (data.summary) {
+          if (data.summary && !overviewLoaded) {
             setSummary((prev) => ({ ...prev, ...data.summary }));
           }
           if (Array.isArray(data.reports)) {
             setReports(data.reports);
           }
-        }),
-        apiClient.get("/admin/analytics", { headers }).then((res) => {
-          setCache("api:/admin/analytics", res.data ?? {});
-        }),
-        apiClient.get("/admin/logs", { headers }).then((res) => {
-          setCache("api:/admin/logs", res.data ?? {});
-        }),
-        apiClient.get("/admin/notifications", { headers }).then((res) => {
-          setCache("api:/admin/notifications", res.data ?? {});
-        }),
-        apiClient.get("/admin/accounts", { headers }).then((res) => {
-          setCache("api:/admin/accounts", res.data ?? {});
         }),
       ]);
     } catch {
@@ -223,6 +225,9 @@ export default function Admin_Dashboard() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.contentWrap}>
+          <Text testID="dashboard-data-status" accessibilityRole="status" style={{ color: "#52627a", marginBottom: 12 }}>
+            {dataStatus}
+          </Text>
           <View style={styles.summaryRow}>
             {summaryCards.map((card, index) => (
               <TouchableOpacity

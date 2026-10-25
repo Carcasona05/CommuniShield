@@ -21,7 +21,7 @@ import ToastProvider, { useToast } from "../../components/Toast";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
-import { toReportCode, hashReportIdsInText } from "../../services/dataStore";
+import { toReportCode, hashReportIdsInText, getCache } from "../../services/dataStore";
 
 const formatLogTime = (iso) => {
   if (!iso) return "";
@@ -145,7 +145,7 @@ export default function Admin_LogsWrapper() {
 function Admin_Logs() {
   const toast = useToast();
   const searchParams = useLocalSearchParams();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => getCache("api:/admin/logs") === undefined);
   const [activeTab, setActiveTab] = useState("activity");
   const [archivedReports, setArchivedReports] = useState([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
@@ -162,7 +162,7 @@ function Admin_Logs() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const [logs, setLogs] = useState([]);
+  const [logs, setLogs] = useState(() => mapLogs(getCache("api:/admin/logs")?.logs || []));
 
   const highlightParam = Array.isArray(searchParams?.highlightReport)
     ? searchParams.highlightReport[0]

@@ -933,6 +933,12 @@ describe("API", () => {
     assert.match(await res.text(), /It is working/);
   });
 
+  test("GET /health supplies Render's unauthenticated liveness probe", async () => {
+    const res = await fetch(`${baseUrl}/health`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { status: "ok" });
+  });
+
   describe("public auth routes reject empty payloads with 400", () => {
     const publicCases: Array<{ path: string; error: string }> = [
       {
@@ -998,6 +1004,7 @@ describe("API", () => {
   describe("protected routes reject requests without a token", () => {
     const protectedRoutes: Array<{ method: string; path: string }> = [
       { method: "GET", path: "/api/profile" },
+      { method: "GET", path: "/api/session" },
       { method: "GET", path: "/api/profile/notification-preferences" },
       { method: "PATCH", path: "/api/profile/notification-preferences" },
       { method: "PUT", path: "/api/profile" },
@@ -1024,6 +1031,7 @@ describe("API", () => {
       { method: "GET", path: "/api/incidents/options" },
       { method: "GET", path: "/api/admin/posts" },
       { method: "GET", path: "/api/admin/dashboard" },
+      { method: "GET", path: "/api/admin/overview" },
       { method: "GET", path: "/api/admin/risk-outlook" },
       { method: "GET", path: "/api/admin/analytics" },
       { method: "POST", path: "/api/admin/announcements" },

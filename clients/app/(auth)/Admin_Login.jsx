@@ -87,7 +87,7 @@ function Admin_LoginInner() {
   const [disabledModalVisible, setDisabledModalVisible] = useState(false);
   const { beginLogin, verificationModalProps } = useDeviceLogin(async (data) => {
     const user = data.user;
-    await saveAuth({ token: data.access_token, role: user?.role || "admin" });
+    await saveAuth({ token: data.access_token, role: user?.role || "admin", userId: user?.id });
     await saveAdminInfo({
       fullName: user?.name || user?.email || "Admin",
       email: user?.email || email.trim().toLowerCase(),
@@ -95,8 +95,8 @@ function Admin_LoginInner() {
     });
     prefetchAllData();
     toast.success("Login successful! Welcome back.");
-    setTimeout(() => router.replace(user?.role === "super_admin"
-      ? "/(sadmin)/SAdmin_Dashboard" : "/(admin)/Admin_Dashboard"), 800);
+    router.replace(user?.role === "super_admin"
+      ? "/(sadmin)/SAdmin_Dashboard" : "/(admin)/Admin_Dashboard");
   });
 
   const handlePasswordChange = (text) => {

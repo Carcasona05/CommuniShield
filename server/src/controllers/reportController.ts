@@ -465,6 +465,13 @@ export const getAdminPosts = async (req: AuthRequest, res: Response) => {
   res.json({ posts: data });
 };
 
+export const getAdminOverview = async (_req: AuthRequest, res: Response) => {
+  const { data, error } = await reportService.getAdminOverview();
+  res.setHeader("Cache-Control", "no-store");
+  if (error || !data) return res.status(503).json({ error: error || "Report counts are unavailable." });
+  return res.json(data);
+};
+
 export const getAdminDashboard = async (req: AuthRequest, res: Response) => {
   const user = req.user;
   if (!user?.id) return res.status(401).json({ error: "Unauthorized" });

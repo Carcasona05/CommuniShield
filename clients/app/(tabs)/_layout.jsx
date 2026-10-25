@@ -20,12 +20,14 @@ import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
 import { saveLastPage, getLastPage } from "../../services/lastPage";
+import { restoreAuth } from "../../services/auth";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
 export default function TabLayout() {
   const router = useRouter();
   const pathname = usePathname();
+  const [checked, setChecked] = useState(false);
   // Computed up front: the web layout returns early below, but the effects
   // registered above that return still run and read this value.
   const isChildScreen =
@@ -60,6 +62,7 @@ export default function TabLayout() {
   }, [pathname]);
 
   const loadNotifications = useCallback(async () => {
+    if (!checked) return;
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
@@ -85,9 +88,10 @@ export default function TabLayout() {
     } catch {
       // keep last count
     }
-  }, []);
+  }, [checked]);
 
   useAutoRefresh(loadNotifications, 120000);
+  useEffect(() => { if (checked) loadNotifications(); }, [checked, loadNotifications]);
 
   useEffect(() => {
     if (!isChildScreen) {
@@ -102,12 +106,7 @@ export default function TabLayout() {
   useEffect(() => {
     const guard = async () => {
       try {
-        let role;
-        if (Platform.OS === "web") {
-          role = window.localStorage.getItem("user_role");
-        } else {
-          role = await AsyncStorage.getItem("user_role");
-        }
+        const role = (await restoreAuth())?.role;
 
         if (role === "super_admin") {
           const target = await getLastPage("super_admin");
@@ -123,14 +122,20 @@ export default function TabLayout() {
           } else {
             router.replace(target);
           }
+        } else if (role === "user") {
+          setChecked(true);
+        } else {
+          router.replace(Platform.OS === "web" ? "/(auth)/Admin_Login" : "/(auth)/User_Login");
         }
-      } catch {}
+      } catch {
+        router.replace(Platform.OS === "web" ? "/(auth)/Admin_Login" : "/(auth)/User_Login");
+      }
     };
 
     guard();
   }, []);
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded || !checked) return null;
 
   const isDark = colorScheme === "dark";
 

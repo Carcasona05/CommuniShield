@@ -867,6 +867,22 @@ export const reportService = {
     return { data: logs, error: null };
   },
 
+  // Count-only landing response: no narratives, profiles, images or comment joins.
+  async getAdminOverview() {
+    const count = () => supabaseAdmin.from("reports").select("id", { count: "exact", head: true }).neq("status", "Archived");
+    const results = await Promise.all([
+      count(), count().eq("status", "Pending Review"),
+      count().or("is_verified.eq.true,status.eq.Resolved"), count().eq("status", "Rejected"),
+      supabaseAdmin.from("reports")
+        .select("id,report_credibility_analysis!inner(severity)", { count: "exact", head: true })
+        .not("status", "in", '("Rejected","Archived")').in("report_credibility_analysis.severity", ["High", "Critical"]),
+    ]);
+    const failure = results.find(result => result.error || !Number.isSafeInteger(result.count) || result.count! < 0);
+    if (failure) return { data: null, error: failure.error?.message || "Report counts are unavailable." };
+    const [total, pending, verified, rejected, hotspots] = results.map(result => result.count!);
+    return { data: { summary: { total, pending, verified, rejected, hotspots } }, error: null };
+  },
+
   async getAdminDashboard(filters: {
     status?: string;
     source?: string;

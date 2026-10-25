@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import apiClient from "../../services/apiClient";
+import { getCache } from "../../services/dataStore";
 import ConfirmModal from "../modals/ConfirmModal";
 import { useToast } from "../Toast";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,7 +13,7 @@ const STAGES = ["Queued", "Training", "Checking", "Ready"];
 
 export default function SentimentTrainingPanel({ isSuperAdmin, refreshKey = 0 }) {
   const toast = useToast();
-  const [status, setStatus] = useState(null);
+  const [status, setStatus] = useState(() => getCache("api:/sentiment/training") || null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -28,7 +29,7 @@ export default function SentimentTrainingPanel({ isSuperAdmin, refreshKey = 0 })
       const request = ++sequence.current;
       setLoading(true);
       try {
-        const { data } = await apiClient.get("/sentiment/training");
+        const { data } = await apiClient.get("/sentiment/training", { cacheMode: "network" });
         if (mounted && request === sequence.current) { setStatus(data); setError(""); }
       } catch (err) {
         if (mounted && request === sequence.current) setError(err.response?.data?.error || "Could not load training status.");

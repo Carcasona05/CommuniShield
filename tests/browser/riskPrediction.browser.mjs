@@ -59,7 +59,7 @@ test("current indicators retain zone navigation and handle error states", async 
       }
       const url = new URL(route.request().url());
       const path = url.pathname;
-      let data = path.endsWith("/profile") ? { role: "admin", name: "Test Admin" } : path.includes("notifications") ? { notifications: [], unreadCount: 0 } : {};
+      let data = /\/(profile|session)$/.test(path) ? { userId: "fixture-admin", role: "admin", name: "Test Admin" } : path.includes("notifications") ? { notifications: [], unreadCount: 0 } : {};
       if (path.endsWith("/admin/risk-outlook")) {
         if (fail) { await route.fulfill({ status: 500, json: { error: "Indicators unavailable for test" }, headers: { "Access-Control-Allow-Origin": "*" } }); return; }
         if (holdRequest) { requestBegan(); await requestGate; }
@@ -182,10 +182,15 @@ test("current indicators retain zone navigation and handle error states", async 
     if (process.env.RISK_OUTLOOK_SCREENSHOTS) await page.screenshot({ path: resolve(process.env.RISK_OUTLOOK_SCREENSHOTS, "fixture-narrow.png"), fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
     holdRequest = true;
-    await page.reload();
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
     await requestStarted;
     await page.getByTestId("current-report-zone").first().waitFor();
-    assert.equal(await page.getByTestId("current-report-zone").count(), 5, "a fresh same-filter snapshot is visible on return without waiting for the API");
+    assert.equal(await page.getByTestId("current-report-zone").count(), 12, "background refresh retains cached zones and the expanded pagination state");
     assert.equal(await page.getByText("Updating indicators...", { exact: true }).count(), 0);
     assert.match(await page.getByTestId("risk-refresh-status").innerText(), /Checking for updates/);
     holdRequest = false;

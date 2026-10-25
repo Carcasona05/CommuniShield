@@ -58,7 +58,7 @@ test("synthetic DBSCAN UI distinguishes repeated pins from spatial density and f
           evidence: summarizeHotspotEvidence(reports.filter((report) => cluster.reportIds.includes(report.id)), { now, windowDays }),
         }));
         json = { reports, clustering };
-      } else if (url.pathname.endsWith("/profile")) json = { role: "admin", fullname: "Test Admin" };
+      } else if (/\/(profile|session)$/.test(url.pathname)) json = { userId: "fixture-admin", role: "admin", fullname: "Test Admin" };
       else if (url.pathname.includes("notifications")) json = { notifications: [], unreadCount: 0 };
       await route.fulfill({ json, headers });
     });
@@ -127,10 +127,19 @@ test("synthetic DBSCAN UI distinguishes repeated pins from spatial density and f
     await page.getByText("Trend unavailable: select at least 14 days or Any date.", { exact: true }).waitFor();
 
     fail = true;
-    await page.reload();
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
     await page.getByText("Clustering unavailable", { exact: true }).waitFor();
     assert.equal(await page.getByTestId("spatial-hotspot-card").count(), 1, "same-filter cached results remain visible with a refresh-failed warning");
     assert.match(await page.getByTestId("hotspot-refresh-status").innerText(), /Refresh failed/);
+    // Private snapshots are deliberately memory-only, not restored across reloads.
+    await page.reload();
+    await page.getByText("Clustering unavailable", { exact: true }).waitFor();
+    assert.equal(await page.getByTestId("spatial-hotspot-card").count(), 0);
     fail = false; deny = true;
     await page.reload();
     await page.getByText("Access denied. Please sign in with an administrator account.", { exact: true }).waitFor();

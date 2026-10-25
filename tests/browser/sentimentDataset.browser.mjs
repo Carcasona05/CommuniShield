@@ -74,7 +74,7 @@ test("admin manual/CSV previews, persistence, and super-admin review work in the
       const path = url.pathname.replace(/^\/api/, "");
       let result = {};
       const body = request.method() === "POST" || request.method() === "PATCH" ? request.postDataJSON() : {};
-      if (path === "/profile") result = { role, name: "Test Admin", email: "admin@example.com" };
+      if (path === "/profile" || path === "/session") result = { userId: `fixture-${role}`, role, name: "Test Admin", email: "admin@example.com" };
       else if (path === "/sentiment/supporting-models" && request.method() === "POST") {
         poolActions.push(body.action);
         const model = poolModels.find((m) => m.id === body.modelId);

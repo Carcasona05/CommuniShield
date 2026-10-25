@@ -4,9 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "node --import tsx app.ts",
     "dev": "nodemon --exec tsx app.ts",
     "lint": "eslint src ../tests/server ../tests/helpers",
     "build": "tsc --noEmit && tsc --noEmit --project ../tests/tsconfig.json",
+    "build:render": "tsc --noEmit",
     "test": "node ../tests/run.mjs server",
     "hotspots:generate": "node --import tsx scripts/hotspot/generate.ts",
     "hotspots:evaluate": "node --import tsx scripts/hotspot/evaluate.ts",

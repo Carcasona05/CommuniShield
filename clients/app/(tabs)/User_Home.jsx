@@ -361,9 +361,9 @@ const User_Home = () => {
         apiClient.get("/reports", {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        apiClient.get("/admin/posts", {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        // /admin/posts is admin-only. Residents must not issue a forbidden
+        // request that would make Promise.all discard their valid reports.
+        Promise.resolve({ data: {} }),
       ]);
 
       setCache("api:/reports", reportsRes.data ?? {});

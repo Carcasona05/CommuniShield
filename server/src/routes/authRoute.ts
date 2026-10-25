@@ -1,5 +1,5 @@
 import express from "express";
-import { login, register, getProfile, updateProfile, changePassword, changeEmail, adminLogin, adminRegister, getTermsStatus, recordTermsAcceptance, verifyLoginCode } from "../controllers/authController.js";
+import { login, register, getSession, getProfile, updateProfile, changePassword, changeEmail, adminLogin, adminRegister, getTermsStatus, recordTermsAcceptance, verifyLoginCode } from "../controllers/authController.js";
 import { getAccounts, updateAccount, deleteAccount, toggleStatus } from "../controllers/adminController.js";
 import { forgotPassword, verifyOtp, resetPassword } from "../controllers/passwordResetController.js";
 import { authenticate } from "../middlewares/authMiddleware.js";
@@ -11,6 +11,7 @@ const router = express.Router();
 router.post("/register", register);
 router.post("/login", login);
 router.post("/login/verify", verifyLoginCode);
+router.get("/session", authenticate, adapt(getSession));
 router.get("/profile", authenticate, adapt(getProfile));
 router.get("/profile/notification-preferences", authenticate, adapt(getNotificationPreferences));
 router.patch("/profile/notification-preferences", authenticate, adapt(updateNotificationPreferences));

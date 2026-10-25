@@ -54,7 +54,7 @@ test("user posting shows progress, prevents duplicate submits and does not wait 
         return;
       }
       let json = {};
-      if (path.endsWith("/profile")) json = { name: "Test User", role: "user", user_name: "tester" };
+      if (/\/(profile|session)$/.test(path)) json = { userId: "fixture-user", name: "Test User", role: "user", user_name: "tester" };
       else if (path.endsWith("/incidents/options")) json = { categories: [{ category: "Property-Related Incidents", types: ["Theft"] }] };
       else if (path.includes("notifications")) json = { reportStatuses: [], nearbyIncidents: [] };
       else if (path.endsWith("/reports")) json = { reports: [] };

@@ -4,6 +4,7 @@ import apiClient from "../services/apiClient";
 import { getCache, setCache } from "../services/dataStore";
 import { querySnapshotKey, retainUnchangedQueryData, usableQuerySnapshot } from "../services/querySnapshots";
 import useAutoRefresh from "./useAutoRefresh";
+import { sessionData } from "../services/sessionData";
 
 /** Short-lived, filter-specific stale-while-revalidate display. Shared auth
  * logout clears dataStore. No tokens are stored in snapshot keys or values.
@@ -35,9 +36,10 @@ export default function useRetainedApiQuery({ endpoint, params, validate, interv
   const load = useCallback(() => {
     if (inFlight.current?.key === key && inFlight.current.version === sequence.current) return inFlight.current.promise;
     const version = ++sequence.current;
+    const sessionEpoch = sessionData.epoch();
     const previous = stateRef.current.key === key && usableQuerySnapshot(stateRef.current.snapshot) ? stateRef.current.snapshot : readSnapshot();
     setState({ key, snapshot: previous, error: "", fetching: true });
-    const current = () => mounted.current && activeKey.current === key && sequence.current === version;
+    const current = () => mounted.current && activeKey.current === key && sequence.current === version && sessionData.current(sessionEpoch);
     const promise = (async () => {
       try {
         const token = await AsyncStorage.getItem("access_token");
@@ -47,7 +49,7 @@ export default function useRetainedApiQuery({ endpoint, params, validate, interv
           throw error;
         }
         const response = await apiClient.get(endpoint, {
-          params: JSON.parse(serializedParams), headers: { Authorization: `Bearer ${token}` },
+          params: JSON.parse(serializedParams), headers: { Authorization: `Bearer ${token}` }, cacheMode: "network",
         });
         if (!current()) return;
         if (!validator.current(response.data)) throw new Error("The server returned incomplete page data.");
