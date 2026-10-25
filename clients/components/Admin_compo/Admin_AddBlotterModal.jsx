@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -13,6 +13,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import Dropdown from "../../components/Dropdown";
+import { ARGAO_BARANGAYS as ARGAO_BARANGAY_DATA } from "../../constants/argaoMapData";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -29,55 +30,24 @@ const BLOTTER_TYPES = [
   "Other",
 ];
 
-const STATUS_OPTIONS = [
-  { value: "Pending Review", label: "Pending Review" },
-  { value: "Under Verification", label: "Under Verification" },
-  { value: "Resolved", label: "Resolved" },
-  { value: "Rejected", label: "Rejected" },
-  { value: "Marked Fake", label: "Marked Fake" },
-];
+const ARGAO_BARANGAYS = ARGAO_BARANGAY_DATA.map(({ name }) => name);
 
-const ARGAO_BARANGAYS = [
-  "Abaga",
-  "Angadan",
-  "Barangay 1 (Pob.)",
-  "Barangay 2 (Pob.)",
-  "Barangay 3 (Pob.)",
-  "Barangay 4 (Pob.)",
-  "Barangay 5 (Pob.)",
-  "Barangay 6 (Pob.)",
-  "Barangay 7 (Pob.)",
-  "Barangay 8 (Pob.)",
-  "Barangay 9 (Pob.)",
-  "Barangay 10 (Pob.)",
-  "Barangay 11 (Pob.)",
-  "Barangay 12 (Pob.)",
-  "Barangay 13 (Pob.)",
-  "Barangay 14 (Pob.)",
-  "Bulasa",
-  "Buhi",
-  "Dakli",
-  "Dalaguet",
-  "Datu",
-  "Ginabangan",
-  "Gonghos",
-  "Guimbangco-an",
-  "Guiso",
-  "Hilasmasan",
-  "Ilasan",
-  "Langtad",
-  "Lusong",
-  "Malacoromong",
-  "Malay",
-  "Malitbog",
-  "Nabangad",
-  "Patong",
-  "Poblacion",
-  "Sacsac",
-  "Sua",
-  "Tubod",
-  "Zumarraga",
-];
+const DATETIME_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
+const isValidDateTimeValue = (value) => {
+  if (!DATETIME_REGEX.test(value)) return false;
+  const [datePart, timePart] = value.split("T");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hours, minutes] = timePart.split(":").map(Number);
+  const date = new Date(year, month - 1, day, hours, minutes);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day &&
+    date.getHours() === hours &&
+    date.getMinutes() === minutes
+  );
+};
 
 const formatDateTimeValue = (date) => {
   const year = date.getFullYear();
@@ -95,7 +65,15 @@ const buildBlotterNo = () => {
   return `BLT-${y}-${randomPart}`;
 };
 
-export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
+const toInputDateTime = (value, fallback) => {
+  if (!value) return fallback;
+  if (DATETIME_REGEX.test(value)) return value;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return fallback;
+  return formatDateTimeValue(parsed);
+};
+
+export default function Admin_AddBlotterModal({ visible, onClose, onSubmit, record: editingRecord }) {
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
     PoppinsMedium: require("../../assets/fonts/Poppins-Medium.ttf"),
@@ -117,7 +95,6 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
     respondent: "",
     incidentDescription: "",
     actionTaken: "",
-    status: "Pending Review",
     reportedBy: "",
     blotterOfficer: "",
     dateRecorded: formatDateTimeValue(now),
@@ -125,6 +102,51 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
 
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [baseline, setBaseline] = useState(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setErrors({});
+    const fresh = new Date();
+    const next = editingRecord
+      ? {
+          blotterNo: editingRecord.blotterNo || editingRecord.blotter_no || buildBlotterNo(),
+          dateReported: toInputDateTime(editingRecord.dateReported || editingRecord.date_reported, formatDateTimeValue(now)),
+          barangay: editingRecord.barangay || "Poblacion",
+          location: editingRecord.location || "",
+          incidentType: editingRecord.incidentType || editingRecord.incident_type || "",
+          incidentDateTime: toInputDateTime(editingRecord.incidentDateTime || editingRecord.incident_datetime, formatDateTimeValue(now)),
+          complainantName: editingRecord.complainantName || editingRecord.complainant_name || "",
+          complainantAge: editingRecord.complainantAge ?? editingRecord.complainant_age ?? "",
+          complainantContact: editingRecord.complainantContact ?? editingRecord.complainant_contact ?? "",
+          respondent: editingRecord.respondent || "",
+          incidentDescription: editingRecord.incidentDescription || editingRecord.incident_description || editingRecord.details || "",
+          actionTaken: editingRecord.actionTaken || editingRecord.action_taken || "",
+          reportedBy: editingRecord.reportedBy || editingRecord.reported_by || "",
+          blotterOfficer: editingRecord.blotterOfficer || editingRecord.blotter_officer || "",
+          dateRecorded: toInputDateTime(editingRecord.dateRecorded || editingRecord.date_recorded, formatDateTimeValue(now)),
+        }
+      : {
+          blotterNo: buildBlotterNo(),
+          dateReported: formatDateTimeValue(fresh),
+          barangay: "Poblacion",
+          location: "",
+          incidentType: "",
+          incidentDateTime: formatDateTimeValue(fresh),
+          complainantName: "",
+          complainantAge: "",
+          complainantContact: "",
+          respondent: "",
+          incidentDescription: "",
+          actionTaken: "",
+          reportedBy: "",
+          blotterOfficer: "",
+          dateRecorded: formatDateTimeValue(fresh),
+        };
+    setForm(next);
+    setBaseline(next);
+    setSubmitting(false);
+  }, [visible, editingRecord, now]);
 
   const resetForm = () => {
     const fresh = new Date();
@@ -141,7 +163,6 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
       respondent: "",
       incidentDescription: "",
       actionTaken: "",
-      status: "Pending Review",
       reportedBy: "",
       blotterOfficer: "",
       dateRecorded: formatDateTimeValue(fresh),
@@ -161,20 +182,61 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
     setErrors((prev) => ({ ...prev, [key]: "" }));
   };
 
+  const isDirty = !baseline || JSON.stringify(form) !== JSON.stringify(baseline);
+
   const validate = () => {
     const nextErrors = {};
-    if (!form.location.trim()) nextErrors.location = "Location is required.";
-    if (!form.incidentType.trim()) nextErrors.incidentType = "Type of incident is required.";
-    if (!form.complainantName.trim()) nextErrors.complainantName = "Complainant name is required.";
-    if (!form.respondent.trim()) nextErrors.respondent = "Respondent is required.";
-    if (!form.incidentDescription.trim()) nextErrors.incidentDescription = "Incident description is required.";
-    if (!form.actionTaken.trim()) nextErrors.actionTaken = "Action taken is required.";
-    if (!form.reportedBy.trim()) nextErrors.reportedBy = "Reported by is required.";
-    if (!form.blotterOfficer.trim()) nextErrors.blotterOfficer = "Blotter officer is required.";
+    const requireText = (key, label) => {
+      if (!String(form[key] ?? "").trim()) nextErrors[key] = `${label} is required.`;
+    };
+
+    requireText("barangay", "Barangay");
+    requireText("location", "Location");
+    requireText("incidentType", "Type of incident");
+
+    if (!String(form.incidentDateTime ?? "").trim()) {
+      nextErrors.incidentDateTime = "Date & time of incident is required.";
+    } else if (!isValidDateTimeValue(String(form.incidentDateTime).trim())) {
+      nextErrors.incidentDateTime = "Use the format YYYY-MM-DDTHH:MM.";
+    }
+
+    requireText("complainantName", "Complainant name");
+
+    const age = String(form.complainantAge ?? "").trim();
+    if (age && (!/^\d{1,3}$/.test(age) || Number(age) < 1 || Number(age) > 120)) {
+      nextErrors.complainantAge = "Age must be a number from 1 to 120.";
+    }
+
+    const contact = String(form.complainantContact ?? "").trim();
+    if (contact && !/^09\d{9}$/.test(contact)) {
+      nextErrors.complainantContact = "Contact number must start with 09 and contain exactly 11 digits.";
+    }
+
+    requireText("respondent", "Respondent");
+    requireText("incidentDescription", "Incident description");
+    if (!nextErrors.incidentDescription && String(form.incidentDescription).trim().length < 10) {
+      nextErrors.incidentDescription = "Incident description must be at least 10 characters.";
+    }
+
+    requireText("actionTaken", "Action taken");
+    if (!nextErrors.actionTaken && String(form.actionTaken).trim().length < 5) {
+      nextErrors.actionTaken = "Action taken must be at least 5 characters.";
+    }
+
+    requireText("reportedBy", "Reported by");
+    requireText("blotterOfficer", "Blotter officer");
+
+    if (!String(form.dateRecorded ?? "").trim()) {
+      nextErrors.dateRecorded = "Date recorded is required.";
+    } else if (!isValidDateTimeValue(String(form.dateRecorded).trim())) {
+      nextErrors.dateRecorded = "Use the format YYYY-MM-DDTHH:MM.";
+    }
+
     return nextErrors;
   };
 
   const handleSubmit = async () => {
+    if (!isDirty) return;
     const nextErrors = validate();
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
@@ -182,16 +244,16 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
     setSubmitting(true);
     try {
       const record = {
-        id: form.blotterNo || `blotter-${Date.now()}`,
+        id: editingRecord?.id || form.blotterNo || `blotter-${Date.now()}`,
         kind: "Blotter",
         title: `${form.incidentType}\n${form.location || "Location unspecified"}`,
         reportType: "Blotter",
         location: form.location,
         barangay: form.barangay,
-        status: form.status,
         severity: "Medium",
         created_at: form.dateRecorded || new Date().toISOString(),
         details: form.incidentDescription,
+        incidentDescription: form.incidentDescription,
         actor: form.reportedBy,
         actorRole: "admin",
         blotterNo: form.blotterNo,
@@ -234,8 +296,10 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
                   <Ionicons name="document-text-outline" size={22} color={COMMUNISHIELD_BLUE} />
                 </View>
                 <View>
-                  <Text style={styles.title}>Add Blotter Report</Text>
-                  <Text style={styles.subtitle}>Log a local complaint case</Text>
+                  <Text style={styles.title}>{editingRecord ? "Edit Blotter Report" : "Add Blotter Report"}</Text>
+                  <Text style={styles.subtitle}>
+                    {editingRecord ? "Update the logged complaint case" : "Log a local complaint case"}
+                  </Text>
                 </View>
               </View>
               <TouchableOpacity onPress={closeModal} hitSlop={8}>
@@ -261,14 +325,16 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
                 </View>
               </View>
 
-              <View style={styles.field}>
+              <View style={[styles.field, styles.fieldRaisedHigh]}>
                 <Text style={styles.label}>Barangay</Text>
                 <Dropdown
+                  hover
                   options={ARGAO_BARANGAYS.map((value) => ({ value, label: value }))}
                   selectedValue={form.barangay}
                   placeholder="Select barangay"
                   onChange={(value) => updateField("barangay", value)}
                 />
+                {errors.barangay ? <Text style={styles.errorText}>{errors.barangay}</Text> : null}
               </View>
 
               <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Incident Info</Text>
@@ -284,9 +350,10 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
                 {errors.location ? <Text style={styles.errorText}>{errors.location}</Text> : null}
               </View>
 
-              <View style={styles.field}>
+              <View style={[styles.field, styles.fieldRaisedMedium]}>
                 <Text style={styles.label}>Type of Incident</Text>
                 <Dropdown
+                  hover
                   options={BLOTTER_TYPES.map((value) => ({ value, label: value }))}
                   selectedValue={form.incidentType}
                   placeholder="Select incident type"
@@ -298,13 +365,14 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
               <View style={styles.field}>
                 <Text style={styles.label}>Date & Time of Incident</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, errors.incidentDateTime && styles.inputError]}
                   value={form.incidentDateTime}
                   onChangeText={(value) => updateField("incidentDateTime", value)}
                   placeholder="YYYY-MM-DDTHH:MM"
                   placeholderTextColor="#8A94A6"
                   keyboardType="default"
                 />
+                {errors.incidentDateTime ? <Text style={styles.errorText}>{errors.incidentDateTime}</Text> : null}
               </View>
 
               <Text style={[styles.sectionTitle, styles.sectionSpacing]}>People Involved</Text>
@@ -323,13 +391,14 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
                 <View style={styles.fieldHalf}>
                   <Text style={styles.label}>Age</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, errors.complainantAge && styles.inputError]}
                     value={form.complainantAge}
                     onChangeText={(value) => updateField("complainantAge", value)}
                     placeholder="Age"
                     placeholderTextColor="#8A94A6"
                     keyboardType="number-pad"
                   />
+                  {errors.complainantAge ? <Text style={styles.errorText}>{errors.complainantAge}</Text> : null}
                 </View>
               </View>
 
@@ -337,13 +406,15 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
                 <View style={styles.fieldHalf}>
                   <Text style={styles.label}>Contact No.</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, errors.complainantContact && styles.inputError]}
                     value={form.complainantContact}
-                    onChangeText={(value) => updateField("complainantContact", value)}
-                    placeholder="Contact number"
+                    onChangeText={(value) => updateField("complainantContact", value.replace(/\D/g, "").slice(0, 11))}
+                    placeholder="09XXXXXXXXX"
                     placeholderTextColor="#8A94A6"
                     keyboardType="phone-pad"
+                    maxLength={11}
                   />
+                  {errors.complainantContact ? <Text style={styles.errorText}>{errors.complainantContact}</Text> : null}
                 </View>
                 <View style={styles.fieldHalf}>
                   <Text style={styles.label}>Respondent</Text>
@@ -388,16 +459,6 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
               </View>
 
               <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Admin Info</Text>
-              <View style={styles.field}>
-                <Text style={styles.label}>Status</Text>
-                <Dropdown
-                  options={STATUS_OPTIONS}
-                  selectedValue={form.status}
-                  placeholder="Select status"
-                  onChange={(value) => updateField("status", value)}
-                />
-              </View>
-
               <View style={styles.gridRow}>
                 <View style={styles.fieldHalf}>
                   <Text style={styles.label}>Reported By</Text>
@@ -426,12 +487,13 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
               <View style={styles.field}>
                 <Text style={styles.label}>Date Recorded</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, errors.dateRecorded && styles.inputError]}
                   value={form.dateRecorded}
                   onChangeText={(value) => updateField("dateRecorded", value)}
                   placeholder="YYYY-MM-DDTHH:MM"
                   placeholderTextColor="#8A94A6"
                 />
+                {errors.dateRecorded ? <Text style={styles.errorText}>{errors.dateRecorded}</Text> : null}
               </View>
 
                 {errors.submit ? <Text style={styles.submitError}>{errors.submit}</Text> : null}
@@ -444,12 +506,14 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit }) {
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+                style={[styles.submitButton, (submitting || !isDirty) && styles.submitButtonDisabled]}
                 onPress={handleSubmit}
                 activeOpacity={0.85}
-                disabled={submitting}
+                disabled={submitting || !isDirty}
               >
-                <Text style={styles.submitButtonText}>{submitting ? "Saving..." : "Save Blotter Report"}</Text>
+                <Text style={styles.submitButtonText}>
+                  {submitting ? "Saving..." : !isDirty ? "No Changes" : editingRecord ? "Save Changes" : "Save Blotter Report"}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -553,6 +617,12 @@ const styles = StyleSheet.create({
   field: {
     marginBottom: 12,
     marginHorizontal: 20,
+  },
+  fieldRaisedHigh: {
+    zIndex: 30,
+  },
+  fieldRaisedMedium: {
+    zIndex: 20,
   },
   label: {
     fontSize: 14,

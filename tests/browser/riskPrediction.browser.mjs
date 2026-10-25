@@ -7,7 +7,7 @@ import { forecastDailySeries } from "../../server/src/services/riskOutlookServic
 import { summarizeHotspotEvidence } from "../../server/src/services/hotspotSentimentService.ts";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright-core");
 
-test("current indicators and 7-day outlook stay separate, retain zone navigation and handle insufficient/error states", async () => {
+test("current indicators retain zone navigation and handle error states", async () => {
   const directory = resolve(process.env.WEB_EXPORT_DIR);
   const reports = [];
   const zones = [
@@ -46,7 +46,6 @@ test("current indicators and 7-day outlook stay separate, retain zone navigation
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.addInitScript(() => { localStorage.setItem("access_token", "test-token"); localStorage.setItem("user_role", "admin"); });
-    let availableForecast = false;
     let fail = false;
     let holdRequest = false;
     let resumeRequest;
@@ -62,7 +61,7 @@ test("current indicators and 7-day outlook stay separate, retain zone navigation
       const path = url.pathname;
       let data = path.endsWith("/profile") ? { role: "admin", name: "Test Admin" } : path.includes("notifications") ? { notifications: [], unreadCount: 0 } : {};
       if (path.endsWith("/admin/risk-outlook")) {
-        if (fail) { await route.fulfill({ status: 500, json: { error: "Outlook unavailable for test" }, headers: { "Access-Control-Allow-Origin": "*" } }); return; }
+        if (fail) { await route.fulfill({ status: 500, json: { error: "Indicators unavailable for test" }, headers: { "Access-Control-Allow-Origin": "*" } }); return; }
         if (holdRequest) { requestBegan(); await requestGate; }
         const scope = url.searchParams.get("barangay") || "All Barangays";
         const members = reports.filter((report) => report.status !== "Resolved" && (scope === "All Barangays" || report.barangay === scope));
@@ -73,19 +72,16 @@ test("current indicators and 7-day outlook stay separate, retain zone navigation
           severity[level] = (severity[level] || 0) + 1;
         }
         const clusters = scope === "All Barangays" ? [{ location: "Lamacan", reportCount: 8, uniqueLocationCount: 4, reportIds: ["Lamacan-0"] }] : [];
-        const forecast = availableForecast ? forecastDailySeries({ startDate: "2026-05-15", counts: Array(160).fill(3) }, "2026-10-23") :
-          { status: "insufficient_data", reasons: ["At least 112 complete history days are required."], stats: { historyDays: 21, reports: 57, reportingDays: 12 } };
-        data = { reports, scope, dataMode: "synthetic", current: { spatialHotspotCount: clusters.length, clusters, severity, evidence: summarizeHotspotEvidence(members, { now: Date.now(), windowDays: 30 }) }, forecast };
+        data = { reports, scope, dataMode: "synthetic", current: { spatialHotspotCount: clusters.length, clusters, severity, evidence: summarizeHotspotEvidence(members, { now: Date.now(), windowDays: 30 }) } };
       }
       await route.fulfill({ json: data, headers: { "Access-Control-Allow-Origin": "*" } });
     });
     await page.goto(`http://127.0.0.1:${server.address().port}/Admin_Risk_Prediction`);
     await page.getByText("Reported incident types", { exact: true }).waitFor();
-    await page.getByText("Insufficient data for a forecast", { exact: true }).waitFor();
     assert.equal(await page.getByText("Synthetic research prototype", { exact: true }).count(), 0);
     if (process.env.RISK_OUTLOOK_SCREENSHOTS) {
       await mkdir(process.env.RISK_OUTLOOK_SCREENSHOTS, { recursive: true });
-      await page.screenshot({ path: resolve(process.env.RISK_OUTLOOK_SCREENSHOTS, "fixture-insufficient.png"), fullPage: true });
+      await page.screenshot({ path: resolve(process.env.RISK_OUTLOOK_SCREENSHOTS, "fixture-default.png"), fullPage: true });
     }
     const text = await page.locator("body").innerText();
     assert.equal(text.includes("relative likelihood"), false);
@@ -178,27 +174,18 @@ test("current indicators and 7-day outlook stay separate, retain zone navigation
     assert.ok(Math.abs(interrupted.before - interrupted.after) <= 1, "Stopped animations must not continue scrolling");
     await toTop.click();
     await page.waitForFunction(() => document.querySelector('[data-testid="risk-prediction-scroll"]').scrollTop < 2);
-    availableForecast = true;
-    await page.reload();
-    await page.getByTestId("outlook-expected").waitFor();
-    assert.equal(await page.getByTestId("outlook-expected").innerText(), "21");
-    assert.equal(await page.getByTestId("risk-outlook-day").count(), 7);
-    assert.ok((await page.getByTestId("seven-day-outlook").innerText()).includes("Not a calibrated confidence interval"));
-    if (process.env.RISK_OUTLOOK_SCREENSHOTS) await page.screenshot({ path: resolve(process.env.RISK_OUTLOOK_SCREENSHOTS, "fixture-available.png"), fullPage: true });
     await page.setViewportSize({ width: 900, height: 1100 });
     const sentimentBox = await sentimentCard.boundingBox();
     const verificationBox = await verificationCard.boundingBox();
     assert.ok(verificationBox.y >= sentimentBox.y + sentimentBox.height, "cards must stack instead of shrinking below readability on narrow screens");
     if (process.env.RISK_OUTLOOK_SCREENSHOTS) await page.getByTestId("current-sentiment-context").screenshot({ path: resolve(process.env.RISK_OUTLOOK_SCREENSHOTS, "context-section-narrow.png") });
-    await page.getByTestId("outlook-expected").scrollIntoViewIfNeeded();
-    assert.equal(await page.getByTestId("outlook-expected").isVisible(), true);
-    assert.ok((await page.getByTestId("seven-day-outlook").boundingBox()).width <= 900);
     if (process.env.RISK_OUTLOOK_SCREENSHOTS) await page.screenshot({ path: resolve(process.env.RISK_OUTLOOK_SCREENSHOTS, "fixture-narrow.png"), fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
     holdRequest = true;
     await page.reload();
     await requestStarted;
-    assert.equal(await page.getByTestId("outlook-expected").innerText(), "21", "a fresh same-filter snapshot is visible on return without waiting for the API");
+    await page.getByTestId("current-report-zone").first().waitFor();
+    assert.equal(await page.getByTestId("current-report-zone").count(), 5, "a fresh same-filter snapshot is visible on return without waiting for the API");
     assert.equal(await page.getByText("Updating indicators...", { exact: true }).count(), 0);
     assert.match(await page.getByTestId("risk-refresh-status").innerText(), /Checking for updates/);
     holdRequest = false;
@@ -208,8 +195,7 @@ test("current indicators and 7-day outlook stay separate, retain zone navigation
     ]);
     fail = true;
     await page.reload();
-    await page.getByText("Outlook unavailable for test", { exact: true }).waitFor();
-    assert.equal(await page.getByTestId("outlook-expected").count(), 0, "a failed request must not leave a stale forecast visible");
+    await page.getByText("Indicators unavailable for test", { exact: true }).waitFor();
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

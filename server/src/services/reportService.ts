@@ -402,13 +402,18 @@ export const reportService = {
     return { data: report, error: null };
   },
 
-  async updateReport(userId: string, reportId: string, input: ReportInput) {
-    const { data: own } = await supabaseAdmin
+  async updateReport(
+    userId: string,
+    reportId: string,
+    input: ReportInput,
+    options: { adminScope?: boolean } = {}
+  ) {
+    let ownerQuery = supabaseAdmin
       .from("reports")
       .select("id")
-      .eq("id", reportId)
-      .eq("user_id", userId)
-      .maybeSingle();
+      .eq("id", reportId);
+    if (!options.adminScope) ownerQuery = ownerQuery.eq("user_id", userId);
+    const { data: own } = await ownerQuery.maybeSingle();
 
     if (!own) return { error: "Report not found" };
 
@@ -448,11 +453,12 @@ export const reportService = {
       updates.incident_type_id = incidentTypeId;
     }
 
-    const { error: updateError } = await supabaseAdmin
+    let updateQuery = supabaseAdmin
       .from("reports")
       .update(updates)
-      .eq("id", reportId)
-      .eq("user_id", userId);
+      .eq("id", reportId);
+    if (!options.adminScope) updateQuery = updateQuery.eq("user_id", userId);
+    const { error: updateError } = await updateQuery;
 
     if (updateError) return { error: updateError.message };
 
@@ -479,22 +485,24 @@ export const reportService = {
     return { data: reportId };
   },
 
-  async deleteReport(userId: string, reportId: string) {
-    const { data: own, error: checkError } = await supabaseAdmin
+  async deleteReport(
+    userId: string,
+    reportId: string,
+    options: { adminScope?: boolean } = {}
+  ) {
+    let ownerQuery = supabaseAdmin
       .from("reports")
       .select("id")
-      .eq("id", reportId)
-      .eq("user_id", userId)
-      .maybeSingle();
+      .eq("id", reportId);
+    if (!options.adminScope) ownerQuery = ownerQuery.eq("user_id", userId);
+    const { data: own, error: checkError } = await ownerQuery.maybeSingle();
 
     if (checkError) return { error: checkError.message };
     if (!own) return { error: "Report not found" };
 
-    const { error } = await supabaseAdmin
-      .from("reports")
-      .delete()
-      .eq("id", reportId)
-      .eq("user_id", userId);
+    let deleteQuery = supabaseAdmin.from("reports").delete().eq("id", reportId);
+    if (!options.adminScope) deleteQuery = deleteQuery.eq("user_id", userId);
+    const { error } = await deleteQuery;
 
     if (error) return { error: error.message };
 
@@ -722,7 +730,7 @@ export const reportService = {
   async listAdminAnnouncements(filters: { from?: string; to?: string } = {}) {
     let announcementsQuery = supabaseAdmin
       .from("admin_announcement")
-      .select("id, type, title, location, details, admin_id, created_at");
+      .select("id, type, title, location, details, pic_url, admin_id, created_at");
     if (filters.from) {
       announcementsQuery = announcementsQuery.gte("created_at", filters.from);
     }
@@ -742,11 +750,65 @@ export const reportService = {
         title: announcement.title,
         location: announcement.location ?? "",
         details: announcement.details ?? "",
+        pic_url: announcement.pic_url ?? null,
         adminId: announcement.admin_id,
         created_at: announcement.created_at,
       })),
       error: null,
     };
+  },
+
+  async updateAnnouncement(
+    announcementId: string,
+    input: {
+      type?: string;
+      title?: string;
+      location?: string;
+      details?: string;
+      pic_url?: string | null;
+    }
+  ) {
+    const type = (input.type || "").trim();
+    const title = (input.title || "").trim();
+    const details = (input.details || "").trim();
+
+    if (!title || !type || !details) {
+      return { error: "Announcement title, type and details are required" };
+    }
+
+    const updates: Record<string, unknown> = {
+      type,
+      title,
+      location: input.location ?? "",
+      details,
+    };
+    if (input.pic_url !== undefined) updates.pic_url = input.pic_url;
+
+    const { data, error } = await supabaseAdmin
+      .from("admin_announcement")
+      .update(updates)
+      .eq("id", announcementId)
+      .select("id")
+      .maybeSingle();
+
+    if (error) return { error: error.message };
+    if (!data) return { error: "Announcement not found" };
+
+    return { data: data.id };
+  },
+
+  async deleteAnnouncement(announcementId: string) {
+    const { data, error } = await supabaseAdmin
+      .from("admin_announcement")
+      .delete()
+      .eq("id", announcementId)
+      .select("id")
+      .maybeSingle();
+
+    if (error) return { error: error.message };
+    if (!data) return { error: "Announcement not found" };
+
+    return { data: data.id };
   },
 
   async listAuditLogs(

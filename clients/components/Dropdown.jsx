@@ -5,6 +5,9 @@ import {
   TouchableOpacity,
   Modal,
   FlatList,
+  ScrollView,
+  Pressable,
+  Platform,
   StyleSheet,
   useWindowDimensions,
 } from "react-native";
@@ -18,6 +21,7 @@ export default function Dropdown({
   placeholder = "Select an option",
   onChange,
   disabled = false,
+  hover = false,
 }) {
   const { width, height } = useWindowDimensions();
   const [open, setOpen] = useState(false);
@@ -28,41 +32,121 @@ export default function Dropdown({
     if (!disabled) setOpen(true);
   };
 
-  return (
-    <>
+  const close = () => setOpen(false);
+
+  const trigger = (
+    <TouchableOpacity
+      style={[styles.button, disabled && styles.buttonDisabled]}
+      onPress={() => {
+        if (disabled) return;
+        if (hover) setOpen((current) => !current);
+        else openModal();
+      }}
+      activeOpacity={0.85}
+    >
+      <Text
+        style={[
+          styles.buttonText,
+          !selectedLabel && styles.buttonPlaceholder,
+        ]}
+        numberOfLines={1}
+      >
+        {selectedLabel || placeholder}
+      </Text>
+
+      <Ionicons
+        name={hover && open ? "chevron-up" : "chevron-down"}
+        size={18}
+        color={disabled ? "#B4BDCA" : COMMUNISHIELD_BLUE}
+      />
+    </TouchableOpacity>
+  );
+
+  const renderOption = (item, index) => {
+    const isSelected = item.value === selectedValue;
+
+    return (
       <TouchableOpacity
-        style={[styles.button, disabled && styles.buttonDisabled]}
-        onPress={openModal}
+        key={`${item.value}-${index}`}
+        style={[
+          styles.optionItem,
+          isSelected && styles.optionItemSelected,
+        ]}
         activeOpacity={0.85}
+        onPress={() => {
+          onChange(item.value);
+          close();
+        }}
       >
         <Text
           style={[
-            styles.buttonText,
-            !selectedLabel && styles.buttonPlaceholder,
+            styles.optionText,
+            isSelected && styles.optionTextSelected,
           ]}
-          numberOfLines={1}
         >
-          {selectedLabel || placeholder}
+          {item.label}
         </Text>
 
-        <Ionicons
-          name="chevron-down"
-          size={18}
-          color={disabled ? "#B4BDCA" : COMMUNISHIELD_BLUE}
-        />
+        {isSelected ? (
+          <Ionicons
+            name="checkmark-circle"
+            size={20}
+            color={COMMUNISHIELD_BLUE}
+          />
+        ) : null}
       </TouchableOpacity>
+    );
+  };
+
+  // Anchored hover-down menu. Used where a modal option list would break the
+  // form flow (for example the admin Add Report and Add Blotter forms).
+  if (hover) {
+    return (
+      <View style={[styles.hoverWrapper, open && styles.hoverWrapperOpen]}>
+        {trigger}
+
+        {open && (
+          <>
+            {Platform.OS === "web" && (
+              <Pressable style={styles.hoverDismiss} onPress={close} />
+            )}
+            <View style={styles.hoverMenu}>
+              <ScrollView
+                style={styles.hoverScroll}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                {options.length ? (
+                  options.map(renderOption)
+                ) : (
+                  <View style={styles.optionItem}>
+                    <Text style={styles.optionText}>No options available</Text>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </>
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <>
+      {trigger}
 
       <Modal
         visible={open}
         transparent
         animationType="fade"
-        onRequestClose={() => setOpen(false)}
+        onRequestClose={close}
       >
         <View style={styles.modalOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
             activeOpacity={1}
-            onPress={() => setOpen(false)}
+            onPress={close}
           />
 
           <View
@@ -79,7 +163,7 @@ export default function Dropdown({
 
               <TouchableOpacity
                 style={styles.closeButton}
-                onPress={() => setOpen(false)}
+                onPress={close}
                 activeOpacity={0.8}
               >
                 <Ionicons name="close" size={20} color={COMMUNISHIELD_BLUE} />
@@ -91,40 +175,7 @@ export default function Dropdown({
               keyExtractor={(item, index) => `${item.value}-${index}`}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
-              renderItem={({ item }) => {
-                const isSelected = item.value === selectedValue;
-
-                return (
-                  <TouchableOpacity
-                    style={[
-                      styles.optionItem,
-                      isSelected && styles.optionItemSelected,
-                    ]}
-                    activeOpacity={0.85}
-                    onPress={() => {
-                      onChange(item.value);
-                      setOpen(false);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.optionText,
-                        isSelected && styles.optionTextSelected,
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
-
-                    {isSelected ? (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={20}
-                        color={COMMUNISHIELD_BLUE}
-                      />
-                    ) : null}
-                  </TouchableOpacity>
-                );
-              }}
+              renderItem={({ item, index }) => renderOption(item, index)}
             />
           </View>
         </View>
@@ -160,6 +211,50 @@ const styles = StyleSheet.create({
 
   buttonPlaceholder: {
     color: "#8A94A6",
+  },
+
+  hoverWrapper: {
+    position: "relative",
+    zIndex: 1,
+  },
+
+  hoverWrapperOpen: {
+    zIndex: 100,
+  },
+
+  hoverDismiss: {
+    position: Platform.OS === "web" ? "fixed" : "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 1,
+  },
+
+  hoverMenu: {
+    position: "absolute",
+    top: 58,
+    left: 0,
+    right: 0,
+    maxHeight: 240,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D9E2F0",
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+    zIndex: 2,
+    elevation: 12,
+    shadowColor: "#0F1E3D",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+  },
+
+  hoverScroll: {
+    maxHeight: 228,
+    flexGrow: 0,
+    flexShrink: 1,
   },
 
   modalOverlay: {

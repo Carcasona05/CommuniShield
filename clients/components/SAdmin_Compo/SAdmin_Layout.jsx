@@ -244,12 +244,20 @@ function SAdmin_Layout({ children }) {
       description: "Overview of reports, admin activity, and system status",
     },
     {
-      label: "Validation",
+      label: "Report   Management",
       route: "/(sadmin)/SAdmin_Validation",
       path: "/SAdmin_Validation",
       icon: "shield-checkmark-outline",
       iconType: "Ionicons",
-      description: "Review report validation and AI credibility results",
+      description: "Review and filter submitted incident reports",
+    },
+    {
+      label: "Record Management",
+      route: "/(sadmin)/SAdmin_ReportManagement",
+      path: "/SAdmin_ReportManagement",
+      icon: "documents-outline",
+      iconType: "Ionicons",
+      description: "Manage, filter, and export incident reports",
     },
     {
       label: "Sentiment Datasets",
@@ -577,8 +585,6 @@ function SAdmin_Layout({ children }) {
         <View style={styles.sidebarDivider} />
 
         <View style={styles.navSection}>
-          <Text style={styles.navSectionTitle}>MAIN MENU</Text>
-
           <View style={styles.navList}>
             {navItems.map((item, index) => {
               const isActive = isRouteActive(item);
@@ -982,15 +988,6 @@ const styles = {
     flex: 1,
   },
 
-  navSectionTitle: {
-    fontSize: 13,
-    color: "#8A98B3",
-    marginLeft: 14,
-    marginBottom: 12,
-    letterSpacing: 1,
-    fontFamily: "PoppinsSemiBold",
-  },
-
   navList: {
     gap: 8,
   },
@@ -1016,6 +1013,7 @@ const styles = {
   },
 
   navText: {
+    flex: 1,
     fontSize: 15,
     fontFamily: "PoppinsMedium",
     color: "#5F6F8C",

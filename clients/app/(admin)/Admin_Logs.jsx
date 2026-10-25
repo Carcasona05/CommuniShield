@@ -8,7 +8,6 @@ import {
   StyleSheet,
   Platform,
   Pressable,
-  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
@@ -16,6 +15,7 @@ import { useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
+import { BatchFilterDropdown } from "../../components/Admin_compo/AdminBatchFilters";
 import { ListSkeleton } from "../../components/PageSkeletons";
 import ToastProvider, { useToast } from "../../components/Toast";
 import apiClient from "../../services/apiClient";
@@ -127,64 +127,12 @@ const STATUS_OPTIONS = [
 
 const POST_BY_OPTIONS = ["All", "User", "Admin", "Super Admin"];
 const DATE_OPTIONS = ["All Time", "Today", "Last 7 Days", "Last 30 Days", "This Month"];
+const ARCHIVED_STATUS_OPTIONS = ["All", "Report Archived"];
 
 const LOG_TABS = [
   { key: "activity", label: "Activity logs", icon: "list-outline" },
   { key: "archived", label: "Archived reports", icon: "archive-outline" },
 ];
-
-function DropdownFilter({ label, value, options, onChange }) {
-  const [isOpen, setIsOpen] = useState(false);
-
-  return (
-    <View style={styles.dropdownWrapper}>
-      <Text style={styles.dropdownLabel}>{label}</Text>
-      <TouchableOpacity
-        style={styles.dropdownButton}
-        onPress={() => setIsOpen(true)}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.dropdownButtonText}>{value}</Text>
-        <Ionicons name="chevron-down" size={16} color="#5D6F92" />
-      </TouchableOpacity>
-
-      <Modal
-        visible={isOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsOpen(false)}
-      >
-        <Pressable style={styles.dropdownOverlay} onPress={() => setIsOpen(false)}>
-          <View style={styles.dropdownMenu}>
-            {options.map((option) => (
-              <TouchableOpacity
-                key={option}
-                style={[
-                  styles.dropdownOption,
-                  value === option && styles.dropdownOptionActive,
-                ]}
-                onPress={() => {
-                  onChange(option);
-                  setIsOpen(false);
-                }}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.dropdownOptionText,
-                    value === option && styles.dropdownOptionTextActive,
-                  ]}
-                >
-                  {option}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </Pressable>
-      </Modal>
-    </View>
-  );
-}
 
 export default function Admin_LogsWrapper() {
   return (
@@ -204,6 +152,7 @@ function Admin_Logs() {
   const [archivedVisibleCount, setArchivedVisibleCount] = useState(PAGE_SIZE);
   const [restoringId, setRestoringId] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState("All");
+  const [selectedArchivedStatus, setSelectedArchivedStatus] = useState("All");
   const [selectedPostBy, setSelectedPostBy] = useState("All");
   const [selectedDate, setSelectedDate] = useState("All Time");
 
@@ -359,12 +308,23 @@ function Admin_Logs() {
     });
   }, [selectedStatus, selectedPostBy, selectedDate, logs]);
 
+  const filteredArchivedReports = useMemo(() => archivedReports.filter((report) => {
+    const matchesStatus = selectedArchivedStatus === "All" || selectedArchivedStatus === "Report Archived";
+    const actorRole = String(report.reporter_role || report.created_by_role || report.actorRole || "user").toLowerCase();
+    const matchesPostBy = selectedPostBy === "All" ||
+      (selectedPostBy === "User" && actorRole === "user") ||
+      (selectedPostBy === "Admin" && actorRole === "admin") ||
+      (selectedPostBy === "Super Admin" && actorRole === "super_admin");
+    return matchesStatus && matchesPostBy && matchesDateRange(report.created_at, selectedDate);
+  }), [archivedReports, selectedArchivedStatus, selectedPostBy, selectedDate]);
+
   const visibleLogs = filteredLogs.slice(0, visibleCount);
-  const visibleArchived = archivedReports.slice(0, archivedVisibleCount);
+  const visibleArchived = filteredArchivedReports.slice(0, archivedVisibleCount);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [selectedStatus, selectedPostBy, selectedDate]);
+    setArchivedVisibleCount(PAGE_SIZE);
+  }, [activeTab, selectedStatus, selectedArchivedStatus, selectedPostBy, selectedDate]);
 
   const handleScroll = (e) => {
     trackScroll(e);
@@ -659,33 +619,37 @@ function Admin_Logs() {
               </View>
 
               <View style={styles.filterCard}>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.filterRow}
-                >
-                  <DropdownFilter
+                <View style={styles.filterRow}>
+                  <BatchFilterDropdown
                     label="Post by"
                     value={selectedPostBy}
                     options={POST_BY_OPTIONS}
                     onChange={setSelectedPostBy}
                   />
-                  <DropdownFilter
+                  <BatchFilterDropdown
                     label="Status"
                     value={selectedStatus}
                     options={STATUS_OPTIONS}
                     onChange={setSelectedStatus}
                   />
-                  <DropdownFilter
+                  <BatchFilterDropdown
                     label="Date"
                     value={selectedDate}
                     options={DATE_OPTIONS}
                     onChange={setSelectedDate}
                   />
-                </ScrollView>
+                </View>
               </View>
             </>
-          ) : null}
+          ) : (
+            <View style={styles.filterCard}>
+              <View style={styles.filterRow}>
+                <BatchFilterDropdown label="Post by" value={selectedPostBy} options={POST_BY_OPTIONS} onChange={setSelectedPostBy} />
+                <BatchFilterDropdown label="Status" value={selectedArchivedStatus} options={ARCHIVED_STATUS_OPTIONS} onChange={setSelectedArchivedStatus} />
+                <BatchFilterDropdown label="Date" value={selectedDate} options={DATE_OPTIONS} onChange={setSelectedDate} />
+              </View>
+            </View>
+          )}
 
           <View
             style={styles.logsCard}
@@ -710,11 +674,11 @@ function Admin_Logs() {
               <Text style={styles.resultText}>
                 {activeTab === "activity"
                   ? filteredLogs.length
-                  : archivedReports.length}{" "}
+                  : filteredArchivedReports.length}{" "}
                 result
                 {(activeTab === "activity"
                   ? filteredLogs.length
-                  : archivedReports.length) === 1
+                  : filteredArchivedReports.length) === 1
                   ? ""
                   : "s"}
               </Text>
@@ -829,7 +793,7 @@ function Admin_Logs() {
                     Loading archived reports...
                   </Text>
                 </View>
-              ) : archivedReports.length === 0 ? (
+              ) : filteredArchivedReports.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Ionicons name="archive-outline" size={42} color="#5D6F92" />
                   <Text style={styles.emptyTitle}>No archived reports</Text>
@@ -937,7 +901,7 @@ function Admin_Logs() {
                     </View>
                   ))}
 
-                  {archivedReports.length > visibleArchived.length && (
+                  {filteredArchivedReports.length > visibleArchived.length && (
                     <TouchableOpacity
                       style={styles.viewMoreBtn}
                       onPress={() =>
@@ -1057,13 +1021,13 @@ const styles = StyleSheet.create({
   },
 
   statValue: {
-    fontSize: 26,
+    fontSize: 22,
     fontFamily: "PoppinsSemiBold",
     color: "#2F4267",
   },
 
   statTitle: {
-    fontSize: 15,
+    fontSize: 12,
     color: "#5D6F92",
     marginTop: 4,
     fontFamily: "PoppinsMedium",
@@ -1076,6 +1040,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 18,
     marginBottom: 18,
+    zIndex: 30,
   },
 
   searchBox: {
@@ -1102,77 +1067,9 @@ const styles = StyleSheet.create({
 
   filterRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "flex-end",
     gap: 12,
-  },
-
-  dropdownWrapper: {
-    flex: 1,
-    minWidth: 180,
-  },
-
-  dropdownLabel: {
-    fontSize: 12,
-    color: "#5D6F92",
-    fontFamily: "PoppinsMedium",
-    marginBottom: 6,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-
-  dropdownButton: {
-    height: 46,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#D9E2F0",
-    backgroundColor: "#F7F9FD",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-
-  dropdownButtonText: {
-    fontSize: 14,
-    color: "#294880",
-    fontFamily: "PoppinsMedium",
-  },
-
-  dropdownOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(17, 24, 39, 0.25)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 18,
-  },
-
-  dropdownMenu: {
-    width: "100%",
-    maxWidth: 360,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: "#D9E2F0",
-  },
-
-  dropdownOption: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-
-  dropdownOptionActive: {
-    backgroundColor: "#EAF2FF",
-  },
-
-  dropdownOptionText: {
-    fontSize: 15,
-    color: "#294880",
-    fontFamily: "PoppinsRegular",
-  },
-
-  dropdownOptionTextActive: {
-    fontFamily: "PoppinsSemiBold",
   },
 
   logsCard: {
@@ -1264,20 +1161,20 @@ const styles = StyleSheet.create({
   },
 
   sectionTitle: {
-    fontSize: 21,
+    fontSize: 16,
     fontFamily: "PoppinsSemiBold",
     color: "#294880",
     marginBottom: 5,
   },
 
   sectionSubtitle: {
-    fontSize: 15,
+    fontSize: 13,
     color: "#5D6F92",
     fontFamily: "PoppinsRegular",
   },
 
   resultText: {
-    fontSize: 15,
+    fontSize: 12,
     fontFamily: "PoppinsMedium",
     color: "#294880",
   },
@@ -1335,17 +1232,17 @@ const styles = StyleSheet.create({
   },
 
   logTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: "PoppinsMedium",
     color: "#111827",
-    lineHeight: 23,
+    lineHeight: 22,
     marginBottom: 4,
   },
 
   logMeta: {
-    fontSize: 14,
+    fontSize: 12,
     color: "#5D6F92",
-    lineHeight: 20,
+    lineHeight: 18,
     fontFamily: "PoppinsRegular",
   },
 
@@ -1356,14 +1253,14 @@ const styles = StyleSheet.create({
   },
 
   actionBadgeText: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: "PoppinsMedium",
   },
 
   logDetails: {
-    fontSize: 15,
+    fontSize: 13,
     color: "#5D6F92",
-    lineHeight: 22,
+    lineHeight: 19,
     marginBottom: 14,
     fontFamily: "PoppinsRegular",
   },
@@ -1394,10 +1291,10 @@ const styles = StyleSheet.create({
   },
 
   statusValue: {
-    fontSize: 14,
+    fontSize: 12,
     color: "#294880",
     fontFamily: "PoppinsMedium",
-    lineHeight: 19,
+    lineHeight: 18,
   },
 
   statusArrowBox: {
@@ -1413,7 +1310,7 @@ const styles = StyleSheet.create({
   },
 
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: "PoppinsMedium",
     color: "#2F4267",
     marginTop: 12,
@@ -1421,7 +1318,7 @@ const styles = StyleSheet.create({
   },
 
   emptyText: {
-    fontSize: 15,
+    fontSize: 13,
     color: "#5D6F92",
     fontFamily: "PoppinsRegular",
   },
