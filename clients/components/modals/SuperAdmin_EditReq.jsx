@@ -375,13 +375,14 @@ const styles = StyleSheet.create({
 
   modalTitle: {
     fontSize: 18,
-    fontWeight: "800",
+    fontFamily: "PoppinsSemiBold",
     color: COLORS.primary,
     marginBottom: 4,
   },
 
   modalSubtitle: {
     fontSize: 13,
+    fontFamily: "PoppinsRegular",
     color: COLORS.textMuted,
     lineHeight: 19,
   },
@@ -432,13 +433,14 @@ const styles = StyleSheet.create({
 
   previewName: {
     fontSize: 16,
-    fontWeight: "800",
+    fontFamily: "PoppinsSemiBold",
     color: COLORS.text,
     marginBottom: 4,
   },
 
   previewEmail: {
     fontSize: 13,
+    fontFamily: "PoppinsRegular",
     color: COLORS.textMuted,
   },
 
@@ -460,14 +462,15 @@ const styles = StyleSheet.create({
 
   detailLabel: {
     fontSize: 12,
+    fontFamily: "PoppinsRegular",
     color: COLORS.textMuted,
     marginBottom: 5,
   },
 
   detailValue: {
     fontSize: 13,
+    fontFamily: "PoppinsMedium",
     color: COLORS.text,
-    fontWeight: "700",
   },
 
   formCard: {
@@ -480,13 +483,14 @@ const styles = StyleSheet.create({
 
   formTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontFamily: "PoppinsSemiBold",
     color: COLORS.primary,
     marginBottom: 4,
   },
 
   formSubtitle: {
     fontSize: 13,
+    fontFamily: "PoppinsRegular",
     color: COLORS.textMuted,
     lineHeight: 19,
     marginBottom: 16,
@@ -505,8 +509,8 @@ const styles = StyleSheet.create({
 
   inputLabel: {
     fontSize: 13,
+    fontFamily: "PoppinsMedium",
     color: COLORS.text,
-    fontWeight: "600",
     marginBottom: 8,
   },
 
@@ -527,6 +531,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     color: COLORS.text,
     fontSize: 14,
+    fontFamily: "PoppinsRegular",
     outlineStyle: Platform.OS === "web" ? "none" : undefined,
   },
 
@@ -555,7 +560,7 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: COLORS.text,
     fontSize: 14,
-    fontWeight: "700",
+    fontFamily: "PoppinsMedium",
   },
 
   saveButton: {
@@ -572,7 +577,7 @@ const styles = StyleSheet.create({
   saveButtonText: {
     color: COLORS.white,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "PoppinsSemiBold",
   },
 
   buttonDisabled: {

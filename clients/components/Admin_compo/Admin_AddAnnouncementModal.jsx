@@ -15,50 +15,11 @@ import ActionSheetModal from "../../components/ActionSheetModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import { useToast } from "../Toast";
+import { ARGAO_BARANGAYS as ARGAO_BARANGAY_DATA } from "../../constants/argaoMapData";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
-const ARGAO_BARANGAYS = [
-  "Abaga",
-  "Angadan",
-  "Barangay 1 (Pob.)",
-  "Barangay 2 (Pob.)",
-  "Barangay 3 (Pob.)",
-  "Barangay 4 (Pob.)",
-  "Barangay 5 (Pob.)",
-  "Barangay 6 (Pob.)",
-  "Barangay 7 (Pob.)",
-  "Barangay 8 (Pob.)",
-  "Barangay 9 (Pob.)",
-  "Barangay 10 (Pob.)",
-  "Barangay 11 (Pob.)",
-  "Barangay 12 (Pob.)",
-  "Barangay 13 (Pob.)",
-  "Barangay 14 (Pob.)",
-  "Bulasa",
-  "Buhi",
-  "Dakli",
-  "Dalaguet",
-  "Datu",
-  "Ginabangan",
-  "Gonghos",
-  "Guimbangco-an",
-  "Guiso",
-  "Hilasmasan",
-  "Ilasan",
-  "Langtad",
-  "Lusong",
-  "Malacoromong",
-  "Malay",
-  "Malitbog",
-  "Nabangad",
-  "Patong",
-  "Poblacion",
-  "Sacsac",
-  "Sua",
-  "Tubod",
-  "Zumarraga",
-];
+const ARGAO_BARANGAYS = ARGAO_BARANGAY_DATA.map(({ name }) => name);
 
 const announcementTypes = [
   "Curfew",

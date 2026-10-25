@@ -127,6 +127,7 @@ const STATUS_OPTIONS = [
 
 const POST_BY_OPTIONS = ["All", "User", "Admin", "Super Admin"];
 const DATE_OPTIONS = ["All Time", "Today", "Last 7 Days", "Last 30 Days", "This Month"];
+const ARCHIVED_STATUS_OPTIONS = ["All", "Report Archived"];
 
 const LOG_TABS = [
   { key: "activity", label: "Activity logs", icon: "list-outline" },
@@ -151,6 +152,7 @@ function SAdmin_AuditLogsPage() {
   const [archivedVisibleCount, setArchivedVisibleCount] = useState(PAGE_SIZE);
   const [restoringId, setRestoringId] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState("All");
+  const [selectedArchivedStatus, setSelectedArchivedStatus] = useState("All");
   const [selectedPostBy, setSelectedPostBy] = useState("All");
   const [selectedDate, setSelectedDate] = useState("All Time");
 
@@ -306,12 +308,23 @@ function SAdmin_AuditLogsPage() {
     });
   }, [selectedStatus, selectedPostBy, selectedDate, logs]);
 
+  const filteredArchivedReports = useMemo(() => archivedReports.filter((report) => {
+    const matchesStatus = selectedArchivedStatus === "All" || selectedArchivedStatus === "Report Archived";
+    const actorRole = String(report.reporter_role || report.created_by_role || report.actorRole || "user").toLowerCase();
+    const matchesPostBy = selectedPostBy === "All" ||
+      (selectedPostBy === "User" && actorRole === "user") ||
+      (selectedPostBy === "Admin" && actorRole === "admin") ||
+      (selectedPostBy === "Super Admin" && actorRole === "super_admin");
+    return matchesStatus && matchesPostBy && matchesDateRange(report.created_at, selectedDate);
+  }), [archivedReports, selectedArchivedStatus, selectedPostBy, selectedDate]);
+
   const visibleLogs = filteredLogs.slice(0, visibleCount);
-  const visibleArchived = archivedReports.slice(0, archivedVisibleCount);
+  const visibleArchived = filteredArchivedReports.slice(0, archivedVisibleCount);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [selectedStatus, selectedPostBy, selectedDate]);
+    setArchivedVisibleCount(PAGE_SIZE);
+  }, [selectedStatus, selectedArchivedStatus, selectedPostBy, selectedDate]);
 
   const handleScroll = (e) => {
     trackScroll(e);
@@ -628,7 +641,15 @@ function SAdmin_AuditLogsPage() {
                 </View>
               </View>
             </>
-          ) : null}
+          ) : (
+            <View style={styles.filterCard}>
+              <View style={styles.filterRow}>
+                <BatchFilterDropdown label="Post by" value={selectedPostBy} options={POST_BY_OPTIONS} onChange={setSelectedPostBy} />
+                <BatchFilterDropdown label="Status" value={selectedArchivedStatus} options={ARCHIVED_STATUS_OPTIONS} onChange={setSelectedArchivedStatus} />
+                <BatchFilterDropdown label="Date" value={selectedDate} options={DATE_OPTIONS} onChange={setSelectedDate} />
+              </View>
+            </View>
+          )}
 
           <View
             style={styles.logsCard}
@@ -653,11 +674,11 @@ function SAdmin_AuditLogsPage() {
               <Text style={styles.resultText}>
                 {activeTab === "activity"
                   ? filteredLogs.length
-                  : archivedReports.length}{" "}
+                  : filteredArchivedReports.length}{" "}
                 result
                 {(activeTab === "activity"
                   ? filteredLogs.length
-                  : archivedReports.length) === 1
+                  : filteredArchivedReports.length) === 1
                   ? ""
                   : "s"}
               </Text>
@@ -772,7 +793,7 @@ function SAdmin_AuditLogsPage() {
                     Loading archived reports...
                   </Text>
                 </View>
-              ) : archivedReports.length === 0 ? (
+              ) : filteredArchivedReports.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Ionicons name="archive-outline" size={42} color="#5D6F92" />
                   <Text style={styles.emptyTitle}>No archived reports</Text>
@@ -880,7 +901,7 @@ function SAdmin_AuditLogsPage() {
                     </View>
                   ))}
 
-                  {archivedReports.length > visibleArchived.length && (
+                  {filteredArchivedReports.length > visibleArchived.length && (
                     <TouchableOpacity
                       style={styles.viewMoreBtn}
                       onPress={() =>

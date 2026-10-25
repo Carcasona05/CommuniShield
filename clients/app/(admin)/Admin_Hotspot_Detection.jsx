@@ -23,6 +23,8 @@ import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
 import HotspotSentimentSummary from "../../components/Admin_compo/HotspotSentimentSummary";
 import { BatchFilterDropdown } from "../../components/Admin_compo/AdminBatchFilters";
 import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
+import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
+import { getReportBarangay } from "../../services/argaoLocation";
 
 const EMPTY_REPORTS = [];
 const validHotspotResponse = (data) => Array.isArray(data?.reports) && Array.isArray(data?.clustering?.clusters);
@@ -266,14 +268,11 @@ export default function Admin_Hotspot_Detection() {
   );
 
   const locationOptions = useMemo(() => {
-    const locations = [...new Set(validReports
-      .map((report) => textValue(report?.barangay || report?.location || report?.address))
-      .filter(Boolean))].sort();
     return [
       { label: "All Locations", value: "All Locations" },
-      ...locations.map((location) => ({ label: location, value: location })),
+      ...ARGAO_BARANGAYS.map(({ name }) => ({ label: name, value: name })),
     ];
-  }, [validReports]);
+  }, []);
 
   const categoryOptions = useMemo(() => {
     const categories = [
@@ -341,7 +340,7 @@ export default function Admin_Hotspot_Detection() {
     return validReports.filter((report) => {
       const category = getCategory(report);
       const type = getIncidentType(report);
-      const location = textValue(report?.barangay || report?.location || report?.address);
+      const location = getReportBarangay(report);
 
       const matchesCategory =
         selectedCategory === "All Categories" ||
