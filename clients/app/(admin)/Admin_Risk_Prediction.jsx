@@ -8,6 +8,7 @@ import SentimentEvidenceChart from "../../components/Admin_compo/SentimentEviden
 import RiskOutlookPanel from "../../components/Admin_compo/RiskOutlookPanel";
 import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
+import { sentimentOrigin } from "../../services/sentimentOrigin";
 import { getReportBarangay } from "../../services/argaoLocation";
 import { ARGAO_BARANGAYS as ARGAO_BARANGAY_DATA } from "../../constants/argaoMapData";
 import { buildRiskZones, isActiveRiskReport, RISK_ZONE_LIMIT } from "../../services/riskZones";
@@ -369,7 +370,7 @@ export default function Admin_Risk_Prediction() {
                       {paginatedComments.length ? paginatedComments.map((comment, index) => (
                         <View key={comment.id || index} style={styles.commentItem}>
                           <Text style={styles.commentBody}>{comment.text || comment.body || ""}</Text>
-                          <Text style={styles.commentMeta}>{comment.user || "User"}{comment.sentiment ? ` · ${comment.sentiment}` : ""}</Text>
+                          <Text style={styles.commentMeta}>{comment.user || "User"}{comment.sentiment ? ` · ${comment.sentiment}` : ""}{sentimentOrigin(comment.sentiment_model) ? ` · ${sentimentOrigin(comment.sentiment_model)}` : ""}</Text>
                         </View>
                       )) : (
                         <Text style={styles.emptyText}>No comments or sentiment data available.</Text>

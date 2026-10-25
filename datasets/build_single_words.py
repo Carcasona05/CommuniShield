@@ -17,11 +17,13 @@ REQUIRED_COLUMNS = ("text", "language", "label", "split")
 WORD_RE = re.compile(r"[a-zñáéíóúü]+", re.IGNORECASE)
 EN_LABEL_MAP = {"0": "negative", "1": "neutral", "2": "positive"}
 STAR_LABEL_MAP = {
+    # These raw Shopee files use zero-based rating codes (0..4), not stars 1..5.
+    # This agrees with the sentence-label mapping in processed training data.
+    "0": "negative",
     "1": "negative",
-    "2": "negative",
-    "3": "neutral",
+    "2": "neutral",
+    "3": "positive",
     "4": "positive",
-    "5": "positive",
 }
 
 LANGUAGE_CAPS = {"english": 12_000, "filipino": 9_000, "cebuano": 4_000}
@@ -146,7 +148,7 @@ def read_rows(path: Path):
 
 
 def labeled_sentences(raw_dir: Path, data_dir: Path):
-    for split in SPLITS:
+    for split in ('train',):
         path = raw_dir / f"tweet_eval_{split}.csv"
         if path.is_file():
             for row in read_rows(path):
@@ -155,7 +157,7 @@ def labeled_sentences(raw_dir: Path, data_dir: Path):
                 if label and text:
                     yield "english", text, label
 
-    for split in SPLITS:
+    for split in ('train',):
         path = raw_dir / f"filipino_shopee_{split}.csv"
         if path.is_file():
             for row in read_rows(path):
@@ -164,6 +166,12 @@ def labeled_sentences(raw_dir: Path, data_dir: Path):
                 if label and text:
                     yield "filipino", text, label
 
+    # Only use reviewed Cebuano sentences already assigned to training. A
+    # review worksheet can contain validation/test sentences too.
+    training_keys = set()
+    train_path = data_dir / 'train.csv'
+    if train_path.is_file():
+        training_keys = {' '.join(r['text'].lower().split()) for r in read_rows(train_path) if r.get('language') == 'cebuano'}
     review = data_dir / "cebuano_prelabel_review.csv"
     if review.is_file():
         for row in read_rows(review):
@@ -171,7 +179,7 @@ def labeled_sentences(raw_dir: Path, data_dir: Path):
                 continue
             label = (row.get("final_label") or "").strip().lower()
             text = (row.get("text") or "").strip()
-            if label in LABELS and text:
+            if label in LABELS and text and ' '.join(text.lower().split()) in training_keys:
                 yield "cebuano", text, label
 
 
@@ -314,7 +322,9 @@ def main() -> None:
                     "text": word,
                     "language": language,
                     "label": label,
-                    "split": split_for(f"{language}\0{word}"),
+                    # Mined labels are derived training evidence, not a new
+                    # independently reviewed held-out benchmark.
+                    "split": 'train',
                 }
             )
             language_counts[language] += 1
@@ -346,7 +356,7 @@ def main() -> None:
     for split in SPLITS:
         if by_split[split]:
             append_rows(data_dir / f"{split}.csv", by_split[split])
-    print("appended single-word samples to processed splits")
+    print("appended single-word samples to training only; held-out files unchanged")
 
 
 if __name__ == "__main__":

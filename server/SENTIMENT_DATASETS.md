@@ -1,8 +1,16 @@
 # Sentiment datasets: setup and workflow
 
-**Automatic training upgrade:** see `server/SENTIMENT_AUTOTRAIN.md` and apply
-`sentiment_training_jobs.sql` after the migration below. The upgraded approval
-flow automatically queues training; model activation remains manual. The export
+**Current workflow:** see [SENTIMENT_INDEPENDENT_ADMISSION.md](SENTIMENT_INDEPENDENT_ADMISSION.md)
+and apply `sentiment_independent_admission.sql` after the fresh-candidates migration.
+Approval only collects reviewed data; super-admins queue training and enable
+qualified models explicitly. One-row/one-word submissions are allowed with
+context review. Automatic-training references below describe the legacy protocol.
+
+**Supporting-pool upgrade:** see `server/SENTIMENT_SUPPORTING_POOL.md` and apply
+`sentiment_training_jobs.sql`, then `sentiment_continued_training.sql`, after
+the migration below, then `sentiment_supporting_pool.sql`. Approval queues a
+separate supporting candidate. Only full-pool evaluated policies can serve;
+the built-in models are never replaced. The export
 workflow below remains useful for review and offline operation.
 
 ## Deployment prerequisite
@@ -25,6 +33,9 @@ No additional hosting service, API key, or client package is required.
   automatic-training panel tracks those runs separately.
 - Approved/rejected/archived examples cannot be edited. Submit a revised batch
   after archiving/rejection; old samples, edit snapshots, and reviewer names remain.
+  If the active model already learned a removed or relabelled example, continued
+  training stops: removing its influence requires an appropriate rollback or a
+  separately reviewed full rebuild, not merely archiving the source row.
 - Mutations are transactional, use optimistic dataset versions, and serialize
   duplicate checks. Normal browser/anonymous roles cannot access these tables or
   call the mutation RPC directly. API access requires an approved admin session.

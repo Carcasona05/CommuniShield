@@ -3,8 +3,8 @@ import { validateDatasetRows } from "./sentimentDatasetValidation.js";
 
 export const sentimentDatasetService = {
   async trainingReady() {
-    const { data, error } = await supabaseAdmin.from("sentiment_model_state").select("id").eq("id", 1).maybeSingle();
-    return !error && Boolean(data);
+    const { data, error } = await supabaseAdmin.rpc("sentiment_training_capabilities", {});
+    return !error && data?.independent_admission === true && data?.manual_training === true;
   },
   async preview(rows: unknown[], excludeId?: string) {
     const normalized = validateDatasetRows(rows);

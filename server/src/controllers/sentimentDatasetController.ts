@@ -90,10 +90,10 @@ export const reviewDataset = async (req: AuthRequest, res: Response) => {
   try {
     const { action, version, note = "" } = req.body || {};
     if (!uuid(req.params.id) || !["approve", "reject", "archive"].includes(action) || !validVersion(version) || typeof note !== "string" || note.length > 1000 || note.includes("\0") || (action === "reject" && !note.trim())) throw new DatasetInputError("Provide an action, current version, and a rejection reason when rejecting (maximum 1,000 characters).");
-    if (action === "approve" && !await service.trainingReady()) return res.status(503).json({ error: "Apply sentiment_training_jobs.sql before approval so automatic retraining can be queued safely." });
+    if (action === "approve" && !await service.trainingReady()) return res.status(503).json({ error: "Apply sentiment_independent_admission.sql after the existing training migrations before approving examples. Approval must collect data without auto-training." });
     const result = await service.mutate(req.user.id, action, { dataset_id: req.params.id, version, note: note.trim() });
     if (result.error) return databaseError(res, result.error);
-    return res.json({ message: action === "approve" ? "Approved. Automatic retraining queued; keep the Python worker running. Activation remains a separate super-admin action." : "Dataset status updated. History preserved." });
+    return res.json({ message: action === "approve" ? "Approved for the reviewed training pool. Open Training to review readiness and queue a candidate. The built-in model is unchanged." : "Dataset status updated. History preserved." });
   } catch (error) { return failure(res, error); }
 };
 

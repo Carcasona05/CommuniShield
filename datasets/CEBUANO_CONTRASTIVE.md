@@ -39,3 +39,29 @@ Activation must use a **new immutable version** in the registry with the existin
 English/Filipino/language-ID artifacts preserved. Never overwrite an active
 version's objects or manually change a comment's label to hide a model error.
 After activation, stored comments require local reanalysis to reflect new weights.
+
+## Shared baseline training data
+
+The correction rows can also be persisted into the canonical training split:
+
+```powershell
+python datasets/merge_cebuano_corrections.py
+python datasets/merge_cebuano_corrections.py --apply
+```
+
+This idempotent merge backs up `train.csv` under
+`artifacts/dataset-merges/cebuano-corrections/<timestamp>/`, records provenance and
+checksums, and appends only nonconflicting, nonduplicate training rows. Validation
+and test files are never rewritten. The first merge added 3,807 rows (1,604
+positive, 1,601 negative and 602 neutral); 17 duplicates, one held-out example and
+one conflicting existing label were left unchanged.
+
+Both `train_sentiment.py` and the app-triggered Python worker consume this shared
+`datasets/processed/` baseline by default, so future runs on this checkout include
+the corrections without importing a database dataset. A worker deployed elsewhere
+must receive the updated CSV files; an explicitly configured alternate `--data-dir`
+does not automatically use this one. Dataset inclusion does not guarantee identical
+weights or output: a new model still needs validation, evaluation and activation.
+The validation-selected calibration used by the focused trainer is not automatically
+applied by the general app trainer. Existing served model files are not changed by
+the merge itself.

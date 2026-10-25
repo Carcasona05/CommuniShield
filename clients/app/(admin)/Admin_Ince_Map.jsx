@@ -20,6 +20,7 @@ import {
 import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import apiClient from "../../services/apiClient";
+import { sentimentOrigin } from "../../services/sentimentOrigin";
 import { getCache, setCache } from "../../services/dataStore";
 import { getReportBarangay, getReportLocationHierarchy } from "../../services/argaoLocation";
 
@@ -547,7 +548,7 @@ export default function Admin_Ince_Map() {
                     paginatedComments.map((comment, index) => (
                       <View key={comment.id || index} style={styles.commentItem}>
                         <Text style={styles.commentBody}>{comment.text || ""}</Text>
-                        <Text style={styles.commentMeta}>{comment.user || "User"}{comment.sentiment ? ` · ${comment.sentiment}` : ""}</Text>
+                        <Text style={styles.commentMeta}>{comment.user || "User"}{comment.sentiment ? ` · ${comment.sentiment}` : ""}{sentimentOrigin(comment.sentiment_model) ? ` · ${sentimentOrigin(comment.sentiment_model)}` : ""}</Text>
                       </View>
                     ))
                   ) : (

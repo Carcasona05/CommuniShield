@@ -1,0 +1,383 @@
+{
+  "csv": "C:\\Users\\Administrator\\Desktop\\CommuniShield\\datasets\\uploads\\supporting_quality_examples_270.csv",
+  "passed": false,
+  "reasons": [
+    "english: Accepted test precision below 0.75",
+    "filipino: Validation: neutral: precision below 0.50",
+    "filipino: Test: neutral: precision below 0.50"
+  ],
+  "languages": {
+    "cebuano": {
+      "candidate": {
+        "macro_f1": 0.7220052151143034,
+        "per_class": {
+          "negative": {
+            "support": 547,
+            "precision": 0.5104166666666666,
+            "recall": 0.716636197440585,
+            "f1": 0.5961977186311787
+          },
+          "neutral": {
+            "support": 1807,
+            "precision": 0.8747126436781609,
+            "recall": 0.8422800221361373,
+            "f1": 0.8581900197349873
+          },
+          "positive": {
+            "support": 507,
+            "precision": 0.8668555240793201,
+            "recall": 0.6035502958579881,
+            "f1": 0.7116279069767442
+          }
+        }
+      },
+      "validation": {
+        "macro_f1": 0.725466091463766,
+        "per_class": {
+          "negative": {
+            "support": 568,
+            "precision": 0.522911051212938,
+            "recall": 0.6830985915492958,
+            "f1": 0.5923664122137404
+          },
+          "neutral": {
+            "support": 1829,
+            "precision": 0.86016713091922,
+            "recall": 0.8441771459814106,
+            "f1": 0.8520971302428256
+          },
+          "positive": {
+            "support": 499,
+            "precision": 0.8746518105849582,
+            "recall": 0.6292585170340681,
+            "f1": 0.7319347319347319
+          }
+        }
+      }
+    },
+    "english": {
+      "candidate": {
+        "macro_f1": 0.6511538850050279,
+        "per_class": {
+          "negative": {
+            "support": 4392,
+            "precision": 0.6191026381667629,
+            "recall": 0.7320127504553734,
+            "f1": 0.6708398539384455
+          },
+          "neutral": {
+            "support": 6356,
+            "precision": 0.7062168309325246,
+            "recall": 0.5862177470106985,
+            "f1": 0.640646492434663
+          },
+          "positive": {
+            "support": 2898,
+            "precision": 0.6137865911237016,
+            "recall": 0.6728778467908902,
+            "f1": 0.6419753086419753
+          }
+        }
+      },
+      "validation": {
+        "macro_f1": 0.6907587340319484,
+        "per_class": {
+          "negative": {
+            "support": 711,
+            "precision": 0.581032412965186,
+            "recall": 0.680731364275668,
+            "f1": 0.6269430051813472
+          },
+          "neutral": {
+            "support": 1275,
+            "precision": 0.7016706443914081,
+            "recall": 0.691764705882353,
+            "f1": 0.6966824644549763
+          },
+          "positive": {
+            "support": 1349,
+            "precision": 0.7799196787148595,
+            "recall": 0.7197924388435878,
+            "f1": 0.748650732459522
+          }
+        }
+      }
+    },
+    "filipino": {
+      "candidate": {
+        "macro_f1": 0.6480200066972167,
+        "per_class": {
+          "negative": {
+            "support": 988,
+            "precision": 0.6559926806953339,
+            "recall": 0.7257085020242915,
+            "f1": 0.6890917827967323
+          },
+          "neutral": {
+            "support": 848,
+            "precision": 0.4673507462686567,
+            "recall": 0.5908018867924528,
+            "f1": 0.521875
+          },
+          "positive": {
+            "support": 1414,
+            "precision": 0.8442396313364056,
+            "recall": 0.6478076379066479,
+            "f1": 0.7330932372949179
+          }
+        }
+      },
+      "validation": {
+        "macro_f1": 0.6444054614809364,
+        "per_class": {
+          "negative": {
+            "support": 997,
+            "precision": 0.6818181818181818,
+            "recall": 0.7071213640922769,
+            "f1": 0.6942392909896603
+          },
+          "neutral": {
+            "support": 851,
+            "precision": 0.45264116575591984,
+            "recall": 0.5840188014101058,
+            "f1": 0.5100051308363264
+          },
+          "positive": {
+            "support": 1426,
+            "precision": 0.819614711033275,
+            "recall": 0.6563814866760168,
+            "f1": 0.7289719626168224
+          }
+        }
+      }
+    }
+  },
+  "routing_policy": {
+    "version": 2,
+    "admission": "independent-v1",
+    "passed": false,
+    "languages": {
+      "cebuano": {
+        "primary_confidence": 0.85,
+        "primary_margin": 0.2,
+        "support_confidence": 0.5,
+        "support_margin": 0.05,
+        "validation_precision": 0.8822463768115942,
+        "validation_support": 2208
+      }
+    },
+    "builtin_hashes": {
+      "sentiment_english.onnx": "264e55483fc93dd941d5356c1a38eca70fd273f3ecd6ce6e0d31d0852dac7341",
+      "sentiment_filipino.onnx": "ca27c428e437b8525c1f69d7e9c030411da9d00968933f7c7d48f1e0def8e3b4",
+      "sentiment_cebuano.onnx": "f4d8b78e8a70e372bb2d7619cce1c3cd81a878419e573763c73554069f858a47",
+      "language_id.onnx": "3e59403dd1e4ccc9cb48622db5d9e38cdf71eeb74a15227a7831e316e11deefd"
+    },
+    "evaluated_pool_ids": [],
+    "independent_test": {
+      "passed": false,
+      "languages": {
+        "cebuano": {
+          "passed": true,
+          "metrics": {
+            "macro_f1": 0.7220052151143034,
+            "per_class": {
+              "negative": {
+                "support": 547,
+                "precision": 0.5104166666666666,
+                "recall": 0.716636197440585,
+                "f1": 0.5961977186311787
+              },
+              "neutral": {
+                "support": 1807,
+                "precision": 0.8747126436781609,
+                "recall": 0.8422800221361373,
+                "f1": 0.8581900197349873
+              },
+              "positive": {
+                "support": 507,
+                "precision": 0.8668555240793201,
+                "recall": 0.6035502958579881,
+                "f1": 0.7116279069767442
+              }
+            }
+          },
+          "validation_metrics": {
+            "macro_f1": 0.725466091463766,
+            "per_class": {
+              "negative": {
+                "support": 568,
+                "precision": 0.522911051212938,
+                "recall": 0.6830985915492958,
+                "f1": 0.5923664122137404
+              },
+              "neutral": {
+                "support": 1829,
+                "precision": 0.86016713091922,
+                "recall": 0.8441771459814106,
+                "f1": 0.8520971302428256
+              },
+              "positive": {
+                "support": 499,
+                "precision": 0.8746518105849582,
+                "recall": 0.6292585170340681,
+                "f1": 0.7319347319347319
+              }
+            }
+          },
+          "support": 2223,
+          "precision": 0.8771929824561403,
+          "test_acceptance_evaluated": true,
+          "validation_acceptance": {
+            "support": 2208,
+            "precision": 0.8822463768115942
+          },
+          "selected_thresholds": {
+            "confidence": 0.5,
+            "margin": 0.05
+          },
+          "reasons": []
+        },
+        "english": {
+          "passed": false,
+          "metrics": {
+            "macro_f1": 0.6511538850050279,
+            "per_class": {
+              "negative": {
+                "support": 4392,
+                "precision": 0.6191026381667629,
+                "recall": 0.7320127504553734,
+                "f1": 0.6708398539384455
+              },
+              "neutral": {
+                "support": 6356,
+                "precision": 0.7062168309325246,
+                "recall": 0.5862177470106985,
+                "f1": 0.640646492434663
+              },
+              "positive": {
+                "support": 2898,
+                "precision": 0.6137865911237016,
+                "recall": 0.6728778467908902,
+                "f1": 0.6419753086419753
+              }
+            }
+          },
+          "validation_metrics": {
+            "macro_f1": 0.6907587340319484,
+            "per_class": {
+              "negative": {
+                "support": 711,
+                "precision": 0.581032412965186,
+                "recall": 0.680731364275668,
+                "f1": 0.6269430051813472
+              },
+              "neutral": {
+                "support": 1275,
+                "precision": 0.7016706443914081,
+                "recall": 0.691764705882353,
+                "f1": 0.6966824644549763
+              },
+              "positive": {
+                "support": 1349,
+                "precision": 0.7799196787148595,
+                "recall": 0.7197924388435878,
+                "f1": 0.748650732459522
+              }
+            }
+          },
+          "support": 11115,
+          "precision": 0.6941970310391363,
+          "test_acceptance_evaluated": true,
+          "validation_acceptance": {
+            "support": 2637,
+            "precision": 0.7588168373151308
+          },
+          "selected_thresholds": {
+            "confidence": 0.5,
+            "margin": 0.05
+          },
+          "reasons": [
+            "Accepted test precision below 0.75"
+          ]
+        },
+        "filipino": {
+          "passed": false,
+          "metrics": {
+            "macro_f1": 0.6480200066972167,
+            "per_class": {
+              "negative": {
+                "support": 988,
+                "precision": 0.6559926806953339,
+                "recall": 0.7257085020242915,
+                "f1": 0.6890917827967323
+              },
+              "neutral": {
+                "support": 848,
+                "precision": 0.4673507462686567,
+                "recall": 0.5908018867924528,
+                "f1": 0.521875
+              },
+              "positive": {
+                "support": 1414,
+                "precision": 0.8442396313364056,
+                "recall": 0.6478076379066479,
+                "f1": 0.7330932372949179
+              }
+            }
+          },
+          "validation_metrics": {
+            "macro_f1": 0.6444054614809364,
+            "per_class": {
+              "negative": {
+                "support": 997,
+                "precision": 0.6818181818181818,
+                "recall": 0.7071213640922769,
+                "f1": 0.6942392909896603
+              },
+              "neutral": {
+                "support": 851,
+                "precision": 0.45264116575591984,
+                "recall": 0.5840188014101058,
+                "f1": 0.5100051308363264
+              },
+              "positive": {
+                "support": 1426,
+                "precision": 0.819614711033275,
+                "recall": 0.6563814866760168,
+                "f1": 0.7289719626168224
+              }
+            }
+          },
+          "support": 1880,
+          "precision": 0.7904255319148936,
+          "test_acceptance_evaluated": true,
+          "validation_acceptance": {
+            "support": 1936,
+            "precision": 0.7856404958677686
+          },
+          "selected_thresholds": {
+            "confidence": 0.5,
+            "margin": 0.05
+          },
+          "reasons": [
+            "Validation: neutral: precision below 0.50",
+            "Test: neutral: precision below 0.50"
+          ]
+        }
+      }
+    },
+    "thresholds": {
+      "minimum_macro_f1": 0.6,
+      "minimum_class_precision": 0.5,
+      "minimum_class_recall": 0.5,
+      "minimum_class_support": 10,
+      "minimum_accepted_precision": 0.75,
+      "minimum_validation_accepted": 20,
+      "minimum_test_accepted": 10
+    },
+    "note": "Independent held-out quality; no claim of improvement over the built-in or the combined system."
+  },
+  "elapsed_seconds": 335.5,
+  "built_in_unchanged": true,
+  "notes": "One offline fresh fit; no upload, registration, enabling, or held-out threshold changes."
+}

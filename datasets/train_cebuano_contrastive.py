@@ -95,9 +95,7 @@ def main():
                  for text in frames[split].loc[frames[split]["language"].eq("cebuano"), "text"]}
     existing = {normalize(text) for text in frames["train"].loc[frames["train"]["language"].eq("cebuano"), "text"]}
     additions = pd.DataFrame([r for r in build_training_rows()
-                              if normalize(r["text"]) not in protected | existing])
-    if additions.empty:
-        raise ValueError("No new reviewed training examples available")
+                              if normalize(r["text"]) not in protected | existing], columns=frames["train"].columns)
     additions.to_csv(run / "authored_training_additions.csv", index=False)
     frames["train"] = pd.concat([frames["train"], additions], ignore_index=True)
     frames["train"].to_csv(data_dir / "train.csv", index=False)
