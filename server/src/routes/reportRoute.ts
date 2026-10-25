@@ -17,6 +17,8 @@ import {
   createAdminAnnouncement,
   getAdminLogs,
   getAdminAnnouncements,
+  getAdminBlotters,
+  createAdminBlotter,
 } from "../controllers/reportController.js";
 import { authenticate, requireRole } from "../middlewares/authMiddleware.js";
 import { getHotspotClusters } from "../controllers/hotspotClusteringController.js";
@@ -38,6 +40,8 @@ router.delete("/reports/:id", authenticate, deleteReport);
 router.get("/incidents/options", authenticate, getIncidentOptions);
 router.get("/admin/posts", authenticate, adminOnly, getAdminPosts);
 router.get("/admin/announcements", authenticate, adminOnly, getAdminAnnouncements);
+router.get("/admin/blotters", authenticate, adminOnly, getAdminBlotters);
+router.post("/admin/blotters", authenticate, adminOnly, createAdminBlotter);
 router.get("/admin/dashboard", authenticate, adminOnly, getAdminDashboard);
 router.get("/admin/clusters", authenticate, adminOnly, getHotspotClusters);
 router.get("/admin/risk-outlook", authenticate, adminOnly, getRiskOutlook);

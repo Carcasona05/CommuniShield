@@ -11,6 +11,7 @@ import {
 import { toReportCode } from "../utils/toReportCode.js";
 import { backgroundTasks } from "../services/backgroundTasks.js";
 import { reportSubmissionService } from "../services/reportSubmissionService.js";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string }; token?: string };
 
@@ -665,4 +666,45 @@ export const getAdminAnalytics = async (req: AuthRequest, res: Response) => {
     forecast: data.forecast,
     forecastSummary: data.forecastSummary,
   });
+};
+
+export const getAdminBlotters = async (_req: AuthRequest, res: Response) => {
+  const { data, error } = await supabaseAdmin
+    .from("admin_blotters")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ blotters: data || [] });
+};
+
+export const createAdminBlotter = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+  const body = req.body ?? {};
+  const required = ["blotterNo", "location", "incidentType", "complainantName", "respondent", "incidentDescription", "actionTaken", "reportedBy", "blotterOfficer"];
+  if (required.some((key) => typeof body[key] !== "string" || !body[key].trim())) {
+    return res.status(400).json({ error: "Complete all required blotter fields." });
+  }
+
+  const { data, error } = await supabaseAdmin.from("admin_blotters").insert({
+    admin_id: user.id,
+    blotter_no: body.blotterNo.trim(),
+    barangay: body.barangay || null,
+    location: body.location.trim(),
+    incident_type: body.incidentType.trim(),
+    incident_datetime: body.incidentDateTime || null,
+    complainant_name: body.complainantName.trim(),
+    complainant_age: body.complainantAge || null,
+    complainant_contact: body.complainantContact || null,
+    respondent: body.respondent.trim(),
+    incident_description: body.incidentDescription.trim(),
+    action_taken: body.actionTaken.trim(),
+    status: body.status || "Pending Review",
+    reported_by: body.reportedBy.trim(),
+    blotter_officer: body.blotterOfficer.trim(),
+    date_reported: body.dateReported || null,
+    date_recorded: body.dateRecorded || null,
+  }).select("*").single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json({ message: "Blotter saved", blotter: data });
 };

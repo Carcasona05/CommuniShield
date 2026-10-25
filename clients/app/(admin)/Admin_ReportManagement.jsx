@@ -199,6 +199,7 @@ function Admin_ReportManagement() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
   const [reports, setReports] = useState([]);
+  const [blotters, setBlotters] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -231,13 +232,14 @@ function Admin_ReportManagement() {
         to: to.trim() || undefined,
         status: status === "All" ? undefined : status,
       };
-      const [reportResponse, announcementResponse, logResponse] = await Promise.all([
+      const [reportResponse, announcementResponse, logResponse, blotterResponse] = await Promise.all([
         apiClient.get("/admin/dashboard", { headers, params }),
         apiClient.get("/admin/announcements", { headers, params }),
         apiClient.get("/admin/logs", {
           headers,
           params: { from: params.from, to: params.to },
         }),
+        apiClient.get("/admin/blotters", { headers }),
       ]);
       // Archived reports only ever appear under Logs > Archived reports.
       setReports(
@@ -247,6 +249,7 @@ function Admin_ReportManagement() {
         ).filter((item) => item.status !== "Archived")
       );
       setAnnouncements(Array.isArray(announcementResponse.data?.announcements) ? announcementResponse.data.announcements : []);
+      setBlotters(Array.isArray(blotterResponse.data?.blotters) ? blotterResponse.data.blotters : []);
       setLogs(Array.isArray(logResponse.data?.logs) ? logResponse.data.logs : []);
     } catch (error) {
       showError(error?.response?.data?.error || "Could not load admin records.");
@@ -281,6 +284,30 @@ function Admin_ReportManagement() {
   }, [logs, status]);
 
   const visibleRecords = useMemo(() => [
+    ...blotters.map((item) => ({
+      ...item,
+      id: item.id,
+      kind: "Blotter",
+      reportType: "Blotter",
+      title: `${item.incident_type || "Blotter report"} • ${item.location || "Location unspecified"}`,
+      incidentType: item.incident_type,
+      incidentDateTime: item.incident_datetime,
+      complainantName: item.complainant_name,
+      complainantAge: item.complainant_age,
+      complainantContact: item.complainant_contact,
+      actionTaken: item.action_taken,
+      reportedBy: item.reported_by,
+      blotterOfficer: item.blotter_officer,
+      dateReported: item.date_reported,
+      dateRecorded: item.date_recorded,
+      location: item.location || "",
+      status: item.status || "Pending Review",
+      severity: "Medium",
+      created_at: item.created_at,
+      details: item.incident_description || "",
+      actor: item.reported_by || "Admin",
+      actorRole: "admin",
+    })),
     ...reports.map((item) => ({
       ...item,
       id: item.id,
@@ -310,7 +337,7 @@ function Admin_ReportManagement() {
         }))
       : []),
     ...activityRecords,
-  ].sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime()), [activityRecords, announcements, reports, status]);
+  ].sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime()), [activityRecords, announcements, blotters, reports, status]);
 
   const filteredRecords = useMemo(() => {
     const start = from ? new Date(`${from}T00:00:00`) : null;
@@ -419,8 +446,14 @@ function Admin_ReportManagement() {
 
   const handleAddBlotter = async (blotter) => {
     try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) throw new Error("Please sign in before saving a blotter report.");
+      const response = await apiClient.post("/admin/blotters", blotter, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const saved = response.data?.blotter;
       const record = {
-        id: blotter.id || `blotter-${Date.now()}`,
+        id: saved?.id || blotter.id || `blotter-${Date.now()}`,
         kind: "Blotter",
         reportType: "Blotter",
         title: blotter.title || `${blotter.incidentType || "Blotter report"} • ${blotter.location || "Location unspecified"}`,
@@ -428,18 +461,29 @@ function Admin_ReportManagement() {
         barangay: blotter.barangay || "",
         status: blotter.status || "Pending Review",
         severity: blotter.severity || "Medium",
-        created_at: blotter.created_at || new Date().toISOString(),
         details: blotter.details || blotter.incidentDescription || "",
         actor: blotter.reportedBy || "Admin",
         actorRole: "admin",
         ...blotter,
+        ...saved,
+        incidentType: saved?.incident_type || blotter.incidentType,
+        incidentDateTime: saved?.incident_datetime || blotter.incidentDateTime,
+        complainantName: saved?.complainant_name || blotter.complainantName,
+        complainantAge: saved?.complainant_age || blotter.complainantAge,
+        complainantContact: saved?.complainant_contact || blotter.complainantContact,
+        actionTaken: saved?.action_taken || blotter.actionTaken,
+        reportedBy: saved?.reported_by || blotter.reportedBy,
+        blotterOfficer: saved?.blotter_officer || blotter.blotterOfficer,
+        dateReported: saved?.date_reported || blotter.dateReported,
+        dateRecorded: saved?.date_recorded || blotter.dateRecorded,
+        created_at: saved?.created_at || blotter.created_at,
       };
       setAddBlotterVisible(false);
       openRecordPreview(record, "Blotter report saved successfully.");
-      loadRecords();
+      await loadRecords();
       return record;
     } catch (error) {
-      throw new Error(error?.message || "Could not save the blotter report.");
+      throw new Error(error?.response?.data?.error || error?.message || "Could not save the blotter report.");
     }
   };
 
