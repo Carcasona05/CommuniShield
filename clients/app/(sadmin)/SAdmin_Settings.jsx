@@ -167,7 +167,6 @@ function SAdmin_SettingsContent() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
 
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
 
@@ -771,23 +770,8 @@ function SAdmin_SettingsContent() {
                         style={styles.passwordInput}
                         placeholder="Current Password"
                         placeholderTextColor="#5D6F92"
-                        secureTextEntry={!showCurrentPassword}
+                        secureTextEntry
                       />
-
-                      <TouchableOpacity
-                        onPress={() =>
-                          setShowCurrentPassword(!showCurrentPassword)
-                        }
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons
-                          name={
-                            showCurrentPassword ? "eye-off-outline" : "eye-outline"
-                          }
-                          size={20}
-                          color="#5D6F92"
-                        />
-                      </TouchableOpacity>
                     </View>
                     {currentPasswordError ? (
                       <Text style={styles.fieldErrorText}>

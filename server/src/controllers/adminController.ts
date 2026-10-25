@@ -89,6 +89,8 @@ export const updateAccount = async (req: AuthRequest, res: Response) => {
     }
 
     if (email !== undefined) {
+      const { loginVerificationService } = await import("../services/loginVerificationService.js");
+      await loginVerificationService.revokeAll(id);
       const { error: emailError } = await supabaseAdmin.auth.admin.updateUserById(id, { email });
       if (emailError) return res.status(500).json({ error: emailError.message });
     }

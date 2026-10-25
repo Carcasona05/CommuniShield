@@ -1,0 +1,12 @@
+{
+  "extends": "../server/tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "typeRoots": ["../server/node_modules/@types"],
+    "paths": {
+      "express": ["../server/node_modules/@types/express/index.d.ts"],
+      "@supabase/supabase-js": ["../server/node_modules/@supabase/supabase-js/dist/index.d.mts"]
+    }
+  },
+  "include": ["server/**/*.ts", "helpers/**/*.ts"]
+}

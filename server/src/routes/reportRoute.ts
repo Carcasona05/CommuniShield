@@ -13,12 +13,21 @@ import {
   getIncidentOptions,
   getAdminPosts,
   getAdminDashboard,
+  getAdminOverview,
   getAdminAnalytics,
   createAdminAnnouncement,
   getAdminLogs,
   getAdminAnnouncements,
+  getAdminBlotters,
+  createAdminBlotter,
+  updateAdminBlotter,
+  deleteAdminBlotter,
+  updateAdminAnnouncement,
+  deleteAdminAnnouncement,
 } from "../controllers/reportController.js";
 import { authenticate, requireRole } from "../middlewares/authMiddleware.js";
+import { getHotspotClusters } from "../controllers/hotspotClusteringController.js";
+import { getRiskOutlook } from "../controllers/riskOutlookController.js";
 
 const router = express.Router();
 const adminOnly = requireRole(["admin", "super_admin"]);
@@ -36,9 +45,18 @@ router.delete("/reports/:id", authenticate, deleteReport);
 router.get("/incidents/options", authenticate, getIncidentOptions);
 router.get("/admin/posts", authenticate, adminOnly, getAdminPosts);
 router.get("/admin/announcements", authenticate, adminOnly, getAdminAnnouncements);
+router.get("/admin/blotters", authenticate, adminOnly, getAdminBlotters);
+router.post("/admin/blotters", authenticate, adminOnly, createAdminBlotter);
+router.put("/admin/blotters/:id", authenticate, adminOnly, updateAdminBlotter);
+router.delete("/admin/blotters/:id", authenticate, adminOnly, deleteAdminBlotter);
 router.get("/admin/dashboard", authenticate, adminOnly, getAdminDashboard);
+router.get("/admin/overview", authenticate, adminOnly, getAdminOverview);
+router.get("/admin/clusters", authenticate, adminOnly, getHotspotClusters);
+router.get("/admin/risk-outlook", authenticate, adminOnly, getRiskOutlook);
 router.get("/admin/analytics", authenticate, adminOnly, getAdminAnalytics);
 router.post("/admin/announcements", authenticate, adminOnly, createAdminAnnouncement);
+router.put("/admin/announcements/:id", authenticate, adminOnly, updateAdminAnnouncement);
+router.delete("/admin/announcements/:id", authenticate, adminOnly, deleteAdminAnnouncement);
 router.get("/admin/logs", authenticate, adminOnly, getAdminLogs);
 
 export default router;

@@ -1,0 +1,785 @@
+{
+  "run_directory": "C:\\Users\\Administrator\\Desktop\\CommuniShield\\artifacts\\cebuano-contrastive\\20261022T181412Z",
+  "provenance": "Locally authored contrastive examples; no Gemini, no model-generated labels.",
+  "additions": 3807,
+  "additions_by_label": {
+    "positive": 1604,
+    "negative": 1601,
+    "neutral": 602
+  },
+  "unchanged_holdout_sha256": {
+    "validation": "273592bbf42f694e486e7b51902143a6c3d3c793a57452f5ed863fbc48f6ff63",
+    "test": "f86cebab472d6788bfbe6350ecb49be93b8a19119b2434d2b7de487e6e0cbf64"
+  },
+  "baseline_test": {
+    "samples": 2861,
+    "accuracy": 0.7693114295700804,
+    "macro_f1": 0.7220659399470538,
+    "weighted_f1": 0.780884174214286,
+    "per_label": {
+      "negative": {
+        "precision": 0.4857792946530148,
+        "recall": 0.7806215722120659,
+        "f1": 0.5988779803646563,
+        "support": 547.0
+      },
+      "neutral": {
+        "precision": 0.9085252022401992,
+        "recall": 0.8079690094078583,
+        "f1": 0.8553016988869362,
+        "support": 1807.0
+      },
+      "positive": {
+        "precision": 0.8373333333333334,
+        "recall": 0.6193293885601578,
+        "f1": 0.7120181405895691,
+        "support": 507.0
+      }
+    },
+    "confusion_matrix_labels": [
+      "negative",
+      "neutral",
+      "positive"
+    ],
+    "confusion_matrix": [
+      [
+        427,
+        94,
+        26
+      ],
+      [
+        312,
+        1460,
+        35
+      ],
+      [
+        140,
+        53,
+        314
+      ]
+    ]
+  },
+  "candidate_test": {
+    "samples": 2861,
+    "accuracy": 0.7689619014330653,
+    "macro_f1": 0.7231020323412456,
+    "weighted_f1": 0.7820001327405601,
+    "per_label": {
+      "negative": {
+        "precision": 0.48056155507559395,
+        "recall": 0.8135283363802559,
+        "f1": 0.6042090970807875,
+        "support": 547.0
+      },
+      "neutral": {
+        "precision": 0.9210191082802548,
+        "recall": 0.8002213613724405,
+        "f1": 0.856381403612674,
+        "support": 1807.0
+      },
+      "positive": {
+        "precision": 0.8465753424657534,
+        "recall": 0.6094674556213018,
+        "f1": 0.7087155963302753,
+        "support": 507.0
+      }
+    },
+    "confusion_matrix_labels": [
+      "negative",
+      "neutral",
+      "positive"
+    ],
+    "confusion_matrix": [
+      [
+        445,
+        79,
+        23
+      ],
+      [
+        328,
+        1446,
+        33
+      ],
+      [
+        153,
+        45,
+        309
+      ]
+    ]
+  },
+  "challenge_note": "Targeted regression checks, not an independent generalization benchmark.",
+  "challenge_before_correct": 21,
+  "challenge_after_correct": 35,
+  "challenge_total": 38,
+  "before": [
+    {
+      "text": "Maayo nga wala ka nagpataka og pasangil. Kini nga report sa Canbanua bahin sa fire incident makatabang sa among pag-amping. Padayon sa maayong pagpakabana.",
+      "expected": "positive",
+      "predicted": "negative",
+      "confidence": 0.4954596467661183,
+      "correct": false
+    },
+    {
+      "text": "Maayo nga wala ka nagpataka og pasangil.",
+      "expected": "positive",
+      "predicted": "negative",
+      "confidence": 0.5898378852928985,
+      "correct": false
+    },
+    {
+      "text": "Salamat kay wala ka nagpakalat og tsismis.",
+      "expected": "positive",
+      "predicted": "neutral",
+      "confidence": 0.7000313484719016,
+      "correct": false
+    },
+    {
+      "text": "Salamat nga wala nimo gipasanginlan dayon ang silingan.",
+      "expected": "positive",
+      "predicted": "neutral",
+      "confidence": 0.6933669223139365,
+      "correct": false
+    },
+    {
+      "text": "Bilib ko nimo kay wala ka moapil sa pagpangdaot.",
+      "expected": "positive",
+      "predicted": "neutral",
+      "confidence": 0.9001558496310448,
+      "correct": false
+    },
+    {
+      "text": "Maayo nga wala ka naghimo og istorya bahin sa sunog.",
+      "expected": "positive",
+      "predicted": "neutral",
+      "confidence": 0.5861017138861324,
+      "correct": false
+    },
+    {
+      "text": "Nindot nga wala ka magpataka og ingong sad-an siya.",
+      "expected": "positive",
+      "predicted": "neutral",
+      "confidence": 0.688725813153138,
+      "correct": false
+    },
+    {
+      "text": "Salamat sa imong klarong report bahin sa bangga sa motor.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.5691469035417825,
+      "correct": true
+    },
+    {
+      "text": "Maayo nga wala ka nagpakalat og wala pa mapamatud-i.",
+      "expected": "positive",
+      "predicted": "negative",
+      "confidence": 0.5408373677000944,
+      "correct": false
+    },
+    {
+      "text": "Salamat sa imong pagpakabana bisan makahahadlok ang sunog.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.5928811847250111,
+      "correct": true
+    },
+    {
+      "text": "Bilib ko sa imong kalma nga pagreport bahin sa aksidente.",
+      "expected": "positive",
+      "predicted": "neutral",
+      "confidence": 0.9155007470447338,
+      "correct": false
+    },
+    {
+      "text": "gwapo",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9780632002878844,
+      "correct": true
+    },
+    {
+      "text": "ka gwapo jud aning jobert oy",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9718811523781483,
+      "correct": true
+    },
+    {
+      "text": "gwapa ka",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9919582114439709,
+      "correct": true
+    },
+    {
+      "text": "salamat kaayo",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9670465938360842,
+      "correct": true
+    },
+    {
+      "text": "nindot kaayo",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9911342370266044,
+      "correct": true
+    },
+    {
+      "text": "Nagpataka ka og pasangil.",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.5026503618743308,
+      "correct": true
+    },
+    {
+      "text": "Makalagot kay nagpasangil ka nga walay pruweba.",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.6646379661949445,
+      "correct": true
+    },
+    {
+      "text": "Dili maayo nga nagpakalat ka og tsismis bahin sa silingan.",
+      "expected": "negative",
+      "predicted": "neutral",
+      "confidence": 0.5834126247650284,
+      "correct": false
+    },
+    {
+      "text": "Dili ko gusto nimo.",
+      "expected": "negative",
+      "predicted": "neutral",
+      "confidence": 0.9947645726127073,
+      "correct": false
+    },
+    {
+      "text": "guba na kaayo",
+      "expected": "negative",
+      "predicted": "positive",
+      "confidence": 0.7498120731695151,
+      "correct": false
+    },
+    {
+      "text": "buang ka",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.7452440720785062,
+      "correct": true
+    },
+    {
+      "text": "Delikado na",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.6908037854626445,
+      "correct": true
+    },
+    {
+      "text": "Makahadlok kini para sa mga bata sa pikas balay.",
+      "expected": "negative",
+      "predicted": "neutral",
+      "confidence": 0.5483259365615155,
+      "correct": false
+    },
+    {
+      "text": "Makaguol nga adunay nasamad sa bangga.",
+      "expected": "negative",
+      "predicted": "neutral",
+      "confidence": 0.6556898021571497,
+      "correct": false
+    },
+    {
+      "text": "Nasuko ko sa imong bakak nga istorya bahin sa sunog.",
+      "expected": "negative",
+      "predicted": "neutral",
+      "confidence": 0.6144329938201539,
+      "correct": false
+    },
+    {
+      "text": "Dili nindot ang pag-akusar nga walay basihan.",
+      "expected": "negative",
+      "predicted": "positive",
+      "confidence": 0.45075515806007843,
+      "correct": false
+    },
+    {
+      "text": "Wala gyud ayo ang serbisyo ninyo, nakadugang lang sa problema.",
+      "expected": "negative",
+      "predicted": "positive",
+      "confidence": 0.5603719087940418,
+      "correct": false
+    },
+    {
+      "text": "kaila man ko ani niya oh",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9365683646458502,
+      "correct": true
+    },
+    {
+      "text": "kaila man ko ani oh",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9489458073732397,
+      "correct": true
+    },
+    {
+      "text": "kaila ko nimo",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9854202606036374,
+      "correct": true
+    },
+    {
+      "text": "naa ra ko diri",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9669483254845005,
+      "correct": true
+    },
+    {
+      "text": "Unsang oras gisumite ang report sa sunog?",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.71898904554453,
+      "correct": true
+    },
+    {
+      "text": "Wala pa ko kabalo kinsa ang nagmaneho sa motor.",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9823002810943617,
+      "correct": true
+    },
+    {
+      "text": "Naa ba ni sa Canbanua o sa Lamacan?",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9539766673645216,
+      "correct": true
+    },
+    {
+      "text": "Dili pa klaro pila ka tawo ang naa sa lugar.",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.846044289776032,
+      "correct": true
+    },
+    {
+      "text": "Wala pa mi nadawat nga kumpirmasyon.",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.7011961445292709,
+      "correct": true
+    },
+    {
+      "text": "Kaila ko sa tag-iya sa motor.",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.974077885319685,
+      "correct": true
+    }
+  ],
+  "after": [
+    {
+      "text": "Maayo nga wala ka nagpataka og pasangil. Kini nga report sa Canbanua bahin sa fire incident makatabang sa among pag-amping. Padayon sa maayong pagpakabana.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9349846979703635,
+      "correct": true
+    },
+    {
+      "text": "Maayo nga wala ka nagpataka og pasangil.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.976069915759209,
+      "correct": true
+    },
+    {
+      "text": "Salamat kay wala ka nagpakalat og tsismis.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9519339430614344,
+      "correct": true
+    },
+    {
+      "text": "Salamat nga wala nimo gipasanginlan dayon ang silingan.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.6819099551939907,
+      "correct": true
+    },
+    {
+      "text": "Bilib ko nimo kay wala ka moapil sa pagpangdaot.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.5718856869985933,
+      "correct": true
+    },
+    {
+      "text": "Maayo nga wala ka naghimo og istorya bahin sa sunog.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.8228929997431683,
+      "correct": true
+    },
+    {
+      "text": "Nindot nga wala ka magpataka og ingong sad-an siya.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9371690139934311,
+      "correct": true
+    },
+    {
+      "text": "Salamat sa imong klarong report bahin sa bangga sa motor.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.7593985852165289,
+      "correct": true
+    },
+    {
+      "text": "Maayo nga wala ka nagpakalat og wala pa mapamatud-i.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.8657163783187503,
+      "correct": true
+    },
+    {
+      "text": "Salamat sa imong pagpakabana bisan makahahadlok ang sunog.",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.6398104490303251,
+      "correct": true
+    },
+    {
+      "text": "Bilib ko sa imong kalma nga pagreport bahin sa aksidente.",
+      "expected": "positive",
+      "predicted": "neutral",
+      "confidence": 0.554728846448896,
+      "correct": false
+    },
+    {
+      "text": "gwapo",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9805790158948711,
+      "correct": true
+    },
+    {
+      "text": "ka gwapo jud aning jobert oy",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9738201529326808,
+      "correct": true
+    },
+    {
+      "text": "gwapa ka",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9946767587975464,
+      "correct": true
+    },
+    {
+      "text": "salamat kaayo",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9968265015591796,
+      "correct": true
+    },
+    {
+      "text": "nindot kaayo",
+      "expected": "positive",
+      "predicted": "positive",
+      "confidence": 0.9970597355117827,
+      "correct": true
+    },
+    {
+      "text": "Nagpataka ka og pasangil.",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.8872410983103106,
+      "correct": true
+    },
+    {
+      "text": "Makalagot kay nagpasangil ka nga walay pruweba.",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.9661096170848066,
+      "correct": true
+    },
+    {
+      "text": "Dili maayo nga nagpakalat ka og tsismis bahin sa silingan.",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.5398067192790262,
+      "correct": true
+    },
+    {
+      "text": "Dili ko gusto nimo.",
+      "expected": "negative",
+      "predicted": "neutral",
+      "confidence": 0.7861418602791981,
+      "correct": false
+    },
+    {
+      "text": "guba na kaayo",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.8749580589332967,
+      "correct": true
+    },
+    {
+      "text": "buang ka",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.88432938435069,
+      "correct": true
+    },
+    {
+      "text": "Delikado na",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.824263522829649,
+      "correct": true
+    },
+    {
+      "text": "Makahadlok kini para sa mga bata sa pikas balay.",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.6026084505252871,
+      "correct": true
+    },
+    {
+      "text": "Makaguol nga adunay nasamad sa bangga.",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.623871180600423,
+      "correct": true
+    },
+    {
+      "text": "Nasuko ko sa imong bakak nga istorya bahin sa sunog.",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.7028749169249647,
+      "correct": true
+    },
+    {
+      "text": "Dili nindot ang pag-akusar nga walay basihan.",
+      "expected": "negative",
+      "predicted": "positive",
+      "confidence": 0.5194784765676602,
+      "correct": false
+    },
+    {
+      "text": "Wala gyud ayo ang serbisyo ninyo, nakadugang lang sa problema.",
+      "expected": "negative",
+      "predicted": "negative",
+      "confidence": 0.7979740634545428,
+      "correct": true
+    },
+    {
+      "text": "kaila man ko ani niya oh",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9354200780913174,
+      "correct": true
+    },
+    {
+      "text": "kaila man ko ani oh",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9426436731602537,
+      "correct": true
+    },
+    {
+      "text": "kaila ko nimo",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9912359360197576,
+      "correct": true
+    },
+    {
+      "text": "naa ra ko diri",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9926656642392624,
+      "correct": true
+    },
+    {
+      "text": "Unsang oras gisumite ang report sa sunog?",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.916467632028881,
+      "correct": true
+    },
+    {
+      "text": "Wala pa ko kabalo kinsa ang nagmaneho sa motor.",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9868306818081976,
+      "correct": true
+    },
+    {
+      "text": "Naa ba ni sa Canbanua o sa Lamacan?",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.9044574209171089,
+      "correct": true
+    },
+    {
+      "text": "Dili pa klaro pila ka tawo ang naa sa lugar.",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.934792105376819,
+      "correct": true
+    },
+    {
+      "text": "Wala pa mi nadawat nga kumpirmasyon.",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.7898196764167954,
+      "correct": true
+    },
+    {
+      "text": "Kaila ko sa tag-iya sa motor.",
+      "expected": "neutral",
+      "predicted": "neutral",
+      "confidence": 0.991858660289177,
+      "correct": true
+    }
+  ],
+  "gates": {
+    "reported_comment_positive": true,
+    "critical_regressions_pass": true,
+    "challenge_improved": true,
+    "test_macro_f1_not_degraded": true,
+    "negative_recall_not_degraded": true,
+    "positive_recall_not_degraded": true
+  },
+  "eligible": true,
+  "metadata": {
+    "artifact_version": 1,
+    "model_type": "word_character_tfidf_logistic_regression",
+    "language": "cebuano",
+    "labels": [
+      "negative",
+      "neutral",
+      "positive"
+    ],
+    "best_c": 4.0,
+    "random_state": 42,
+    "sklearn_version": "1.9.1",
+    "trained_at": "2026-10-22T18:14:48.589599+00:00",
+    "training_samples": 29681,
+    "validation_metrics": {
+      "samples": 2896,
+      "accuracy": 0.767610497237569,
+      "macro_f1": 0.7285831500632606,
+      "weighted_f1": 0.7797588964065274,
+      "per_label": {
+        "negative": {
+          "precision": 0.48854961832061067,
+          "recall": 0.7887323943661971,
+          "f1": 0.6033670033670033,
+          "support": 568.0
+        },
+        "neutral": {
+          "precision": 0.9037864680322781,
+          "recall": 0.7960634226353198,
+          "f1": 0.8465116279069768,
+          "support": 1829.0
+        },
+        "positive": {
+          "precision": 0.8668478260869565,
+          "recall": 0.6392785571142284,
+          "f1": 0.7358708189158016,
+          "support": 499.0
+        }
+      },
+      "confusion_matrix_labels": [
+        "negative",
+        "neutral",
+        "positive"
+      ],
+      "confusion_matrix": [
+        [
+          448,
+          102,
+          18
+        ],
+        [
+          342,
+          1456,
+          31
+        ],
+        [
+          127,
+          53,
+          319
+        ]
+      ]
+    },
+    "test_metrics": {
+      "samples": 2861,
+      "accuracy": 0.7689619014330653,
+      "macro_f1": 0.7231020323412456,
+      "weighted_f1": 0.7820001327405601,
+      "per_label": {
+        "negative": {
+          "precision": 0.48056155507559395,
+          "recall": 0.8135283363802559,
+          "f1": 0.6042090970807875,
+          "support": 547.0
+        },
+        "neutral": {
+          "precision": 0.9210191082802548,
+          "recall": 0.8002213613724405,
+          "f1": 0.856381403612674,
+          "support": 1807.0
+        },
+        "positive": {
+          "precision": 0.8465753424657534,
+          "recall": 0.6094674556213018,
+          "f1": 0.7087155963302753,
+          "support": 507.0
+        }
+      },
+      "confusion_matrix_labels": [
+        "negative",
+        "neutral",
+        "positive"
+      ],
+      "confusion_matrix": [
+        [
+          445,
+          79,
+          23
+        ],
+        [
+          328,
+          1446,
+          33
+        ],
+        [
+          153,
+          45,
+          309
+        ]
+      ]
+    },
+    "calibration": {
+      "selection_split": "validation",
+      "negative_logit_offset": 0.8,
+      "positive_logit_offset": 0.45,
+      "recall_floors": {
+        "negative": 0.7476056338028169,
+        "positive": 0.6232865731462925
+      }
+    },
+    "artifact_path": "C:\\Users\\Administrator\\Desktop\\CommuniShield\\artifacts\\cebuano-contrastive\\20261022T181412Z\\models\\sentiment_cebuano.joblib",
+    "onnx_artifact": {
+      "artifact_path": "C:\\Users\\Administrator\\Desktop\\CommuniShield\\artifacts\\cebuano-contrastive\\20261022T181412Z\\models\\sentiment_cebuano.onnx",
+      "opset": 17,
+      "string_normalizer_locale_pinned": 2
+    }
+  }
+}

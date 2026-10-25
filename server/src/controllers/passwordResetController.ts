@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { sendOtpEmail } from "../services/emailService.js";
 import { getRedis } from "../config/redis.js";
 import crypto from "crypto";
+import { loginVerificationService } from "../services/loginVerificationService.js";
 
 const OTP_EXPIRY_SECONDS = 15 * 60;
 
@@ -167,6 +168,7 @@ export const resetPassword = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "User not found." });
     }
 
+    await loginVerificationService.revokeAll(user.id);
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
       user.id,
       { password: newPassword }

@@ -27,6 +27,11 @@ app.get("/", (req: Request, res: Response) => {
   res.send("It is working");
 });
 
+// Liveness only: do not call paid/external services on every platform probe.
+app.get("/health", (_req: Request, res: Response) => {
+  res.json({ status: "ok" });
+});
+
 app.use(errorHandler);
 
 export default app;

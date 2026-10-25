@@ -186,27 +186,17 @@ function RegisterInner() {
 
     setLoading(true);
     try {
-      const res = await apiClient.post("/register", {
+      await apiClient.post("/register", {
         userName: userName.trim(),
         email: cleanEmail,
         password,
         termsVersion: acceptedTermsVersion,
       });
 
-      const token = res.data?.access_token;
-
-      if (token) {
-        try {
-          await AsyncStorage.setItem("access_token", token);
-        } catch (storageError) {
-          console.warn("Failed to store access token:", storageError);
-        }
-      }
-
-      toast.success("Registration successful!");
+      toast.success("Registration successful! Sign in to verify your device.");
       await clearFormData();
       setTimeout(() => {
-        router.replace("/(tabs)/User_Home");
+        router.replace("/(auth)/User_Login");
       }, 1000);
     } catch (error) {
       const serverMessage = error.response?.data?.error;

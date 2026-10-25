@@ -164,7 +164,7 @@ const UserMap = () => {
         distanceKm: haversineKm(anchor[0], anchor[1], b.lat, b.lng),
       })),
       ...staticFacilities,
-    ];
+    ].filter((facility) => facility.type !== "help");
 
     all.sort(
       (a, b) => (a.distanceKm ?? 1e9) - (b.distanceKm ?? 1e9)
@@ -274,8 +274,10 @@ const UserMap = () => {
               <Ionicons name="information-circle-outline" size={13} color="#5D6F92" />
               <ThemedText style={styles.legendTitle}>Legend</ThemedText>
             </View>
-            {Object.values(MAP_TYPE_META).map((meta) => (
-              <View key={meta.label} style={styles.legendItem}>
+            {Object.entries(MAP_TYPE_META)
+              .filter(([type]) => type !== "help")
+              .map(([type, meta]) => (
+              <View key={type} style={styles.legendItem}>
                 <Ionicons name={meta.icon} size={13} color={meta.color} />
                 <ThemedText style={styles.legendText}>{meta.label}</ThemedText>
               </View>
@@ -423,7 +425,7 @@ const UserMap = () => {
 
             <ThemedText style={styles.bottomNote}>
               Pins cover all 45 barangays of Argao plus hospitals, clinics,
-              police, fire, and help stations.
+              police stations, and fire stations.
             </ThemedText>
           </View>
         </View>

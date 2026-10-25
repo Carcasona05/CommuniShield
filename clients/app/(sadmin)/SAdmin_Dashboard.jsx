@@ -85,6 +85,8 @@ const getActivityStyle = (actionType = "") => {
 const formatCount = (value) =>
   String(value ?? 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
+const cachedOverview = () => getCache("api:/admin/overview") || getCache("preview:/admin/overview") || getCache("api:/admin/dashboard");
+
 export default function SAdmin_Dashboard() {
   const router = useRouter();
 
@@ -95,7 +97,7 @@ export default function SAdmin_Dashboard() {
   });
 
   const [summary, setSummary] = useState(() => {
-    const cached = getCache("api:/admin/dashboard");
+    const cached = cachedOverview();
     return cached?.summary || { total: 0, pending: 0, verified: 0, rejected: 0 };
   });
   const [accounts, setAccounts] = useState(() => {
@@ -106,27 +108,32 @@ export default function SAdmin_Dashboard() {
     const cached = getCache("api:/admin/logs");
     return cached?.logs || [];
   });
-  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
+  const [loading, setLoading] = useState(() => cachedOverview() === undefined);
+  const [dataStatus, setDataStatus] = useState(() => getCache("preview:/admin/overview")
+    ? "Saved overview — updating live counts…" : "Loading live overview…");
+  const [accountsLoaded, setAccountsLoaded] = useState(() => getCache("api:/admin/accounts") !== undefined);
+  const [logsLoaded, setLogsLoaded] = useState(() => getCache("api:/admin/logs") !== undefined);
 
   const fetchDashboard = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      const cached = getCache("api:/admin/dashboard");
+      const cached = cachedOverview();
       if (cached?.summary) {
         setSummary(cached.summary);
       }
 
-      const res = await apiClient.get("/admin/dashboard", {
+      const res = await apiClient.get("/admin/overview", {
         headers: { Authorization: `Bearer ${token}` },
+        timeout: 10000,
       });
 
-      setCache("api:/admin/dashboard", res.data ?? {});
       setSummary(res.data?.summary ?? {});
+      setDataStatus("Overview updated. Secondary panels refresh in the background.");
     } catch {
-      // keep last loaded data on failure
-    }
+      setDataStatus("Overview refresh unavailable. Any saved counts may be outdated.");
+    } finally { setLoading(false); }
   }, []);
 
   const fetchAccounts = useCallback(async () => {
@@ -145,6 +152,7 @@ export default function SAdmin_Dashboard() {
 
       setCache("api:/admin/accounts", res.data ?? {});
       setAccounts(res.data?.accounts || []);
+      setAccountsLoaded(true);
     } catch {
       // keep last loaded data on failure
     }
@@ -166,12 +174,15 @@ export default function SAdmin_Dashboard() {
 
       setCache("api:/admin/logs", res.data ?? {});
       setLogs(res.data?.logs || []);
+      setLogsLoaded(true);
     } catch {
       // keep last loaded data on failure
     }
   }, []);
 
   const loadDashboard = useCallback(async () => {
+    // Count-only overview controls first render; account/log requests cannot
+    // hold the landing page skeleton open.
     await Promise.allSettled([
       fetchDashboard(),
       fetchAccounts(),
@@ -271,7 +282,7 @@ export default function SAdmin_Dashboard() {
     },
     {
       title: "Active Admins",
-      value: formatCount(activeAdmins),
+      value: accountsLoaded ? formatCount(activeAdmins) : "—",
       note: "Normal admins currently registered",
       icon: "people-outline",
       iconType: "Ionicons",
@@ -280,7 +291,7 @@ export default function SAdmin_Dashboard() {
     },
     {
       title: "Logs Today",
-      value: formatCount(auditLogsToday),
+      value: logsLoaded ? formatCount(auditLogsToday) : "—",
       note: "System and admin activities",
       icon: "list-outline",
       iconType: "Ionicons",
@@ -292,15 +303,15 @@ export default function SAdmin_Dashboard() {
   const adminSummary = [
     {
       label: "SuperAdmin Accounts",
-      value: formatCount(
+      value: accountsLoaded ? formatCount(
         accounts.filter((a) => a.role === "super_admin").length
-      ),
+      ) : "—",
       icon: "star-outline",
       color: "#294880",
     },
     {
       label: "Normal Admin Accounts",
-      value: formatCount(accounts.filter((a) => a.role === "admin").length),
+      value: accountsLoaded ? formatCount(accounts.filter((a) => a.role === "admin").length) : "—",
       icon: "person-outline",
       color: "#2563EB",
     },
@@ -312,9 +323,9 @@ export default function SAdmin_Dashboard() {
     },
     {
       label: "Disabled Accounts",
-      value: formatCount(
+      value: accountsLoaded ? formatCount(
         accounts.filter((a) => a.status === "Disabled").length
-      ),
+      ) : "—",
       icon: "person-remove-outline",
       color: "#DC2626",
     },
@@ -395,6 +406,9 @@ export default function SAdmin_Dashboard() {
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
       >
+        <Text testID="dashboard-data-status" accessibilityRole="status" style={{ color: "#52627a", marginBottom: 12 }}>
+          {dataStatus}
+        </Text>
         <View style={styles.overviewGrid}>
           {overviewCards.map((item, index) => (
             <View key={index} style={styles.overviewCard}>

@@ -11,6 +11,7 @@ const ThemedView = ({ style, children, ...props }) => {
       style={[
         {
           backgroundColor: theme.background,
+          margin: 5,
         },
         style,
       ]}

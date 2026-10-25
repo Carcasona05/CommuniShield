@@ -420,6 +420,9 @@ export default function Admin_ViewSimilarReportsModal({
                           <TouchableOpacity
                             style={styles.reportMenuButton}
                             onPress={() => handleToggleReportMenu(report.id)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Report actions"
+                            accessibilityState={{ expanded: openMenuReportId === report.id }}
                             activeOpacity={0.8}
                           >
                             <Ionicons

@@ -4,6 +4,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { InferenceSession, Tensor } from "onnxruntime-node";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import { getActiveModelBundle, supportingModelsEnabled } from "./sentimentModelRegistry.js";
+import { supportingProposals } from "./supportingModelRegistry.js";
+import { routeSupportingModels, type Scores } from "./supportingModelRouting.js";
 import {
   GeminiClientError,
   candidateModels,
@@ -57,6 +60,7 @@ export interface SentimentPrediction {
 interface LocalSession {
   session: InferenceSession;
   labels: SentimentLabel[];
+  version: string;
 }
 
 const LOCAL_LABELS: SentimentLabel[] = ["negative", "neutral", "positive"];
@@ -93,9 +97,14 @@ const resolveModelDirectory = (): string => {
 };
 
 const modelDirectory = resolveModelDirectory();
-const localSessions = new Map<SentimentLanguage, Promise<LocalSession>>();
+const localSessions = new Map<SentimentLanguage, { version: string; session: Promise<LocalSession> }>();
 
 const LOW_LOCAL_CONFIDENCE = 0.45;
+// A confident local override is only trustworthy when the input carries enough
+// signal. For very short inputs (up to 3 tokens, e.g. "gwapo") the TF-IDF model
+// has almost no context, so it must be near-certain before it may overrule Gemini.
+const SHORT_INPUT_TOKENS = 3;
+const SHORT_INPUT_LOCAL_CONFIDENCE = 0.75;
 
 const clamp = (value: number, minimum = 0, maximum = 1): number =>
   Math.min(maximum, Math.max(minimum, value));
@@ -125,17 +134,30 @@ export const normalizeSentimentLabel = (value: unknown): SentimentLabel | null =
 const LANGID_LABELS = ["cebuano", "english", "filipino"];
 const LANGID_MIN_CONFIDENCE = 0.5;
 let languageSession: Promise<InferenceSession> | null = null;
+let languageVersion = "";
 
-const loadLanguageSession = (): Promise<InferenceSession> => {
-  if (languageSession) return languageSession;
-  languageSession = (async () => {
-    const path = join(modelDirectory, "language_id.onnx");
+const loadLanguageSession = async (): Promise<InferenceSession> => {
+  const bundle = await getActiveModelBundle(modelDirectory);
+  if (languageSession && languageVersion === bundle.version) return languageSession;
+  const previous = languageSession;
+  const previousVersion = languageVersion;
+  languageVersion = bundle.version;
+  const loading = (async () => {
+    const path = join(bundle.directory, "language_id.onnx");
     if (!existsSync(path)) {
       throw new Error(`Language id model is missing: ${path}`);
     }
     return InferenceSession.create(path);
-  })();
-  return languageSession;
+  })().catch((error) => {
+    if (languageSession === loading) {
+      languageSession = previous;
+      languageVersion = previousVersion;
+    }
+    if (previous) return previous;
+    throw error;
+  });
+  languageSession = loading;
+  return loading;
 };
 
 export const detectLanguage = async (
@@ -169,24 +191,29 @@ export const detectLanguage = async (
 export const sentimentInputHash = (text: string): string =>
   createHash("sha256").update(normalizeText(text), "utf8").digest("hex");
 
-const localModelPath = (language: LocalModelLanguage): string =>
-  join(modelDirectory, `sentiment_${language}.onnx`);
-
-const loadLocalSession = (
+const loadLocalSession = async (
   language: LocalModelLanguage
 ): Promise<LocalSession> => {
+  const bundle = await getActiveModelBundle(modelDirectory);
   const existing = localSessions.get(language);
-  if (existing) return existing;
+  if (existing?.version === bundle.version) return existing.session;
 
   const loading = (async (): Promise<LocalSession> => {
-    const path = localModelPath(language);
+    const path = join(bundle.directory, `sentiment_${language}.onnx`);
     if (!existsSync(path)) {
       throw new Error(`Local sentiment model is missing: ${path}`);
     }
     const session = await InferenceSession.create(path);
-    return { session, labels: [...LOCAL_LABELS] };
-  })();
-  localSessions.set(language, loading);
+    return { session, labels: [...LOCAL_LABELS], version: bundle.version };
+  })().catch((error) => {
+    if (localSessions.get(language)?.session === loading) {
+      if (existing) localSessions.set(language, existing);
+      else localSessions.delete(language);
+    }
+    if (existing) return existing.session;
+    throw error;
+  });
+  localSessions.set(language, { version: bundle.version, session: loading });
   return loading;
 };
 
@@ -194,7 +221,7 @@ const runLocalPrediction = async (
   language: LocalModelLanguage,
   text: string
 ): Promise<SentimentPrediction> => {
-  const { session, labels } = await loadLocalSession(language);
+  const { session, labels, version } = await loadLocalSession(language);
   const input = new Tensor("string", [text], [1, 1]);
   const output = await session.run({ text: input });
   const probabilities = output.probabilities?.data;
@@ -211,12 +238,16 @@ const runLocalPrediction = async (
   const label = labels[bestIndex];
   if (!label) throw new Error("Local sentiment model returned an invalid label");
 
+  const scores: Scores = { negative: Number(probabilities[0]), neutral: Number(probabilities[1]), positive: Number(probabilities[2]) };
+  const proposals = await supportingProposals(modelDirectory, language, text, scores);
+  const routed = routeSupportingModels(scores, proposals);
   return {
-    label,
-    confidence: clamp(Number(probabilities[bestIndex])),
+    label: routed.label,
+    confidence: routed.confidence,
     language,
-    provider: "local",
-    model: `word-character-tfidf-logistic-regression-${language}`,
+    provider: routed.origin === "builtin" ? "local" : "ensemble",
+    model: routed.origin === "builtin" ? `word-character-tfidf-logistic-regression-${language}@${version}`
+      : `cascade:${routed.origin}|${routed.reason}|builtin:${version}|support:${routed.ids.join(",")}`,
     input_hash: sentimentInputHash(text),
     source_text: text,
   };
@@ -423,7 +454,16 @@ const fuseLocalWithGeminiAssist = (
     };
   }
 
-  if (local.confidence >= LOW_LOCAL_CONFIDENCE) {
+  // Decide how confident the local model must be before it may overrule Gemini.
+  // Short, low-context inputs demand near-certainty; longer inputs use the
+  // normal threshold.
+  const tokenCount = local.source_text.trim().split(/\s+/).filter(Boolean).length;
+  const requiredLocalConfidence =
+    tokenCount <= SHORT_INPUT_TOKENS
+      ? Math.max(LOW_LOCAL_CONFIDENCE, SHORT_INPUT_LOCAL_CONFIDENCE)
+      : LOW_LOCAL_CONFIDENCE;
+
+  if (local.confidence >= requiredLocalConfidence) {
     return {
       prediction: {
         ...local,
@@ -463,7 +503,8 @@ const attempt = async <T>(fn: () => Promise<T>): Promise<AssistAttempt<T>> => {
 
 const predict = async (
   textValue: string,
-  context?: string
+  context?: string,
+  localOnly = false
 ): Promise<{ prediction: SentimentPrediction; errorCode: string }> => {
   const text = normalizeText(textValue);
   if (!text) {
@@ -481,15 +522,15 @@ const predict = async (
   const localLanguage =
     detectedLanguage === "english" ||
     detectedLanguage === "filipino" ||
-    (detectedLanguage === "cebuano" && cebuanoMode === "local");
+    (detectedLanguage === "cebuano" && (cebuanoMode === "local" || (supportingModelsEnabled() && cebuanoMode !== "disabled")));
   const shouldUseLocal = localEnabled && localLanguage;
-  let shouldUseGemini = geminiEnabled && geminiConfigured();
+  let shouldUseGemini = !supportingModelsEnabled() && !localOnly && geminiEnabled && geminiConfigured();
 
   if (detectedLanguage === "cebuano") {
     if (cebuanoMode === "disabled") {
       shouldUseGemini = false;
     } else {
-      shouldUseGemini = geminiEnabled && geminiConfigured();
+      shouldUseGemini = !supportingModelsEnabled() && !localOnly && geminiEnabled && geminiConfigured();
     }
   }
 
@@ -502,6 +543,9 @@ const predict = async (
     ]);
 
     if (localResult.ok) {
+      // Pool decisions have already applied their validated routing policy.
+      // A Gemini vote must not silently override a protected primary/cascade.
+      if (localResult.value.model.startsWith("cascade:")) return { prediction: localResult.value, errorCode: "" };
       if (!geminiResult || !geminiResult.ok) {
         if (shouldUseGemini) {
           console.error(
@@ -564,6 +608,7 @@ const predict = async (
   }
 
   if (detectedLanguage === "unknown" && localEnabled) {
+    if (supportingModelsEnabled()) return { prediction: unavailableResult(text, "unknown", "language_uncertain"), errorCode: "language_uncertain" };
     const fallbackLanguages: LocalModelLanguage[] = ["english", "filipino"];
     if (cebuanoMode !== "disabled") fallbackLanguages.push("cebuano");
     const fallbackResults = await Promise.all(
@@ -596,12 +641,16 @@ const predict = async (
 export const __testing = {
   fuseLocalWithGeminiAssist,
   LOW_LOCAL_CONFIDENCE,
+  SHORT_INPUT_TOKENS,
+  SHORT_INPUT_LOCAL_CONFIDENCE,
   buildGeminiSentimentPrompt,
 };
 
 type SentimentRequest = {
   force?: boolean;
   requestId?: string;
+  /** Disable external Gemini calls for this request without changing settings. */
+  localOnly?: boolean;
 };
 
 type StoredSentimentRow = {
@@ -1039,7 +1088,7 @@ export const sentimentService = {
         continue;
       }
 
-      const { prediction, errorCode } = await predict(subject.text, subject.context);
+      const { prediction, errorCode } = await predict(subject.text, subject.context, options.localOnly);
       const status: SentimentStatus = errorCode
         ? prediction.provider === "none"
           ? "unavailable"
@@ -1089,6 +1138,13 @@ export const sentimentService = {
         continue;
       }
 
+      if (persisted.model.startsWith("cascade:supporting|")) {
+        const ids = (persisted.model.split("|support:")[1] || "").split(",")
+          .filter((id) => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id));
+        if (ids.length) {
+          try { await supabaseAdmin.rpc("record_sentiment_support_usage", { p_ids: ids }); } catch { /* Provenance is still saved in model. */ }
+        }
+      }
       return toAnalysis(subjectType, persisted);
     }
 

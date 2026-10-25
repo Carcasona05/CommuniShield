@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { reverseGeocode } from "../utils/geocode.js";
+import { deriveBarangay, hasReportCoordinates } from "../utils/argaoLocation.js";
 import {
   getRecommendedActions,
   ruleBasedActions,
@@ -36,6 +37,37 @@ type SentimentRow = {
 const asTrimmedString = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
 
+// PostgREST encodes .in() values in the URL. Hundreds of UUIDs can exceed
+// proxy/header limits, so dashboard relation reads must use bounded batches.
+async function loadDashboardRelations<T>(
+  ids: string[],
+  load: (batch: string[]) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+): Promise<{ data: T[]; error: null } | { data: null; error: { message: string } }> {
+  const rows: T[] = [];
+  const uniqueIds = [...new Set(ids)];
+  for (let offset = 0; offset < uniqueIds.length; offset += 100) {
+    const { data, error } = await load(uniqueIds.slice(offset, offset + 100));
+    if (error) return { data: null, error };
+    rows.push(...(data || []));
+  }
+  return { data: rows, error: null };
+}
+
+// PostgREST caps rows per response independently of the URL-size limit.
+// Analytics must aggregate every page, including busy comment threads.
+async function loadAnalyticsPages<T>(
+  load: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+): Promise<{ data: T[]; error: null } | { data: null; error: { message: string } }> {
+  const rows: T[] = [];
+  const pageSize = 500;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await load(from, from + pageSize - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) return { data: rows, error: null };
+  }
+}
+
 const VALID_STATUSES = [
   "Pending Review",
   "Under Verification",
@@ -44,41 +76,6 @@ const VALID_STATUSES = [
   "Archived",
   "Marked Fake",
 ];
-
-const ARGAO_BARANGAYS = [
-  "Poblacion",
-  "Lamacan",
-  "Talaga",
-  "Canbanua",
-  "Bugang",
-  "Conalum",
-  "Dawis",
-  "Guiwanon",
-  "Kabangkalan",
-  "Kasambagan",
-  "Langtad",
-  "Mango",
-  "Matic",
-  "Mindalusan",
-  "Oboj",
-  "Osang",
-  "Pajija",
-  "Tulic",
-  "San Miguel",
-  "Binlod",
-  "Tagaytay",
-  "Taloot",
-];
-
-function deriveBarangay(location: string): string {
-  const loc = (location || "").toLowerCase();
-  if (!loc) return "";
-  for (const barangay of ARGAO_BARANGAYS) {
-    if (loc.includes(barangay.toLowerCase())) return barangay;
-  }
-  const first = loc.split(",")[0]?.trim() || "";
-  return first ? first.charAt(0).toUpperCase() + first.slice(1) : "";
-}
 
 function categoryNameOf(rel: unknown): string {
   if (!rel) return "";
@@ -166,15 +163,22 @@ export const reportService = {
     const status = VALID_STATUSES.includes(input.status || "")
       ? input.status!
       : "Pending Review";
+    const latitude = hasReportCoordinates(input) ? Number(input.latitude) : null;
+    const longitude = hasReportCoordinates(input) ? Number(input.longitude) : null;
+    // The client already resolves the address. Preserve its street details;
+    // use bundled polygons as an instant fallback, never a second network
+    // reverse-geocode request on the submission path.
+    const barangay = deriveBarangay(input.location || "", input);
+    const location = asTrimmedString(input.location) || (barangay ? `${barangay}, Argao, Cebu` : "Location not specified");
 
     const { data: report, error } = await supabaseAdmin
       .from("reports")
       .insert({
         user_id: userId,
         incident_type_id: incidentTypeId,
-        location: input.location ?? "",
-        latitude: input.latitude ? Number(input.latitude) : null,
-        longitude: input.longitude ? Number(input.longitude) : null,
+        location,
+        latitude,
+        longitude,
         poster_name: input.poster_name ?? "",
         display_name_type: input.display_name_type ?? "Fullname",
         details: asTrimmedString(input.details),
@@ -182,23 +186,11 @@ export const reportService = {
         is_verified: input.is_verified ?? false,
         role: input.role ?? "user",
       })
-      .select("id")
+      .select("id, location")
       .maybeSingle();
 
     if (error) return { error: error.message };
     if (!report) return { error: "Failed to create report" };
-
-    const latNum = input.latitude ? Number(input.latitude) : null;
-    const lngNum = input.longitude ? Number(input.longitude) : null;
-    if (latNum && lngNum) {
-      const resolved = await reverseGeocode(latNum, lngNum);
-      if (resolved) {
-        await supabaseAdmin
-          .from("reports")
-          .update({ location: resolved })
-          .eq("id", report.id);
-      }
-    }
 
     const images = Array.isArray(input.photos)
       ? input.photos.map((url, index) => ({
@@ -218,11 +210,7 @@ export const reportService = {
     return {
       data: {
         id: report.id,
-        location: (await supabaseAdmin
-          .from("reports")
-          .select("location")
-          .eq("id", report.id)
-          .maybeSingle()).data?.location ?? input.location ?? "",
+        location: report.location ?? location,
       },
     };
   },
@@ -247,11 +235,13 @@ export const reportService = {
       });
     });
 
+    // Archived reports only live in the Logs archive view, never in feeds.
     const { data: reports, error: reportError } = await supabaseAdmin
       .from("reports")
       .select(
         "id, user_id, location, latitude, longitude, details, poster_name, display_name_type, status, is_verified, created_at, incident_type_id, role"
       )
+      .neq("status", "Archived")
       .order("created_at", { ascending: false });
 
     if (reportError) return { data: null, error: reportError.message };
@@ -412,13 +402,18 @@ export const reportService = {
     return { data: report, error: null };
   },
 
-  async updateReport(userId: string, reportId: string, input: ReportInput) {
-    const { data: own } = await supabaseAdmin
+  async updateReport(
+    userId: string,
+    reportId: string,
+    input: ReportInput,
+    options: { adminScope?: boolean } = {}
+  ) {
+    let ownerQuery = supabaseAdmin
       .from("reports")
       .select("id")
-      .eq("id", reportId)
-      .eq("user_id", userId)
-      .maybeSingle();
+      .eq("id", reportId);
+    if (!options.adminScope) ownerQuery = ownerQuery.eq("user_id", userId);
+    const { data: own } = await ownerQuery.maybeSingle();
 
     if (!own) return { error: "Report not found" };
 
@@ -426,6 +421,12 @@ export const reportService = {
     if (typeof input.details === "string") updates.details = input.details.trim();
     if (typeof input.location === "string") updates.location = input.location;
     if (typeof input.poster_name === "string") updates.poster_name = input.poster_name;
+
+    if (input.latitude !== undefined || input.longitude !== undefined) {
+      if (!hasReportCoordinates(input)) return { error: "Valid latitude and longitude are required together" };
+      updates.latitude = Number(input.latitude);
+      updates.longitude = Number(input.longitude);
+    }
 
     const coordPattern = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?/;
     const latNum = input.latitude ? Number(input.latitude) : null;
@@ -452,11 +453,12 @@ export const reportService = {
       updates.incident_type_id = incidentTypeId;
     }
 
-    const { error: updateError } = await supabaseAdmin
+    let updateQuery = supabaseAdmin
       .from("reports")
       .update(updates)
-      .eq("id", reportId)
-      .eq("user_id", userId);
+      .eq("id", reportId);
+    if (!options.adminScope) updateQuery = updateQuery.eq("user_id", userId);
+    const { error: updateError } = await updateQuery;
 
     if (updateError) return { error: updateError.message };
 
@@ -483,22 +485,24 @@ export const reportService = {
     return { data: reportId };
   },
 
-  async deleteReport(userId: string, reportId: string) {
-    const { data: own, error: checkError } = await supabaseAdmin
+  async deleteReport(
+    userId: string,
+    reportId: string,
+    options: { adminScope?: boolean } = {}
+  ) {
+    let ownerQuery = supabaseAdmin
       .from("reports")
       .select("id")
-      .eq("id", reportId)
-      .eq("user_id", userId)
-      .maybeSingle();
+      .eq("id", reportId);
+    if (!options.adminScope) ownerQuery = ownerQuery.eq("user_id", userId);
+    const { data: own, error: checkError } = await ownerQuery.maybeSingle();
 
     if (checkError) return { error: checkError.message };
     if (!own) return { error: "Report not found" };
 
-    const { error } = await supabaseAdmin
-      .from("reports")
-      .delete()
-      .eq("id", reportId)
-      .eq("user_id", userId);
+    let deleteQuery = supabaseAdmin.from("reports").delete().eq("id", reportId);
+    if (!options.adminScope) deleteQuery = deleteQuery.eq("user_id", userId);
+    const { error } = await deleteQuery;
 
     if (error) return { error: error.message };
 
@@ -726,7 +730,7 @@ export const reportService = {
   async listAdminAnnouncements(filters: { from?: string; to?: string } = {}) {
     let announcementsQuery = supabaseAdmin
       .from("admin_announcement")
-      .select("id, type, title, location, details, admin_id, created_at");
+      .select("id, type, title, location, details, pic_url, admin_id, created_at");
     if (filters.from) {
       announcementsQuery = announcementsQuery.gte("created_at", filters.from);
     }
@@ -746,11 +750,65 @@ export const reportService = {
         title: announcement.title,
         location: announcement.location ?? "",
         details: announcement.details ?? "",
+        pic_url: announcement.pic_url ?? null,
         adminId: announcement.admin_id,
         created_at: announcement.created_at,
       })),
       error: null,
     };
+  },
+
+  async updateAnnouncement(
+    announcementId: string,
+    input: {
+      type?: string;
+      title?: string;
+      location?: string;
+      details?: string;
+      pic_url?: string | null;
+    }
+  ) {
+    const type = (input.type || "").trim();
+    const title = (input.title || "").trim();
+    const details = (input.details || "").trim();
+
+    if (!title || !type || !details) {
+      return { error: "Announcement title, type and details are required" };
+    }
+
+    const updates: Record<string, unknown> = {
+      type,
+      title,
+      location: input.location ?? "",
+      details,
+    };
+    if (input.pic_url !== undefined) updates.pic_url = input.pic_url;
+
+    const { data, error } = await supabaseAdmin
+      .from("admin_announcement")
+      .update(updates)
+      .eq("id", announcementId)
+      .select("id")
+      .maybeSingle();
+
+    if (error) return { error: error.message };
+    if (!data) return { error: "Announcement not found" };
+
+    return { data: data.id };
+  },
+
+  async deleteAnnouncement(announcementId: string) {
+    const { data, error } = await supabaseAdmin
+      .from("admin_announcement")
+      .delete()
+      .eq("id", announcementId)
+      .select("id")
+      .maybeSingle();
+
+    if (error) return { error: error.message };
+    if (!data) return { error: "Announcement not found" };
+
+    return { data: data.id };
   },
 
   async listAuditLogs(
@@ -809,6 +867,22 @@ export const reportService = {
     return { data: logs, error: null };
   },
 
+  // Count-only landing response: no narratives, profiles, images or comment joins.
+  async getAdminOverview() {
+    const count = () => supabaseAdmin.from("reports").select("id", { count: "exact", head: true }).neq("status", "Archived");
+    const results = await Promise.all([
+      count(), count().eq("status", "Pending Review"),
+      count().or("is_verified.eq.true,status.eq.Resolved"), count().eq("status", "Rejected"),
+      supabaseAdmin.from("reports")
+        .select("id,report_credibility_analysis!inner(severity)", { count: "exact", head: true })
+        .not("status", "in", '("Rejected","Archived")').in("report_credibility_analysis.severity", ["High", "Critical"]),
+    ]);
+    const failure = results.find(result => result.error || !Number.isSafeInteger(result.count) || result.count! < 0);
+    if (failure) return { data: null, error: failure.error?.message || "Report counts are unavailable." };
+    const [total, pending, verified, rejected, hotspots] = results.map(result => result.count!);
+    return { data: { summary: { total, pending, verified, rejected, hotspots } }, error: null };
+  },
+
   async getAdminDashboard(filters: {
     status?: string;
     source?: string;
@@ -839,7 +913,13 @@ export const reportService = {
       .select(
         "id, user_id, location, latitude, longitude, details, poster_name, status, is_verified, created_at, incident_type_id, role"
       );
-    if (filters.status) reportQuery = reportQuery.eq("status", filters.status);
+    if (filters.status === "Archived") {
+      // Explicit archived view used by the Logs archive tab.
+      reportQuery = reportQuery.eq("status", "Archived");
+    } else {
+      reportQuery = reportQuery.neq("status", "Archived");
+      if (filters.status) reportQuery = reportQuery.eq("status", filters.status);
+    }
     if (filters.source?.toLowerCase() === "admin") {
       reportQuery = reportQuery.in("role", ["admin", "super_admin"]);
     }
@@ -864,10 +944,11 @@ export const reportService = {
     ];
     const reporterNameByUser = new Map<string, string>();
     if (reporterIds.length > 0) {
-      const { data: reporterProfiles } = await supabaseAdmin
+      const { data: reporterProfiles, error: profilesError } = await loadDashboardRelations(reporterIds, (batch) => supabaseAdmin
         .from("profiles")
         .select("id, fullname, user_name")
-        .in("id", reporterIds);
+        .in("id", batch));
+      if (profilesError) return { data: null, error: profilesError.message };
       (reporterProfiles || []).forEach(
         (p: { id: string; fullname: string | null; user_name: string | null }) => {
           reporterNameByUser.set(p.id, p.fullname || p.user_name || "");
@@ -875,22 +956,18 @@ export const reportService = {
       );
     }
 
-    const { data: analyses, error: analysisError } = reportIds.length
-      ? await supabaseAdmin
+    const { data: analyses, error: analysisError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
           .from("report_credibility_analysis")
           .select("report_id, ai_score, severity, credibility_review")
-          .in("report_id", reportIds)
-      : { data: [], error: null };
+          .in("report_id", batch));
 
     if (analysisError) return { data: null, error: analysisError.message };
 
-    const { data: sentimentRows, error: sentimentError } = reportIds.length
-      ? await supabaseAdmin
+    const { data: sentimentRows, error: sentimentError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
           .from("sentiment_analysis")
           .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
           .eq("subject_type", "report")
-          .in("subject_id", reportIds)
-      : { data: [], error: null };
+          .in("subject_id", batch));
     if (sentimentError) return { data: null, error: sentimentError.message };
     const sentimentMap = new Map<string, SentimentRow>();
     (sentimentRows || []).forEach((row: SentimentRow) => {
@@ -920,13 +997,11 @@ export const reportService = {
       }
     );
 
-    const { data: commentRows, error: commentsError } = reportIds.length
-      ? await supabaseAdmin
+    const { data: commentRows, error: commentsError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
           .from("report_comments")
           .select("id, report_id, user_id, content, created_at")
-          .in("report_id", reportIds)
-          .order("created_at", { ascending: true })
-      : { data: [], error: null };
+          .in("report_id", batch)
+          .order("created_at", { ascending: true }));
 
     if (commentsError) return { data: null, error: commentsError.message };
 
@@ -939,10 +1014,11 @@ export const reportService = {
     ];
     const dashboardNameByUser = new Map<string, string>();
     if (dashboardUserIds.length > 0) {
-      const { data: dashboardProfiles } = await supabaseAdmin
+      const { data: dashboardProfiles, error: profilesError } = await loadDashboardRelations(dashboardUserIds, (batch) => supabaseAdmin
         .from("profiles")
         .select("id, fullname, user_name")
-        .in("id", dashboardUserIds);
+        .in("id", batch));
+      if (profilesError) return { data: null, error: profilesError.message };
       (dashboardProfiles || []).forEach(
         (profile: { id: string; fullname: string | null; user_name: string | null }) => {
           dashboardNameByUser.set(
@@ -957,11 +1033,11 @@ export const reportService = {
     const dashboardCommentSentiment = new Map<string, SentimentRow>();
     if (dashboardCommentIds.length > 0) {
       const { data: commentSentimentRows, error: commentSentimentError } =
-        await supabaseAdmin
+        await loadDashboardRelations(dashboardCommentIds, (batch) => supabaseAdmin
           .from("sentiment_analysis")
           .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
           .eq("subject_type", "comment")
-          .in("subject_id", dashboardCommentIds);
+          .in("subject_id", batch));
       if (commentSentimentError) {
         return { data: null, error: commentSentimentError.message };
       }
@@ -991,13 +1067,11 @@ export const reportService = {
       }
     );
 
-    const { data: images, error: imageError } = reportIds.length
-      ? await supabaseAdmin
+    const { data: images, error: imageError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
           .from("report_images")
           .select("report_id, image_url")
-          .in("report_id", reportIds)
-          .order("position", { ascending: true })
-      : { data: [], error: null };
+          .in("report_id", batch)
+          .order("position", { ascending: true }));
 
     if (imageError) return { data: null, error: imageError.message };
 
@@ -1021,7 +1095,7 @@ export const reportService = {
       return {
         id: r.id,
         location: r.location ?? "",
-        barangay: deriveBarangay(r.location ?? ""),
+        barangay: deriveBarangay(r.location ?? "", r),
         details: r.details ?? "",
         poster_name: r.poster_name ?? "",
         reporter_name:
@@ -1096,56 +1170,56 @@ export const reportService = {
       });
     });
 
-    const { data: reports, error: reportError } = await supabaseAdmin
+    const { data: reports, error: reportError } = await loadAnalyticsPages((from, to) => supabaseAdmin
       .from("reports")
       .select(
         "id, location, latitude, longitude, poster_name, status, is_verified, created_at, incident_type_id"
       )
+      .neq("status", "Archived")
       .gte("created_at", thirtyDaysAgo)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(from, to));
 
     if (reportError) return { data: null, error: reportError.message };
 
     const reportIds = (reports || []).map((r) => r.id);
 
-    const { data: analyses, error: analysisError } = reportIds.length
-      ? await supabaseAdmin
+    const { data: analyses, error: analysisError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
           .from("report_credibility_analysis")
           .select("report_id, ai_score, severity")
-          .in("report_id", reportIds)
-      : { data: [], error: null };
+          .in("report_id", batch));
 
     if (analysisError) return { data: null, error: analysisError.message };
 
-    const { data: sentimentRows, error: sentimentError } = reportIds.length
-      ? await supabaseAdmin
+    const { data: sentimentRows, error: sentimentError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
           .from("sentiment_analysis")
           .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
           .eq("subject_type", "report")
-          .in("subject_id", reportIds)
-      : { data: [], error: null };
+          .in("subject_id", batch));
     if (sentimentError) return { data: null, error: sentimentError.message };
     const sentimentMap = new Map<string, SentimentRow>();
     (sentimentRows || []).forEach((row: SentimentRow) => {
       sentimentMap.set(row.subject_id, row);
     });
 
-    const { data: commentRows, error: commentError } = reportIds.length
-      ? await supabaseAdmin
+    const { data: commentRows, error: commentError } = await loadDashboardRelations(reportIds, (batch) =>
+      loadAnalyticsPages((from, to) => supabaseAdmin
           .from("report_comments")
           .select("id, report_id, created_at")
-          .in("report_id", reportIds)
-      : { data: [], error: null };
+          .in("report_id", batch)
+          .order("id")
+          .range(from, to)));
     if (commentError) return { data: null, error: commentError.message };
     const commentIds = (commentRows || []).map((c: { id: string }) => c.id);
     const commentSentimentMap = new Map<string, SentimentRow>();
     if (commentIds.length) {
       const { data: commentSentimentRows, error: commentSentimentError } =
-        await supabaseAdmin
+        await loadDashboardRelations(commentIds, (batch) => supabaseAdmin
           .from("sentiment_analysis")
           .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
           .eq("subject_type", "comment")
-          .in("subject_id", commentIds);
+          .in("subject_id", batch));
       if (commentSentimentError) {
         return { data: null, error: commentSentimentError.message };
       }
@@ -1486,9 +1560,14 @@ export const reportService = {
     if (findError) return { error: findError.message };
     if (!report) return { error: "Report not found" };
 
+    if (input.status !== undefined && !VALID_STATUSES.includes(input.status)) {
+      return { error: "Invalid report status." };
+    }
+
     const updates: Record<string, unknown> = {};
     if (input.status !== undefined) updates.status = input.status;
     if (input.is_verified !== undefined) updates.is_verified = input.is_verified;
+    if (updates.status === "Archived") updates.is_verified = false;
 
     const { error: updateError } = await supabaseAdmin
       .from("reports")

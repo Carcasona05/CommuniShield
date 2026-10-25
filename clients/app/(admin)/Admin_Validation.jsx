@@ -21,6 +21,7 @@ import {
 } from "../../components/Admin_compo/AdminBatchFilters";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
+import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { getCache, setCache } from "../../services/dataStore";
 import ToastProvider, { useToast } from "../../components/Toast";
 import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
@@ -49,7 +50,10 @@ const formatSubmittedAt = (iso) => {
 };
 
 const mapValidationReports = (list) =>
-  (list || []).map((r) => ({
+  (list || [])
+    // Archived reports live in Logs > Archived reports only.
+    .filter((r) => r.status !== "Archived")
+    .map((r) => ({
     id: r.id,
     title: `${r.incident_type || "Incident"} in ${r.barangay || "Argao"}`,
     category: r.incident_category || "",
@@ -141,6 +145,7 @@ function Admin_Validation() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
   const scrollRef = useRef(null);
+  const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
   const loadedFiltersRef = useRef({
     status: selectedStatus,
     category: selectedCategory,
@@ -462,6 +467,7 @@ function Admin_Validation() {
   }, [fromDate, selectedBarangay, selectedCategory, selectedIncidentType, selectedStatus, toDate, viewParam]);
 
   const handleScroll = (e) => {
+    trackScroll(e);
     const next = e.nativeEvent.contentOffset.y > 300;
     if (next !== showScrollTopRef.current) {
       showScrollTopRef.current = next;
@@ -610,7 +616,7 @@ function Admin_Validation() {
     setSelectedCompiledGroup(null);
   };
 
-  const applyValidation = async (target, newStatus) => {
+  const applyValidation = async (target, newStatus, successMessage) => {
     if (!target || validating) return;
 
     setValidating(true);
@@ -637,7 +643,7 @@ function Admin_Validation() {
 
       setViewVisible(false);
       setSelectedCompiledGroup(null);
-      toast.success(`Report status updated to "${newStatus}".`);
+      toast.success(successMessage || `Report status updated to "${newStatus}".`);
       loadValidation();
     } catch (error) {
       toast.error(
@@ -662,6 +668,10 @@ function Admin_Validation() {
 
   const handleMarkAsFake = (report, group) => {
     applyValidation(group || report, "Marked Fake");
+  };
+
+  const handleArchiveReport = (report, group, message) => {
+    applyValidation(report, "Archived", message);
   };
 
   const handleReanalyze = async (group) => {
@@ -759,6 +769,8 @@ function Admin_Validation() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
+          onScrollBeginDrag={stopScrollAnimation}
+          onTouchStart={stopScrollAnimation}
           scrollEventThrottle={16}
         >
           <View style={styles.statsRow}>
@@ -844,11 +856,7 @@ function Admin_Validation() {
 
             </View>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.batchFilterRow}
-            >
+            <View style={styles.batchFilterRow}>
               <BatchFilterDropdown
                 label="Location"
                 value={selectedBarangay}
@@ -887,9 +895,8 @@ function Admin_Validation() {
                 value={selectedStatus}
                 options={statusFilters}
                 onChange={setSelectedStatus}
-                chips
               />
-            </ScrollView>
+            </View>
           </View>
 
           <View style={styles.reportsCard}>
@@ -923,12 +930,17 @@ function Admin_Validation() {
                 const isCompiled = group.reportCount > 1;
 
                 return (
-                  <View
+                  <TouchableOpacity
                     key={group.id}
+                    testID="admin-validation-report"
                     style={[
                       styles.reportRow,
                       index !== 0 && styles.reportRowBorder,
                     ]}
+                    onPress={() => openCompiledGroup(group)}
+                    activeOpacity={0.78}
+                    accessibilityRole="button"
+                    accessibilityLabel="View Posts"
                   >
                     <View
                       style={[
@@ -942,7 +954,7 @@ function Admin_Validation() {
                     >
                       <Ionicons
                         name={isCompiled ? "copy-outline" : statusStyle.icon}
-                        size={25}
+                        size={21}
                         color={isCompiled ? "#7C3AED" : statusStyle.color}
                       />
                     </View>
@@ -954,7 +966,8 @@ function Admin_Validation() {
 
                           <Text style={styles.reportMeta}>
                             {group.reportCount} similar post
-                            {group.reportCount === 1 ? "" : "s"}
+                            {group.reportCount === 1 ? "" : "s"} ·{" "}
+                            {group.category} · {group.type}
                           </Text>
                         </View>
 
@@ -979,76 +992,47 @@ function Admin_Validation() {
                         </View>
                       </View>
 
-                      <View style={styles.infoBoxGrid}>
-                        <View style={styles.infoItem}>
-                          <Text style={styles.infoLabel}>Category</Text>
-                          <Text style={styles.infoValue}>{group.category}</Text>
-                        </View>
-
-                        <View style={styles.infoItem}>
-                          <Text style={styles.infoLabel}>Incident Type</Text>
-                          <Text style={styles.infoValue}>{group.type}</Text>
-                        </View>
-
-                        <View style={styles.infoItem}>
-                          <Text style={styles.infoLabel}>Location</Text>
-                          <View style={styles.infoLocationRow}>
-                            <Ionicons
-                              name="location-outline"
-                              size={15}
-                              color="#5D6F92"
-                            />
-                            <Text style={styles.infoLocationText}>
-                              {group.location}
-                            </Text>
-                          </View>
-                        </View>
-
-                        <View style={styles.infoItem}>
-                          <Text style={styles.infoLabel}>Highest AI Score</Text>
-                          <Text style={styles.infoValue}>
-                            {group.highestAiScore}%
+                      <View style={styles.reportInfoRow}>
+                        <View style={styles.reportLocationRow}>
+                          <Ionicons
+                            name="location-outline"
+                            size={13}
+                            color="#5D6F92"
+                          />
+                          <Text style={styles.reportLocation}>
+                            {group.location}
                           </Text>
                         </View>
 
-                        <View style={styles.infoItem}>
-                          <Text style={styles.infoLabel}>Severity</Text>
-                          <View
+                        <View
+                          style={[
+                            styles.severityBadge,
+                            { backgroundColor: severityStyle.bg },
+                          ]}
+                        >
+                          <Text
                             style={[
-                              styles.miniBadge,
-                              { backgroundColor: severityStyle.bg },
+                              styles.severityBadgeText,
+                              { color: severityStyle.color },
                             ]}
                           >
-                            <Text
-                              style={[
-                                styles.miniBadgeText,
-                                { color: severityStyle.color },
-                              ]}
-                            >
-                              {group.severity}
-                            </Text>
-                          </View>
+                            {group.severity}
+                          </Text>
+                        </View>
+
+                        <View style={styles.aiScoreBadge}>
+                          <Ionicons
+                            name="sparkles-outline"
+                            size={12}
+                            color="#294880"
+                          />
+                          <Text style={styles.aiScoreBadgeText}>
+                            AI {group.highestAiScore}%
+                          </Text>
                         </View>
                       </View>
-
-                      <View style={styles.bottomRow}>
-                        <TouchableOpacity
-                          style={styles.viewButton}
-                          onPress={() => openCompiledGroup(group)}
-                          activeOpacity={0.85}
-                        >
-                          <Ionicons
-                            name="eye-outline"
-                            size={17}
-                            color="#FFFFFF"
-                          />
-                          <Text style={styles.viewButtonText}>
-                            {isCompiled ? "View Posts" : "View Posts"}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 );
               })
             )}
@@ -1068,9 +1052,9 @@ function Admin_Validation() {
         {showScrollTop && (
           <TouchableOpacity
             style={styles.scrollTopBtn}
-            onPress={() =>
-              scrollRef.current?.scrollTo({ y: 0, animated: true })
-            }
+            accessibilityRole="button"
+            accessibilityLabel="Back to top"
+            onPress={scrollToTop}
             activeOpacity={0.8}
           >
             <Ionicons name="chevron-up" size={22} color="#FFFFFF" />
@@ -1085,6 +1069,7 @@ function Admin_Validation() {
         onReject={handleReject}
         onMapAndVerify={handleMapAndVerify}
         onMarkAsFake={handleMarkAsFake}
+        onArchiveReport={handleArchiveReport}
         onReanalyze={handleReanalyze}
         reanalyzing={reanalyzing}
         validating={validating}
@@ -1163,6 +1148,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 18,
     marginBottom: 18,
+    zIndex: 30,
   },
 
   filterTopRow: {
@@ -1233,6 +1219,7 @@ const styles = StyleSheet.create({
 
   batchFilterRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "flex-end",
     gap: 10,
     paddingBottom: 2,
@@ -1390,7 +1377,7 @@ const styles = StyleSheet.create({
   },
 
   sectionTitle: {
-    fontSize: 21,
+    fontSize: 18,
     fontFamily: "PoppinsSemiBold",
     color: COMMUNISHIELD_BLUE,
   },
@@ -1403,11 +1390,11 @@ const styles = StyleSheet.create({
 
   reportRow: {
     paddingHorizontal: 22,
-    paddingVertical: 20,
+    paddingVertical: 16,
     backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 16,
+    gap: 14,
   },
 
   reportRowBorder: {
@@ -1416,9 +1403,9 @@ const styles = StyleSheet.create({
   },
 
   reportIconBox: {
-    width: 52,
-    height: 52,
-    borderRadius: 17,
+    width: 46,
+    height: 46,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1433,25 +1420,26 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 12,
-    marginBottom: 14,
+    marginBottom: 8,
   },
 
   reportTitleBox: {
     flex: 1,
+    minWidth: 0,
   },
 
   reportTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: "PoppinsMedium",
     color: "#111827",
-    lineHeight: 23,
-    marginBottom: 4,
+    lineHeight: 22,
+    marginBottom: 3,
   },
 
   reportMeta: {
-    fontSize: 14,
+    fontSize: 12,
     color: "#5D6F92",
-    lineHeight: 20,
+    lineHeight: 17,
     fontFamily: "PoppinsRegular",
   },
 
@@ -1466,87 +1454,52 @@ const styles = StyleSheet.create({
     fontFamily: "PoppinsMedium",
   },
 
-  infoBoxGrid: {
+  reportInfoRow: {
     flexDirection: "row",
-    alignItems: "stretch",
     flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 14,
+    alignItems: "center",
+    gap: 8,
   },
 
-  infoItem: {
-    flex: 1,
-    minWidth: 180,
-    backgroundColor: "#F7F9FD",
-    borderWidth: 1,
-    borderColor: "#E4EAF3",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-
-  infoLabel: {
-    fontSize: 12,
-    color: "#7A8BA8",
-    fontFamily: "PoppinsMedium",
-    marginBottom: 5,
-  },
-
-  infoValue: {
-    fontSize: 14,
-    color: COMMUNISHIELD_BLUE,
-    fontFamily: "PoppinsMedium",
-    lineHeight: 19,
-  },
-
-  infoLocationRow: {
+  reportLocationRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 6,
+    alignItems: "center",
+    gap: 5,
   },
 
-  infoLocationText: {
-    flex: 1,
-    fontSize: 14,
-    color: COMMUNISHIELD_BLUE,
-    fontFamily: "PoppinsMedium",
-    lineHeight: 19,
+  reportLocation: {
+    fontSize: 12,
+    color: "#5D6F92",
+    fontFamily: "PoppinsRegular",
   },
 
-  miniBadge: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+  severityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 999,
   },
 
-  miniBadgeText: {
-    fontSize: 12,
+  severityBadgeText: {
+    fontSize: 11,
     fontFamily: "PoppinsMedium",
   },
 
-  bottomRow: {
+  aiScoreBadge: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
-    flexWrap: "wrap",
-    gap: 12,
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#D6E0F0",
+    backgroundColor: "#EEF3FF",
   },
 
-  viewButton: {
-    height: 42,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: COMMUNISHIELD_BLUE,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
-
-  viewButtonText: {
-    fontSize: 13,
-    fontFamily: "PoppinsSemiBold",
-    color: "#FFFFFF",
+  aiScoreBadgeText: {
+    fontSize: 11,
+    fontFamily: "PoppinsMedium",
+    color: "#294880",
   },
 
   emptyState: {

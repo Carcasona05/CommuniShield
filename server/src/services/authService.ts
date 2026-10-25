@@ -16,9 +16,8 @@ export const profileService = {
       .eq("id", userId)
       .maybeSingle();
 
-    if (!result.data) {
-      await this.ensureProfile(userId);
-    }
+    if (result.data) return result;
+    await this.ensureProfile(userId);
 
     return await supabaseAdmin
       .from("profiles")

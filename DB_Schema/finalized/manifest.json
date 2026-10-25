@@ -1,0 +1,169 @@
+{
+  "format": 2,
+  "source": "Repository schemas + ordered migrations, not a live database export",
+  "sources": [
+    {
+      "path": "DB_Schema/profiles_schema.sql",
+      "sha256": "77a55fec3bdc7d147b16721f3a8a48ef47cddd8d07a8afe62249cb3628299d27"
+    },
+    {
+      "path": "DB_Schema/reports_schema.sql",
+      "sha256": "505d6b083722b6e703c5f7796ee10ba9a515d48e1eb4c0ab39f36234e5602de0"
+    },
+    {
+      "path": "DB_Schema/admins_schema.sql",
+      "sha256": "145ae1611f52cdb48ed5f313d49a691a3f81c0c29dce7b51c6b980fe69515a8c"
+    },
+    {
+      "path": "DB_Schema/credibility_schema.sql",
+      "sha256": "de89afc447ab6f5fa361b7c96e459a62ad1ce302d17c4dd1f094903f6c3a8d0d"
+    },
+    {
+      "path": "DB_Schema/notifications_schema.sql",
+      "sha256": "a9c25522f823cd09dea37abaa5256e5319b0666c9f8cf8af0878b2f67e527e17"
+    },
+    {
+      "path": "DB_Schema/emergency_facilities_schema.sql",
+      "sha256": "ca8dd6852fc8fbc9289cafd9b46728f15a70cc9c2834457d443bf80a7ff7a364"
+    },
+    {
+      "path": "DB_Schema/user_terms_acceptance_schema.sql",
+      "sha256": "fd447745fe27ff58147fb4aff02f1d8ae8e4c626736a8a17bf961d8ec219996c"
+    },
+    {
+      "path": "DB_Schema/ai_model_tracking_migration.sql",
+      "sha256": "1f76bf0d667c8afc047e8d2bd2aeeae36abceb58f9e6af15facf8810615cb71c"
+    },
+    {
+      "path": "DB_Schema/migrations/add_role_to_reports.sql",
+      "sha256": "6a7b472f748dcf049954bc6eea5fec1361d825b40732b32c117603927e64a6fa"
+    },
+    {
+      "path": "DB_Schema/migrations/add_unified_sentiment_analysis.sql",
+      "sha256": "a00b3c5e37fe573648ddd430be19c20a922cb5fd0d5c842945e744ed70d124c3"
+    },
+    {
+      "path": "DB_Schema/migrations/report_archiving.sql",
+      "sha256": "f45c04ad7198b8aea2dfbd834de547d98688e63e7448d48b645d86eb939f6485"
+    },
+    {
+      "path": "DB_Schema/migrations/user_notification_preferences.sql",
+      "sha256": "f99f036beb716e39f15d48df46a2fd0fd280c160961d5eabe7189f721d9abb35"
+    },
+    {
+      "path": "DB_Schema/migrations/sentiment_datasets.sql",
+      "sha256": "c8900906c38c6f53214dfc5e71e26f4788cfb5ce613767a6368872a4d2214be2"
+    },
+    {
+      "path": "DB_Schema/migrations/sentiment_training_jobs.sql",
+      "sha256": "92e9abe2266eafe35dc8110662a2f64c868808bb7ed410be127e67583abbe3ac"
+    },
+    {
+      "path": "DB_Schema/migrations/sentiment_continued_training.sql",
+      "sha256": "230bb7ffeddf77c6818a5ddb0b908438d79bb048a5359ba9ed2098a1aefe3bba"
+    },
+    {
+      "path": "DB_Schema/migrations/sentiment_supporting_pool.sql",
+      "sha256": "d76c2d7e7a7b2cdd1dd25837d565408a54d1dd5615bfc22b488fa710940f6d0f"
+    },
+    {
+      "path": "DB_Schema/migrations/sentiment_fresh_candidates.sql",
+      "sha256": "0c55667f2ce4b4bf1f4b73cb19840697b35ef62d0bf08a1416bf4309433529b2"
+    },
+    {
+      "path": "DB_Schema/migrations/sentiment_independent_admission.sql",
+      "sha256": "3777467b0d3cb1d09ef363592b5c15cd2e04e845c1f8c726a157fc1951a6c11a"
+    },
+    {
+      "path": "DB_Schema/migrations/sentiment_pending_training_summary.sql",
+      "sha256": "673c2c4f393b863ba4bb49dfa884f198539fd3a77dacf37e4820daeaf559da0a"
+    },
+    {
+      "path": "DB_Schema/migrations/sentiment_language_scoped_training.sql",
+      "sha256": "275e705f1f427d16b59f6c31e804fa0dd8f18de9beaf2152c9f6ad752ef4f635"
+    }
+  ],
+  "tables": 32,
+  "functions": 25,
+  "schema_install_order": [
+    "shared/00_preflight.sql",
+    "tables/admin_announcement.sql",
+    "tables/admin_posts.sql",
+    "tables/app_settings.sql",
+    "tables/audit_logs.sql",
+    "tables/credibility_events.sql",
+    "tables/emergency_facilities.sql",
+    "tables/incident_categories.sql",
+    "tables/incident_types.sql",
+    "tables/login_activities.sql",
+    "tables/notification_nearby_incident.sql",
+    "tables/notification_report_status.sql",
+    "tables/notification_types.sql",
+    "tables/notifications.sql",
+    "tables/profiles.sql",
+    "tables/report_comments.sql",
+    "tables/report_credibility_analysis.sql",
+    "tables/report_images.sql",
+    "tables/report_likes.sql",
+    "tables/report_validations.sql",
+    "tables/reports.sql",
+    "tables/sentiment_analysis.sql",
+    "tables/sentiment_dataset_events.sql",
+    "tables/sentiment_datasets.sql",
+    "tables/sentiment_model_state.sql",
+    "tables/sentiment_supporting_models.sql",
+    "tables/sentiment_supporting_settings.sql",
+    "tables/sentiment_training_events.sql",
+    "tables/sentiment_training_jobs.sql",
+    "tables/sentiment_training_samples.sql",
+    "tables/system_settings.sql",
+    "tables/user_credibility.sql",
+    "tables/user_terms_acceptance.sql",
+    "shared/01_foreign_keys.sql",
+    "shared/02_functions.sql",
+    "shared/03_triggers_and_policies.sql",
+    "shared/04_finish.sql"
+  ],
+  "outputs": {
+    "shared/00_preflight.sql": "20e97ede19157e129f50d9d4913eef00f7fe44f6b738a83c60db6184daf3ece5",
+    "tables/admin_announcement.sql": "20025bf5e0537e41cf46e6c1036a89887d232a460c1244152160df0622a1d157",
+    "tables/admin_posts.sql": "180196d5b73e50104812c7eb40fd7157fdb8c6221c8891b9621f1783a8489066",
+    "tables/app_settings.sql": "b3dc2934791e1af455a584257cc206d92b0eaeae77532d36c5c6e5277593e502",
+    "tables/audit_logs.sql": "aeb362f0cf75d0b7d5d9b37bbbbe5308e08ac0f15fc58fa0d38b2f0c9e3ab6be",
+    "tables/credibility_events.sql": "f05dd30d6442f21b90e423fd2d1561d85de15eaaa9d2edfed6100aa26c736f75",
+    "tables/emergency_facilities.sql": "581bc55b525bff2fb3e8035f0b6b5e6a049cfd7385586ca7bc5a17d4bce2fef6",
+    "tables/incident_categories.sql": "3194a589c683fe371dba1e503f89e6b0eccbf52f6b7e89a48ee09649a7827942",
+    "tables/incident_types.sql": "b39c4b019fbc7f4cb24d2b72ace63bed449f742add3f1be87500e349a6314522",
+    "tables/login_activities.sql": "6a55db2eb62370dabb2bafdcbc0d1afc9cd7023a8449ecbe873a46d796109930",
+    "tables/notification_nearby_incident.sql": "cc9d689861f2d425ee50806b365d5ec9e0aee9d85653ffa3bcff620a154a8216",
+    "tables/notification_report_status.sql": "ff80fc3ca7340ce57e2081d71c3ea9da874de1078cdc13ce7ee4b5ca6b4c5e6d",
+    "tables/notification_types.sql": "42ae55fea4c2284fbc9074b9e398f01af2deec5e1ad136a3855f140a19b70704",
+    "tables/notifications.sql": "8363f0b3bb1931719524d070fffaed310badcedc71057b5b6c10c37d4ad6c6df",
+    "tables/profiles.sql": "3c170635e0bdf69f17b1b6db292d38365939fad8d8b24d24ea844e88e1a17d51",
+    "tables/report_comments.sql": "9fef50c26282b60a5cea15171dbdcc35ba4b20d1130890244adc632ec1794027",
+    "tables/report_credibility_analysis.sql": "d2d5589620ffc01b8283f72cb813136da1b026f6efd251058559401b0d2d4d8f",
+    "tables/report_images.sql": "d772d5c0407fc3881b87b650c6cccd6b0d804885a62af6965d8bff1328f137b7",
+    "tables/report_likes.sql": "f43cb9be9731edf61f7a5683c2f35b4767dfee7f3a7eb702f86cbd9e85efbb95",
+    "tables/report_validations.sql": "2c0573bbefba6f62667aeb8cc206be5629f5ab14e9e9eaaa2207adcb85d604b6",
+    "tables/reports.sql": "86f9a601d09332c06a4299f94e2b7b44c03884ac5de0ac926c8e706ef9c0ff93",
+    "tables/sentiment_analysis.sql": "8092b6625bb76668f976139557dbd9acd54a8e7b1c8ef32d323faf4c88f528ef",
+    "tables/sentiment_dataset_events.sql": "57c281d358952200cd5444d2212cf6dee7d943335d00a4529743ec276aa8e3c2",
+    "tables/sentiment_datasets.sql": "c5b5eca05da811120d5c0dc01ddbe6bfa13a37da8715357ff63f6b57f8a9d599",
+    "tables/sentiment_model_state.sql": "a665a43d7b2511c034f1205b04b0b821d1be13b86555ac97078b496581863994",
+    "tables/sentiment_supporting_models.sql": "40a9d1b85c904fc8da5f4b534ea63d67c27efb07777dde59f35798d6530d45d2",
+    "tables/sentiment_supporting_settings.sql": "61a85e39354b5a79eff660b1befd7fb1e0f82e975d9eecbd12619eb8b6a9ffff",
+    "tables/sentiment_training_events.sql": "fc349feb33b15e36d784b870bedce6575cee1accd1dfd18b120f21eaaf2087db",
+    "tables/sentiment_training_jobs.sql": "ed06244e75c6e03cec544d12004dc54619cc95df7ac74a52c7efab2eb8c76399",
+    "tables/sentiment_training_samples.sql": "df63f832ab3914f4292d65cbfab0dc833124be16c7c66a5415549b1e913a56fd",
+    "tables/system_settings.sql": "4d45c6d84abdfdf067c59a50a1415fc27aabaae624f98c0559fec9d1c59339d3",
+    "tables/user_credibility.sql": "a06160f6181d297f359efe68987a0921ef3238c37575135e1d83c77edd169332",
+    "tables/user_terms_acceptance.sql": "a52ecb3984fd557a2ec09ad9ee75c8246e6dc8dc9d03a20fdaefc46224bdd3e6",
+    "shared/01_foreign_keys.sql": "9894dbab5c5cc6573a2f527bb29b4ac3114b1cdf18fe1d70c4d4dcc2b61a457b",
+    "shared/02_functions.sql": "0447d7d6b111d8a5bc118c6625c5c3c464ab284b4ffcb5cdbdc62e075cef4ab9",
+    "shared/03_triggers_and_policies.sql": "96646b5ed28f8dfa408cd712e14b579585293bd46d0b7ce231f6a683b611345c",
+    "shared/04_finish.sql": "ff19bfc5d754b62ca488c806d7923efbdb0a82b59e21ff1c8330f6d8ec3ddcc4",
+    "01_schema.sql": "017bb38ec8c121b21ec07795aa6276e8dd50bd275fdfa7d485e5f5e15b654979",
+    "02_reference_data.sql": "ac197bbea7bbe5f7af15afb6f3aa7b84cbd30ce1af1e760f942e24874044ac59",
+    "install.psql": "88cea6c12a452e4e093392a00e525392d4095ba417b75c375ed3042348536a0f"
+  }
+}

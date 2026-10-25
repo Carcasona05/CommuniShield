@@ -1,0 +1,24 @@
+{
+  "provenance": "Authored Cebuano contrastive examples from datasets/cebuano_contrastive_examples.py; no model-generated labels.",
+  "counts": {
+    "source": 3826,
+    "accepted": 3807,
+    "duplicates": 17,
+    "held_out": 1,
+    "conflicts": 1
+  },
+  "added_by_label": {
+    "positive": 1604,
+    "negative": 1601,
+    "neutral": 602
+  },
+  "train_rows_before": 99318,
+  "train_rows_after": 103125,
+  "holdout_sha256": {
+    "validation": "273592bbf42f694e486e7b51902143a6c3d3c793a57452f5ed863fbc48f6ff63",
+    "test": "f86cebab472d6788bfbe6350ecb49be93b8a19119b2434d2b7de487e6e0cbf64"
+  },
+  "applied": true,
+  "backup_directory": "C:\\Users\\Administrator\\Desktop\\CommuniShield\\artifacts\\dataset-merges\\cebuano-corrections\\20261023T150726644191Z",
+  "train_sha256_after": "607b1e3a1f7e6a225ecc4b8b5b973cb821ab7ff2e6103cf5cfb72e9a69ba14cc"
+}

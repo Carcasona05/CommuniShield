@@ -7,7 +7,8 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import ThemedView from "../../components/ThemedView";
@@ -18,10 +19,12 @@ import ReportByAdmin from "../../components/ReportByAdmin";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
+import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
 import { publishNavVisibility, subscribeNavVisibility } from "../../services/navBus";
 import { getCache, setCache, patchCachedReports } from "../../services/dataStore";
 import { SkeletonFeed } from "../../components/SkeletonCard";
+import { buildNearbySafety, formatSafetyReportAge, SAFETY_RADIUS_KM } from "../../services/safetyTips";
 
 const PRIMARY = "#294880";
 
@@ -39,7 +42,6 @@ const statusOptions = [
   "Under Verification",
   "Resolved",
   "Rejected",
-  "Archived",
 ];
 
 const sourceOptions = ["All", "User", "Admin"];
@@ -73,6 +75,7 @@ const mapFeed = (reportsData, adminData) => {
     longitude: r.longitude ?? null,
     incidentCategory: r.incident_category,
     incidentType: r.incident_type,
+    severity: r.severity ?? "Unknown",
     details: r.details,
     status: r.status || "Pending Review",
     verified: r.is_verified,
@@ -107,75 +110,116 @@ const mapFeed = (reportsData, adminData) => {
   return [...adminPosts, ...userPosts];
 };
 
-const NEARBY_RADIUS_KM = 2;
-
-const distanceKm = (lat1, lng1, lat2, lng2) => {
-  const dLat = (lat2 - lat1) * 111;
-  const dLng = (lng2 - lng1) * 111 * Math.cos((lat1 * Math.PI) / 180);
-  return Math.sqrt(dLat * dLat + dLng * dLng);
-};
-
-const buildReminderText = (count) => {
-  if (count === 1) {
-    return "A report has been logged near your location - just a reminder to stay alert when going around the area.";
-  }
-  if (count < 4) {
-    return "A few reports have been logged near your location - just a reminder to stay alert when going around the area.";
-  }
-  return "Several reports have been logged near your location - please stay alert when going around the area.";
-};
+const SEVERITY_COLORS = { Critical: "#991B1B", High: "#C2410C", Medium: "#946200", Low: PRIMARY, Unknown: "#64748B" };
 
 const MapPreview = ({ style, reports = [] }) => {
   const [userPosition, setUserPosition] = useState(null);
+  const [locationStatus, setLocationStatus] = useState("loading");
+  const [now, setNow] = useState(Date.now);
+  const [expandedSafetyKey, setExpandedSafetyKey] = useState(null);
 
-  const handleLocation = useCallback((pos) => {
-    setUserPosition((prev) => {
-      if (prev && distanceKm(prev[0], prev[1], pos[0], pos[1]) < 0.05) {
-        return prev;
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    let subscription;
+    setUserPosition(null);
+    setLocationStatus("loading");
+    setExpandedSafetyKey(null);
+    const updateLocation = (location) => {
+      if (!active) return;
+      setUserPosition([location.coords.latitude, location.coords.longitude]);
+      setLocationStatus("ready");
+      setNow(Date.now());
+    };
+    const start = async () => {
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!active) return;
+        if (permission.status !== "granted") {
+          setLocationStatus("denied");
+          return;
+        }
+        // Use actual device coordinates, not the map's Cebu-clamped display position.
+        subscription = await Location.watchPositionAsync({
+          accuracy: Location.Accuracy.High,
+          distanceInterval: 20,
+          timeInterval: 10000,
+        }, updateLocation, () => {
+          if (active) {
+            setUserPosition(null);
+            setLocationStatus("unavailable");
+          }
+        });
+        if (!active) subscription.remove();
+      } catch {
+        if (active) setLocationStatus("unavailable");
       }
-      return pos;
-    });
-  }, []);
-
-  const nearbyCount = useMemo(() => {
-    if (!userPosition) return 0;
-    return reports.filter((report) => {
-      if (report.latitude == null || report.longitude == null) return false;
-      if (report.status === "Rejected" || report.status === "Archived") {
-        return false;
-      }
-      return (
-        distanceKm(
-          userPosition[0],
-          userPosition[1],
-          Number(report.latitude),
-          Number(report.longitude)
-        ) <= NEARBY_RADIUS_KM
-      );
-    }).length;
-  }, [reports, userPosition]);
+    };
+    start();
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => {
+      active = false;
+      subscription?.remove();
+      clearInterval(timer);
+    };
+  }, []));
+  const safety = useMemo(() => buildNearbySafety(reports, userPosition, now), [reports, userPosition, now]);
+  const severityColor = SEVERITY_COLORS[safety?.highestSeverity] || PRIMARY;
+  const safetyKey = safety?.incidents.map((incident) => incident.id || incident.incidentType).join("|");
+  const safetyExpanded = !!safety && expandedSafetyKey === safetyKey;
 
   return (
-    <View style={[styles.mapCard, style]}>
-      <MapView interactive={false} onLocation={handleLocation} />
-
-      {nearbyCount > 0 ? (
-        <View style={styles.mapReminderCard}>
-          <View style={styles.reminderIcon}>
-            <Ionicons
-              name="shield-checkmark-outline"
-              size={17}
-              color={PRIMARY}
-            />
-          </View>
-
-          <View style={styles.reminderTextWrap}>
-            <ThemedText style={styles.reminderTitle}>Area Reminder</ThemedText>
-            <ThemedText style={styles.reminderText}>
-              {buildReminderText(nearbyCount)}
-            </ThemedText>
-          </View>
+    <View style={style}>
+      <View style={styles.mapCard}>
+        <MapView interactive={false} position={userPosition} />
+        {safety ? (
+          <TouchableOpacity
+            style={styles.safetyFloatingButton}
+            activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel="Nearby Safety Tips"
+            accessibilityHint="Show or hide safety tips below the map"
+            accessibilityState={{ expanded: safetyExpanded }}
+            onPress={() => setExpandedSafetyKey(safetyExpanded ? null : safetyKey)}
+          >
+            <Ionicons name="shield-checkmark-outline" size={21} color={severityColor} />
+            <View style={styles.safetyButtonTitle}>
+              <ThemedText style={styles.reminderTitle}>Nearby Safety Tips</ThemedText>
+              <ThemedText style={styles.safetyMeta}>
+                {safety.count} active {safety.count === 1 ? "report" : "reports"} within {SAFETY_RADIUS_KM} km · {formatSafetyReportAge(safety.latestReportedAt, now)}
+              </ThemedText>
+            </View>
+            <Ionicons name={safetyExpanded ? "chevron-up" : "chevron-down"} size={19} color={PRIMARY} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      {safetyExpanded ? (
+        <View style={[styles.safetyCard, { borderLeftColor: severityColor }]}>
+          {safety.incidents.map((incident) => (
+            <View key={incident.id || incident.incidentType} style={styles.safetyIncident}>
+              <ThemedText style={[styles.safetyIncidentTitle, { color: SEVERITY_COLORS[incident.severity] }]}>
+                {incident.incidentType}
+              </ThemedText>
+              <ThemedText style={styles.safetyMeta}>
+                {incident.distanceKm < 1 ? `${Math.round(incident.distanceKm * 1000)} m` : `${incident.distanceKm.toFixed(1)} km`} away · {incident.verified ? "Verified report" : "Unverified report"}
+              </ThemedText>
+              <ThemedText style={styles.safetyMeta}>
+                Reported {formatSafetyReportAge(incident.postedAt, now).toLowerCase()}
+              </ThemedText>
+              {incident.tips.map((tip) => (
+                <ThemedText key={tip} style={styles.reminderText}>• {tip}</ThemedText>
+              ))}
+            </View>
+          ))}
+          <ThemedText style={styles.safetyDisclaimer}>
+            Reports do not confirm a current threat. Follow official updates. If you are in immediate danger, call 911 from a safe place.
+          </ThemedText>
         </View>
+      ) : !safety && (locationStatus === "denied" || locationStatus === "unavailable") ? (
+        <ThemedText style={styles.reminderText}>
+          {locationStatus === "denied"
+            ? "Enable location access in your app or browser settings to see nearby safety tips."
+            : "Your location is unavailable. Nearby safety tips will appear when a location fix is available."}
+        </ThemedText>
       ) : null}
     </View>
   );
@@ -300,6 +344,7 @@ const User_Home = () => {
   const [navShown, setNavShown] = useState(true);
   const [arrowReady, setArrowReady] = useState(false);
   const scrollRef = useScrollToTop();
+  const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
 
   const loadReports = useCallback(async () => {
     try {
@@ -316,9 +361,9 @@ const User_Home = () => {
         apiClient.get("/reports", {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        apiClient.get("/admin/posts", {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        // /admin/posts is admin-only. Residents must not issue a forbidden
+        // request that would make Promise.all discard their valid reports.
+        Promise.resolve({ data: {} }),
       ]);
 
       setCache("api:/reports", reportsRes.data ?? {});
@@ -343,6 +388,9 @@ const User_Home = () => {
 
   const filteredReports = useMemo(() => {
     return reports.filter((report) => {
+      // Archived reports are removed from every user-facing surface.
+      if (report.status === "Archived") return false;
+
       const matchesTimeRange =
         selectedTimeRange === "Past 24 Hours"
           ? isWithinPastHours(report.datePosted, 24)
@@ -383,6 +431,7 @@ const User_Home = () => {
   const lastScrollYRef = useRef(0);
 
   const handleScroll = (event) => {
+    trackScroll(event);
     const y = event.nativeEvent.contentOffset.y;
     setShowScrollTop(y > 300);
 
@@ -466,6 +515,8 @@ const User_Home = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
+        onScrollBeginDrag={stopScrollAnimation}
+        onTouchStart={stopScrollAnimation}
         scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
@@ -611,9 +662,9 @@ const User_Home = () => {
         <TouchableOpacity
           style={styles.scrollTopBtn}
           activeOpacity={0.8}
-          onPress={() =>
-            scrollRef.current?.scrollTo?.({ y: 0, animated: true })
-          }
+          accessibilityRole="button"
+          accessibilityLabel="Back to top"
+          onPress={scrollToTop}
         >
           <Ionicons name="arrow-up" size={22} color="#FFFFFF" />
         </TouchableOpacity>
@@ -652,32 +703,59 @@ const styles = StyleSheet.create({
     borderColor: "#DDE7F5",
   },
 
-  mapReminderCard: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    bottom: 12,
-    backgroundColor: "rgba(255,255,255,0.97)",
+  safetyCard: {
+    marginTop: 10,
+    backgroundColor: "#FFFFFF",
     borderRadius: 20,
     padding: 13,
     borderWidth: 1,
     borderColor: "rgba(226,232,240,0.9)",
+    borderLeftWidth: 4,
+  },
+
+  safetyFloatingButton: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    bottom: 16,
+    minHeight: 52,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.97)",
+    borderWidth: 1,
+    borderColor: "#DDE7F5",
     flexDirection: "row",
-    alignItems: "flex-start",
-  },
-
-  reminderIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#E8EEF9",
     alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
+    gap: 10,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.14,
+    shadowRadius: 6,
+    elevation: 5,
+    zIndex: 1,
   },
 
-  reminderTextWrap: {
+  safetyButtonTitle: {
     flex: 1,
+  },
+
+  safetyIncidentTitle: {
+    fontFamily: FONT.semiBold,
+    fontSize: 13,
+  },
+  safetyMeta: {
+    fontFamily: FONT.regular,
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 3,
+  },
+  safetyDisclaimer: {
+    fontFamily: FONT.regular,
+    fontSize: 11,
+    lineHeight: 17,
+    color: "#64748B",
+    marginTop: 12,
   },
 
   reminderTitle: {

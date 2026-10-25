@@ -44,18 +44,22 @@ const sentimentColor = (label) => {
   }
 };
 
+const cachedOverview = () => getCache("api:/admin/overview") || getCache("preview:/admin/overview") || getCache("api:/admin/dashboard");
+
 export default function Admin_Dashboard() {
   const router = useRouter();
 
   const [summary, setSummary] = useState(() => {
-    const cached = getCache("api:/admin/dashboard");
+    const cached = cachedOverview();
     return cached?.summary || { total: 0, pending: 0, verified: 0, rejected: 0, hotspots: 0 };
   });
   const [reports, setReports] = useState(() => {
     const cached = getCache("api:/admin/dashboard");
     return cached?.reports || [];
   });
-  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
+  const [loading, setLoading] = useState(() => cachedOverview() === undefined);
+  const [dataStatus, setDataStatus] = useState(() => getCache("preview:/admin/overview")
+    ? "Saved overview — updating live reports…" : "Loading live overview…");
   const [showFilter, setShowFilter] = useState(false);
   const [selectedSeverity, setSelectedSeverity] = useState("All");
 
@@ -81,28 +85,26 @@ export default function Admin_Dashboard() {
         }
       }
 
+      let overviewLoaded = false;
       await Promise.allSettled([
+        apiClient.get("/admin/overview", { headers, timeout: 10000 }).then((res) => {
+          overviewLoaded = true;
+          setSummary(res.data.summary);
+          setLoading(false);
+          setDataStatus("Overview updated. Report details refresh in the background.");
+        }).catch(() => {
+          setLoading(false);
+          setDataStatus("Overview refresh unavailable. Any saved counts may be outdated.");
+        }),
         apiClient.get("/admin/dashboard", { headers }).then((res) => {
           setCache("api:/admin/dashboard", res.data ?? {});
           const data = res.data ?? {};
-          if (data.summary) {
+          if (data.summary && !overviewLoaded) {
             setSummary((prev) => ({ ...prev, ...data.summary }));
           }
           if (Array.isArray(data.reports)) {
             setReports(data.reports);
           }
-        }),
-        apiClient.get("/admin/analytics", { headers }).then((res) => {
-          setCache("api:/admin/analytics", res.data ?? {});
-        }),
-        apiClient.get("/admin/logs", { headers }).then((res) => {
-          setCache("api:/admin/logs", res.data ?? {});
-        }),
-        apiClient.get("/admin/notifications", { headers }).then((res) => {
-          setCache("api:/admin/notifications", res.data ?? {});
-        }),
-        apiClient.get("/admin/accounts", { headers }).then((res) => {
-          setCache("api:/admin/accounts", res.data ?? {});
         }),
       ]);
     } catch {
@@ -175,7 +177,10 @@ export default function Admin_Dashboard() {
     return { color: "#D97A1E", bg: "#FFF4E5" };
   };
 
-  const incidentFeed = reports.slice(0, 12).map((r) => {
+  const incidentFeed = reports
+    .filter((r) => r.status !== "Archived")
+    .slice(0, 12)
+    .map((r) => {
     const style = getFeedStyle(r);
     return {
       id: r.id,
@@ -199,7 +204,8 @@ export default function Admin_Dashboard() {
       r.longitude != null &&
       Number.isFinite(Number(r.latitude)) &&
       Number.isFinite(Number(r.longitude)) &&
-      r.status !== "Rejected"
+      r.status !== "Rejected" &&
+      r.status !== "Archived"
   );
 
   const filteredMapReports =
@@ -219,6 +225,9 @@ export default function Admin_Dashboard() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.contentWrap}>
+          <Text testID="dashboard-data-status" accessibilityRole="status" style={{ color: "#52627a", marginBottom: 12 }}>
+            {dataStatus}
+          </Text>
           <View style={styles.summaryRow}>
             {summaryCards.map((card, index) => (
               <TouchableOpacity
@@ -226,12 +235,19 @@ export default function Admin_Dashboard() {
                 style={styles.summaryCard}
                 activeOpacity={0.85}
                 onPress={() => {
-                  if (
-                    card.title === "Pending Validation" ||
-                    card.title === "Verified Reports" ||
-                    card.title === "Rejected Reports"
-                  ) {
-                    router.push("/(admin)/Admin_Validation");
+                  const viewByCard = {
+                    "Pending Validation": "pending",
+                    "Verified Reports": "verified",
+                    "Rejected Reports": "rejected",
+                  };
+
+                  if (viewByCard[card.title]) {
+                    router.push({
+                      pathname: "/(admin)/Admin_Validation",
+                      params: { view: viewByCard[card.title] },
+                    });
+                  } else if (card.title === "Critical Hotspots") {
+                    router.push("/(admin)/Admin_Hotspot_Detection");
                   }
                 }}
               >
@@ -362,7 +378,7 @@ export default function Admin_Dashboard() {
                     <AdminHeatMap reports={filteredMapReports} />
 
                     <View style={styles.legendCard}>
-                      <Text style={styles.legendTitle}>SEVERITY</Text>
+                      <Text style={styles.legendTitle}>Severity</Text>
                       <View style={styles.legendRow}>
                         {[
                           { label: "Critical", color: "#E45757" },
@@ -416,61 +432,77 @@ export default function Admin_Dashboard() {
                         index !== 0 && styles.feedRowBorder,
                       ]}
                       activeOpacity={0.8}
-                      onPress={() => router.push("/(admin)/Admin_Validation")}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/(admin)/Admin_Validation",
+                          params: {
+                            openReport: item.id,
+                            notifNonce: String(Date.now()),
+                          },
+                        })
+                      }
                     >
-                      <View style={styles.feedTopRow}>
-                        <View style={styles.feedTitleWrap}>
-                          <Ionicons
-                            name="warning"
-                            size={17}
-                            color="#E45757"
-                          />
-                          <Text style={styles.feedTitle}>{item.title}</Text>
-                        </View>
-
-                        <Text style={styles.feedTime}>{item.time}</Text>
+                      <View
+                        style={[
+                          styles.feedIconBox,
+                          { backgroundColor: item.statusBg },
+                        ]}
+                      >
+                        <Ionicons
+                          name="warning-outline"
+                          size={18}
+                          color={item.statusColor}
+                        />
                       </View>
 
-                      <Text style={styles.feedLocation}>{item.location}</Text>
+                      <View style={styles.feedBody}>
+                        <View style={styles.feedTopRow}>
+                          <Text style={styles.feedTitle} numberOfLines={1}>
+                            {item.title}
+                          </Text>
 
-                      <View style={styles.feedStatusRow}>
-                        <View
-                          style={[
-                            styles.feedStatusBadge,
-                            { backgroundColor: item.statusBg },
-                          ]}
-                        >
-                          <Text
+                          <Text style={styles.feedTime}>{item.time}</Text>
+                        </View>
+
+                        <Text style={styles.feedLocation} numberOfLines={1}>
+                          {item.location} · {item.source}
+                        </Text>
+
+                        <View style={styles.feedMetaRow}>
+                          <View
                             style={[
-                              styles.feedStatusText,
-                              { color: item.statusColor },
+                              styles.feedStatusBadge,
+                              { backgroundColor: item.statusBg },
                             ]}
                           >
-                            {item.status}
+                            <Text
+                              style={[
+                                styles.feedStatusText,
+                                { color: item.statusColor },
+                              ]}
+                            >
+                              {item.status}
+                            </Text>
+                          </View>
+
+                          <Text style={styles.feedMetaText}>
+                            AI Score{" "}
+                            <Text style={styles.feedScore}>{item.score}</Text>
+                          </Text>
+
+                          <Text style={styles.feedMetaText}>
+                            Sentiment{" "}
+                            <Text
+                              style={[
+                                styles.feedSentiment,
+                                { color: item.sentimentColor },
+                              ]}
+                            >
+                              {item.sentiment || item.sentimentStatus}
+                            </Text>
                           </Text>
                         </View>
-
-                        <Text style={styles.feedSource}>
-                          Source: {item.source}
-                        </Text>
                       </View>
-
-                      <Text style={styles.feedMeta}>
-                        AI Credibility Score:{" "}
-                        <Text style={styles.feedScore}>{item.score}</Text>
-                      </Text>
-
-                      <Text style={styles.feedMeta}>
-                        Sentiment:{" "}
-                        <Text
-                          style={[
-                            styles.feedSentiment,
-                            { color: item.sentimentColor },
-                          ]}
-                        >
-                          {item.sentiment || item.sentimentStatus}
-                        </Text>
-                      </Text>
                     </TouchableOpacity>
                   ))}
 
@@ -765,13 +797,13 @@ const styles = {
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#D9E2F0",
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: "hidden",
   },
 
   sideHeaderRow: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
     borderBottomWidth: 1,
     borderBottomColor: "#D9E2F0",
     backgroundColor: "#F7F9FD",
@@ -781,13 +813,13 @@ const styles = {
   },
 
   sideCardTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: "PoppinsSemiBold",
     color: "#294880",
   },
 
   viewAllText: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: "PoppinsSemiBold",
     color: "#294880",
   },
@@ -802,8 +834,11 @@ const styles = {
 
   feedRow: {
     paddingHorizontal: 18,
-    paddingVertical: 17,
+    paddingVertical: 13,
     backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
   },
 
   feedRowBorder: {
@@ -811,26 +846,33 @@ const styles = {
     borderTopColor: "#E4EAF3",
   },
 
+  feedIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+
+  feedBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+
   feedTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 6,
-  },
-
-  feedTitleWrap: {
-    flexDirection: "row",
     alignItems: "center",
-    flex: 1,
-    marginRight: 8,
+    gap: 8,
+    marginBottom: 4,
   },
 
   feedTitle: {
-    marginLeft: 7,
+    flex: 1,
     fontSize: 15,
     color: "#111827",
     fontFamily: "PoppinsSemiBold",
-    flexShrink: 1,
     lineHeight: 20,
   },
 
@@ -841,46 +883,36 @@ const styles = {
   },
 
   feedLocation: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#6D7D99",
     fontFamily: "PoppinsRegular",
-    marginBottom: 10,
-    marginLeft: 24,
-    lineHeight: 19,
+    marginBottom: 7,
+    lineHeight: 18,
   },
 
-  feedStatusRow: {
+  feedMetaRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
-    marginLeft: 24,
-    marginBottom: 10,
     gap: 8,
   },
 
   feedStatusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 999,
   },
 
   feedStatusText: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: "PoppinsSemiBold",
   },
 
-  feedSource: {
-    fontSize: 13,
-    color: "#6D7D99",
-    fontFamily: "PoppinsMedium",
-  },
-
-  feedMeta: {
-    fontSize: 14,
+  feedMetaText: {
+    fontSize: 12,
     color: "#6D7D99",
     fontFamily: "PoppinsRegular",
-    marginLeft: 24,
-    marginBottom: 4,
-    lineHeight: 19,
+    lineHeight: 17,
   },
 
   feedScore: {

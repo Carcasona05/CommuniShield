@@ -4,11 +4,21 @@ const getTransporter = () => {
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT) || 587,
-    secure: false,
+    secure: Number(process.env.SMTP_PORT) === 465,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
+  });
+};
+
+export const sendLoginCodeEmail = async (to: string, code: string) => {
+  await getTransporter().sendMail({
+    from: process.env.EMAIL_FROM || "CommuniShield <noreply@communishield.com>",
+    to,
+    subject: "CommuniShield - Verify your sign-in",
+    text: `Your CommuniShield sign-in code is ${code}. It expires in 10 minutes. Never share this code. If you did not attempt to sign in, change your password.`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:28px;color:#294880"><h2>Verify your sign-in</h2><p>We need to verify this device before signing you in.</p><p style="font-size:32px;letter-spacing:8px;font-weight:bold">${code}</p><p>This code expires in <strong>10 minutes</strong>. After verification, this device will be remembered for 30 days.</p><p>Never share this code. If you did not attempt to sign in, change your password.</p></div>`,
   });
 };
 

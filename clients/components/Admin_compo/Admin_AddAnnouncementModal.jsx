@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Modal,
   View,
@@ -15,50 +15,11 @@ import ActionSheetModal from "../../components/ActionSheetModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import { useToast } from "../Toast";
+import { ARGAO_BARANGAYS as ARGAO_BARANGAY_DATA } from "../../constants/argaoMapData";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
-const ARGAO_BARANGAYS = [
-  "Abaga",
-  "Angadan",
-  "Barangay 1 (Pob.)",
-  "Barangay 2 (Pob.)",
-  "Barangay 3 (Pob.)",
-  "Barangay 4 (Pob.)",
-  "Barangay 5 (Pob.)",
-  "Barangay 6 (Pob.)",
-  "Barangay 7 (Pob.)",
-  "Barangay 8 (Pob.)",
-  "Barangay 9 (Pob.)",
-  "Barangay 10 (Pob.)",
-  "Barangay 11 (Pob.)",
-  "Barangay 12 (Pob.)",
-  "Barangay 13 (Pob.)",
-  "Barangay 14 (Pob.)",
-  "Bulasa",
-  "Buhi",
-  "Dakli",
-  "Dalaguet",
-  "Datu",
-  "Ginabangan",
-  "Gonghos",
-  "Guimbangco-an",
-  "Guiso",
-  "Hilasmasan",
-  "Ilasan",
-  "Langtad",
-  "Lusong",
-  "Malacoromong",
-  "Malay",
-  "Malitbog",
-  "Nabangad",
-  "Patong",
-  "Poblacion",
-  "Sacsac",
-  "Sua",
-  "Tubod",
-  "Zumarraga",
-];
+const ARGAO_BARANGAYS = ARGAO_BARANGAY_DATA.map(({ name }) => name);
 
 const announcementTypes = [
   "Curfew",
@@ -80,6 +41,7 @@ export default function Admin_AddAnnouncementModal({
   visible,
   onClose,
   onSubmit,
+  record: editingRecord,
 }) {
   const toast = useToast();
   const [fontsLoaded] = useFonts({
@@ -102,6 +64,50 @@ export default function Admin_AddAnnouncementModal({
   const [submitted, setSubmitted] = useState(false);
   const [formError, setFormError] = useState("");
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
+  const [baseline, setBaseline] = useState(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setSubmitted(false);
+    setFormError("");
+
+    if (!editingRecord) {
+      resetForm();
+      setBaseline({
+        type: "",
+        title: "",
+        location: "",
+        details: "",
+        imageUri: null,
+      });
+      return;
+    }
+
+    setAnnouncementType(editingRecord.type || "");
+    setTitle(editingRecord.title || "");
+    setLocation(editingRecord.location || "");
+    setLocationSearch("");
+    setShowLocationDropdown(false);
+    setDetails(editingRecord.details || "");
+    setImage(editingRecord.pic_url ? { uri: editingRecord.pic_url } : null);
+    setShowTypeList(false);
+    setSubmitting(false);
+    setBaseline({
+      type: editingRecord.type || "",
+      title: editingRecord.title || "",
+      location: editingRecord.location || "",
+      details: editingRecord.details || "",
+      imageUri: editingRecord.pic_url || null,
+    });
+  }, [visible, editingRecord]);
+
+  const isDirty = !baseline
+    ? true
+    : announcementType !== baseline.type ||
+      title !== baseline.title ||
+      location !== baseline.location ||
+      details !== baseline.details ||
+      (image?.uri || null) !== baseline.imageUri;
 
   const filteredBarangays = useMemo(() => {
     const query = locationSearch.trim().toLowerCase();
@@ -179,6 +185,7 @@ export default function Admin_AddAnnouncementModal({
   };
 
   const submit = async () => {
+    if (!isDirty) return;
     setSubmitted(true);
     setFormError("");
 
@@ -188,7 +195,7 @@ export default function Admin_AddAnnouncementModal({
       setSubmitting(true);
 
       await onSubmit({
-        id: Date.now().toString(),
+        id: editingRecord?.id || Date.now().toString(),
 
         type: announcementType,
 
@@ -200,7 +207,9 @@ export default function Admin_AddAnnouncementModal({
 
         image,
 
-        createdAt: new Date().toISOString(),
+        pic_url: editingRecord?.pic_url || null,
+
+        createdAt: editingRecord?.created_at || new Date().toISOString(),
       });
 
       resetForm();
@@ -243,11 +252,11 @@ export default function Admin_AddAnnouncementModal({
               <View>
 
                 <Text style={styles.title}>
-                  Add Announcement
+                  {editingRecord ? "Edit Announcement" : "Add Announcement"}
                 </Text>
 
                 <Text style={styles.subtitle}>
-                  Create a new public announcement
+                  {editingRecord ? "Update the public announcement" : "Create a new public announcement"}
                 </Text>
 
               </View>
@@ -557,10 +566,10 @@ export default function Admin_AddAnnouncementModal({
             <TouchableOpacity
               style={[
                 styles.submitButton,
-                submitting && styles.submitButtonDisabled,
+                (submitting || !isDirty) && styles.submitButtonDisabled,
               ]}
               onPress={submit}
-              disabled={submitting}
+              disabled={submitting || !isDirty}
             >
               <Ionicons
                 name={
@@ -573,7 +582,7 @@ export default function Admin_AddAnnouncementModal({
               />
 
               <Text style={styles.submitButtonText}>
-                {submitting ? "Submitting..." : "Submit"}
+                {submitting ? "Submitting..." : !isDirty ? "No Changes" : editingRecord ? "Save Changes" : "Submit"}
               </Text>
             </TouchableOpacity>
 

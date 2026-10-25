@@ -1,6 +1,7 @@
 import * as ImageManipulator from "expo-image-manipulator";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../services/apiClient";
+import { uploadBatch } from "./uploadBatch";
 
 export async function compressImage(uri) {
   const result = await ImageManipulator.manipulateAsync(
@@ -50,18 +51,10 @@ export async function uploadImage(uri) {
     { headers: { Authorization: `Bearer ${token}` } }
   );
 
+  if (typeof res.data?.url !== "string" || !res.data.url) throw new Error("Image upload did not return a URL.");
   return res.data.url;
 }
 
-export async function uploadImages(uris = []) {
-  const results = [];
-  for (const uri of uris) {
-    try {
-      const url = await uploadImage(uri);
-      results.push(url);
-    } catch {
-      // skip failed uploads
-    }
-  }
-  return results;
+export async function uploadImages(uris = [], options = {}) {
+  return uploadBatch(uris, uploadImage, options);
 }

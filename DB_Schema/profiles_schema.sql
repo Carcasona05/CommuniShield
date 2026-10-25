@@ -10,6 +10,8 @@ create table if not exists public.profiles (
   birthdate date,
   location text,
   department text,
+  notifications_enabled boolean not null default true,
+  crime_alerts_enabled boolean not null default true,
   status text not null default 'Active' check (status in ('Active', 'Disabled')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

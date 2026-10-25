@@ -463,13 +463,14 @@ const styles = StyleSheet.create({
 
   modalTitle: {
     fontSize: 18,
-    fontWeight: "800",
+    fontFamily: "PoppinsSemiBold",
     color: COLORS.primary,
     marginBottom: 4,
   },
 
   modalSubtitle: {
     fontSize: 13,
+    fontFamily: "PoppinsRegular",
     color: COLORS.textMuted,
     lineHeight: 19,
   },
@@ -499,13 +500,14 @@ const styles = StyleSheet.create({
 
   formTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontFamily: "PoppinsSemiBold",
     color: COLORS.primary,
     marginBottom: 4,
   },
 
   formSubtitle: {
     fontSize: 13,
+    fontFamily: "PoppinsRegular",
     color: COLORS.textMuted,
     lineHeight: 19,
     marginBottom: 16,
@@ -525,7 +527,7 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 13,
     color: COLORS.text,
-    fontWeight: "600",
+    fontFamily: "PoppinsMedium",
     marginBottom: 8,
   },
 
@@ -546,6 +548,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     color: COLORS.text,
     fontSize: 14,
+    fontFamily: "PoppinsRegular",
     outlineStyle: Platform.OS === "web" ? "none" : undefined,
   },
 
@@ -562,6 +565,7 @@ const styles = StyleSheet.create({
     width: "100%",
     color: "#C0392B",
     fontSize: 13,
+    fontFamily: "PoppinsRegular",
     lineHeight: 18,
     marginTop: 6,
     paddingHorizontal: 2,
@@ -581,6 +585,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     color: COLORS.primary,
     fontSize: 13,
+    fontFamily: "PoppinsRegular",
     lineHeight: 19,
   },
 
@@ -609,7 +614,7 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: COLORS.text,
     fontSize: 14,
-    fontWeight: "700",
+    fontFamily: "PoppinsMedium",
   },
 
   saveButton: {
@@ -626,7 +631,7 @@ const styles = StyleSheet.create({
   saveButtonText: {
     color: COLORS.white,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "PoppinsSemiBold",
   },
 
   buttonDisabled: {

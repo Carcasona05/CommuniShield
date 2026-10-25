@@ -68,7 +68,6 @@ export const ARGAO_HELP_FACILITIES = [
   { "id": "fac-ubaubbarangayhealthcenter", "name": "Ubaub Barangay Health Center", "lat": 9.939117, "lng": 123.535004, "type": "clinic", "phone": null, "address": "Argao, Cebu" },
   { "id": "fac-argaopolicestation", "name": "Argao Police Station", "lat": 9.880793, "lng": 123.608792, "type": "police", "phone": "911", "address": "Ortega Street, Argao, Cebu" },
   { "id": "fac-argaofirestation", "name": "Argao Fire Station", "lat": 9.881969, "lng": 123.600326, "type": "fire", "phone": "911", "address": "Isidro Kintanar Street, Argao, Cebu" },
-  { "id": "fac-balaylungsodsaargao", "name": "Balay Lungsod sa Argao", "lat": 9.881217, "lng": 123.608699, "type": "help", "phone": null, "address": "Osmeña Street, Argao, Cebu" },
 ];
 
 export const MAP_TYPE_META = {
@@ -77,7 +76,6 @@ export const MAP_TYPE_META = {
   "police": { "color": "#294880", "label": "Police Station", "icon": "shield-checkmark", "responseNote": "Nearest police assistance for public safety concerns." },
   "fire": { "color": "#F4511E", "label": "Fire Station", "icon": "flame", "responseNote": "Nearest fire response for fire and emergency incidents." },
   "barangay": { "color": "#2E7D32", "label": "Barangay", "icon": "home", "responseNote": "Barangay officials can assist residents and visitors with local concerns." },
-  "help": { "color": "#7B1FA2", "label": "Help Station", "icon": "help-buoy", "responseNote": "Municipal office for public assistance and social services." },
 };
 
 export const MAP_TYPE_BY_LABEL = {
@@ -86,7 +84,6 @@ export const MAP_TYPE_BY_LABEL = {
   "Police Station": "police",
   "Fire Station": "fire",
   "Barangay": "barangay",
-  "Help Station": "help",
 };
 
-export const MAP_FILTER_TYPES = ["All","Hospital","Clinic","Police Station","Fire Station","Barangay","Help Station"];
+export const MAP_FILTER_TYPES = ["All","Hospital","Clinic","Police Station","Fire Station","Barangay"];

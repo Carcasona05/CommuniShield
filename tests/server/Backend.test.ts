@@ -1,9 +1,9 @@
-import "dotenv/config";
+import "../helpers/serverEnvironment.js";
 import assert from "node:assert/strict";
-import { after, before, describe, test } from "node:test";
+import { after, before, describe, test, type TestContext } from "node:test";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import app from "../api/index.js";
+import app from "../../server/api/index.js";
 import {
   __testing as sentimentKit,
   detectLanguage,
@@ -11,19 +11,432 @@ import {
   sentimentInputHash,
   sentimentService,
   type SentimentPrediction,
-} from "./services/sentimentService.js";
+} from "../../server/src/services/sentimentService.js";
 import {
   __testing as rotationKit,
   candidateModels,
   clearModelExhaustion,
   markModelExhausted,
-} from "./services/geminiRotation.js";
-import { __testing as aiKit } from "./services/aiService.js";
+} from "../../server/src/services/geminiRotation.js";
+import { __testing as aiKit } from "../../server/src/services/aiService.js";
 import {
   __testing as forecastActionsKit,
   type ForecastActionFacts,
-} from "./services/forecastActionsService.js";
-import { validateSetting } from "./controllers/settingsController.js";
+} from "../../server/src/services/forecastActionsService.js";
+import { validateSetting } from "../../server/src/controllers/settingsController.js";
+import { allowsNotification, notificationPreferencesService } from "../../server/src/services/notificationPreferencesService.js";
+import { notificationService } from "../../server/src/services/notificationService.js";
+import { getNotificationPreferences, updateNotificationPreferences } from "../../server/src/controllers/notificationPreferencesController.js";
+import type { Request, Response } from "express";
+import type { User } from "@supabase/supabase-js";
+import { ARGAO_BARANGAY_NAMES, barangaysAtCoordinates, deriveBarangay } from "../../server/src/utils/argaoLocation.js";
+import { formatGeocodedAddress } from "../../server/src/utils/geocode.js";
+import { getAdminDashboard, validateReport } from "../../server/src/controllers/reportController.js";
+import { reportService } from "../../server/src/services/reportService.js";
+import { supabaseAdmin } from "../../server/src/config/supabaseAdmin.js";
+import { profileService } from "../../server/src/services/authService.js";
+
+// Unit/integration tests use bundled artifacts, never the live model pointer.
+process.env.SENTIMENT_MODEL_REGISTRY_ENABLED = "false";
+
+describe("Argao barangay and street hierarchy", () => {
+  test("streets are assigned by their coordinates, not whole-street aliases", () => {
+    assert.equal(deriveBarangay("Carlock Street, Argao, Cebu", { latitude: 9.8784487, longitude: 123.5950192 }), "Lamacan");
+    assert.equal(deriveBarangay("624 Carlock St., Argao"), "");
+    assert.equal(deriveBarangay("Unknown Street, Argao"), "");
+    assert.equal(deriveBarangay("Apo Street, Argao"), "");
+  });
+  test("recognized address barangays are used when coordinates are missing", () => {
+    assert.equal(deriveBarangay("Carlock Street, Brgy. Canbanua, Argao"), "Canbanua");
+    for (const barangay of ARGAO_BARANGAY_NAMES) {
+      assert.equal(deriveBarangay(`Other Street, ${barangay}, Argao`), barangay);
+    }
+  });
+  test("reverse geocoding retains streets below the barangay", () => {
+    assert.equal(formatGeocodedAddress({ suburb: "Lamacan", road: "Carlock Street", town: "Argao", state: "Cebu" }), "Lamacan, Carlock Street, Argao, Cebu");
+    assert.equal(formatGeocodedAddress({ road: "Carlock Street", town: "Argao" }, { latitude: 9.8784487, longitude: 123.5950192 }), "Lamacan, Carlock Street, Argao");
+    assert.equal(formatGeocodedAddress({ suburb: "Canbanua", road: "Carlock Street", town: "Argao" }), "Canbanua, Carlock Street, Argao");
+    assert.equal(formatGeocodedAddress({ road: "Unknown Street", town: "Argao" }), "Unknown Street, Argao");
+  });
+  test("Isidro Kintanar reports appear in the barangay containing each pin", () => {
+    const location = "Isidro Kintanar Street, Argao";
+    assert.equal(deriveBarangay(location, { latitude: 9.881969, longitude: 123.600326 }), "Lamacan");
+    assert.equal(deriveBarangay(location, { latitude: 9.88525, longitude: 123.598033 }), "Canbanua");
+    assert.equal(deriveBarangay(location, { latitude: 9.8802091, longitude: 123.605901 }), "Poblacion");
+    assert.equal(deriveBarangay("Canbanua, Argao", { latitude: 9.881969, longitude: 123.600326 }), "Lamacan");
+    assert.deepEqual(barangaysAtCoordinates(0, 0), []);
+    assert.deepEqual(barangaysAtCoordinates(null, ""), []);
+  });
+  test("reverse geocoding corrects an incorrect suburb using the pin", () => {
+    assert.equal(formatGeocodedAddress({ suburb: "Canbanua", road: "Isidro Kintanar Street", town: "Argao" }, { latitude: 9.881969, longitude: 123.600326 }), "Lamacan, Isidro Kintanar Street, Argao");
+  });
+  test("dashboard filtering uses the resolved barangay, not stale address text", async (t) => {
+    t.mock.method(profileService, "getProfile", async () => ({ data: { role: "admin" }, error: null }));
+    t.mock.method(reportService, "getAdminDashboard", async () => ({
+      data: {
+        summary: {},
+        reports: [
+          { id: "lamacan", barangay: "Lamacan", location: "Isidro Kintanar Street, Canbanua" },
+          { id: "canbanua", barangay: "Canbanua", location: "Other Street, Lamacan" },
+          { id: "unresolved", barangay: "", location: "Unknown Street" },
+        ],
+      }, error: null,
+    }));
+    for (const [barangay, expected] of [["Lamacan", "lamacan"], ["Canbanua", "canbanua"], ["__unresolved__", "unresolved"]]) {
+      const req = { user: { id: "admin-1" }, query: { barangay } } as unknown as Request & { user: User };
+      let body: { reports: { id: string }[] } | undefined;
+      const res = { json(value: typeof body) { body = value; } } as Response;
+      await getAdminDashboard(req, res);
+      assert.deepEqual(body?.reports.map(({ id }) => id), [expected]);
+    }
+  });
+});
+
+describe("archived reports", () => {
+  test("archiving records its own audit action and stays off the admin broadcast", async (t) => {
+    t.mock.method(profileService, "getProfile", async () => ({ data: { role: "admin", fullname: "Ada Admin" }, error: null }));
+    const statusUpdate = t.mock.method(reportService, "validateReport", async () => ({
+      data: {
+        id: "11111111-1111-4111-8111-111111111111",
+        ownerId: "owner-1",
+        location: "Lamacan, Argao",
+        previousStatus: "Pending Review",
+        previousVerified: true,
+        incidentType: "Theft",
+      },
+      error: null,
+    }));
+    const auditLogs: Parameters<typeof reportService.insertAuditLog>[0][] = [];
+    t.mock.method(reportService, "insertAuditLog", async (input: Parameters<typeof reportService.insertAuditLog>[0]) => {
+      auditLogs.push(input);
+      return { data: null, error: null };
+    });
+    const broadcast = t.mock.method(notificationService, "notifyAllAdmins", async () => ({ data: null, error: null }));
+    const ownerNotice = t.mock.method(notificationService, "createNotification", async () => ({ data: null, error: null }));
+
+    const req = {
+      user: { id: "admin-1" },
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: { status: "Archived", is_verified: true },
+    } as unknown as Request & { user: User };
+    let body: { status?: string } | undefined;
+    const res = {
+      json(value: typeof body) { body = value; },
+      status() { return this; },
+    } as unknown as Response;
+
+    await validateReport(req, res);
+
+    assert.equal(statusUpdate.mock.callCount(), 1);
+    assert.deepEqual(statusUpdate.mock.calls[0]?.arguments[1], {
+      status: "Archived",
+      is_verified: false,
+    });
+    assert.equal(auditLogs[0]?.actionType, "Report Archived");
+    assert.equal(auditLogs[0]?.newValue, "Archived");
+    assert.equal(ownerNotice.mock.callCount(), 1);
+    assert.equal(broadcast.mock.callCount(), 0);
+    assert.equal(body?.status, "Archived");
+  });
+
+  test("report feeds and dashboards never select archived rows", async (t) => {
+    const queries: { table: string; filters: string[] }[] = [];
+    const rowsByTable: Record<string, unknown[]> = {
+      reports: [
+        {
+          id: "22222222-2222-4222-8222-222222222222",
+          user_id: "33333333-3333-4333-8333-333333333333",
+          location: "Lamacan, Argao",
+          latitude: 9.881969,
+          longitude: 123.600326,
+          details: "Sample report",
+          poster_name: "Juan",
+          display_name_type: "",
+          status: "Pending Review",
+          is_verified: false,
+          created_at: "2026-10-20T10:00:00.000Z",
+          incident_type_id: "44444444-4444-4444-8444-444444444444",
+          role: "user",
+        },
+      ],
+    };
+    const filterMethods = new Set(["eq", "neq", "in", "gte", "lte", "not"]);
+    const makeBuilder = (table: string) => {
+      const query = { table, filters: [] as string[] };
+      queries.push(query);
+      const builder: Record<string, unknown> = {};
+      const chain =
+        (name: string) =>
+        (...args: unknown[]) => {
+          if (filterMethods.has(name)) {
+            query.filters.push(`${name}:${String(args[0])}:${String(args[1])}`);
+          }
+          return builder;
+        };
+      ["select", "order", "limit", "eq", "neq", "in", "gte", "lte", "not"].forEach(
+        (name) => {
+          builder[name] = chain(name);
+        }
+      );
+      builder.then = (resolve: unknown, reject: unknown) =>
+        Promise.resolve({ data: rowsByTable[table] ?? [], error: null }).then(
+          resolve as never,
+          reject as never
+        );
+      return builder;
+    };
+    t.mock.method(supabaseAdmin, "from", makeBuilder as unknown as typeof supabaseAdmin.from);
+
+    const feed = await reportService.listReports();
+    assert.equal(feed.error, null);
+    assert.equal(feed.data?.length, 1);
+    assert.ok(
+      queries.find((q) => q.table === "reports")?.filters.includes("neq:status:Archived"),
+      "report feeds must exclude archived reports"
+    );
+
+    queries.length = 0;
+    const dashboard = await reportService.getAdminDashboard();
+    assert.equal(dashboard.error, null);
+    assert.ok(
+      queries.find((q) => q.table === "reports")?.filters.includes("neq:status:Archived"),
+      "the admin dashboard must exclude archived reports"
+    );
+
+    queries.length = 0;
+    const archived = await reportService.getAdminDashboard({ status: "Archived" });
+    assert.equal(archived.error, null);
+    assert.deepEqual(
+      queries.find((q) => q.table === "reports")?.filters,
+      ["eq:status:Archived"],
+      "the Logs archive view asks for archived reports explicitly"
+    );
+  });
+});
+
+describe("dashboard relation batching", () => {
+  function fixture(t: TestContext, failSecondAnalysisBatch = false, empty = false,
+    options: { reportCount?: number; replies?: number; failCommentPage?: boolean } = {}) {
+    const reports = Array.from({ length: empty ? 0 : options.reportCount ?? 640 }, (_, i) => ({
+      id: `report-${i}`, user_id: `poster-${i}`, location: "Lamacan, Argao, Cebu",
+      latitude: 9.880192, longitude: 123.583668, details: "Synthetic test",
+      poster_name: "Poster", status: "Pending Review", is_verified: false,
+      created_at: "2026-10-22T10:00:00Z", incident_type_id: "type", role: "user",
+    }));
+    const comments = reports.flatMap((r, i) => Array.from({ length: options.replies ?? 2 }, (_, n) => ({
+      id: `comment-${i}-${n}`, report_id: r.id, user_id: `commenter-${i}`,
+      content: "Synthetic comment", created_at: "2026-10-22T11:00:00Z",
+    })));
+    const sentiment = (id: string) => ({ subject_id: id, label: "neutral", confidence: 0.9,
+      language: "english", provider: "local", model: "test", status: "succeeded",
+      error_code: "", analyzed_at: "2026-10-22T12:00:00Z" });
+    const calls: Array<{ table: string; ids: string[] }> = [];
+    t.mock.method(supabaseAdmin, "from", ((table: string) => {
+      let ids: string[] = [];
+      let subjectType = "";
+      let range: [number, number] | undefined;
+      const builder: Record<string, unknown> = {};
+      for (const method of ["select", "order", "neq", "gte", "lte"]) builder[method] = () => builder;
+      builder.range = (from: number, to: number) => { range = [from, to]; return builder; };
+      builder.eq = (column: string, value: string) => { if (column === "subject_type") subjectType = value; return builder; };
+      builder.in = (_column: string, values: string[]) => {
+        assert.ok(values.length <= 100, `${table} must never send oversized IN filters`);
+        ids = values;
+        calls.push({ table, ids: [...ids] });
+        return builder;
+      };
+      builder.then = (resolve: never, reject: never) => {
+        let data: unknown[] = [];
+        let error: { message: string } | null = null;
+        if (table === "incident_types") data = [{ id: "type", name: "Theft", incident_categories: { name: "Property" } }];
+        if (table === "reports") data = reports;
+        if (table === "profiles") data = ids.map((id) => ({ id, fullname: `Name ${id}`, user_name: id }));
+        if (table === "report_comments") data = comments.filter((c) => ids.includes(c.report_id));
+        if (table === "report_comments" && options.failCommentPage && range && range[0] >= 500) error = { message: "Comment page failed" };
+        if (table === "report_images") data = ids.map((id) => ({ report_id: id, image_url: `https://example.test/${id}.png` }));
+        if (table === "report_credibility_analysis") {
+          if (failSecondAnalysisBatch && calls.filter((c) => c.table === table).length === 2) error = { message: "Second analysis batch failed" };
+          else data = ids.map((id) => ({ report_id: id, ai_score: 60, severity: "Low", credibility_review: "Synthetic" }));
+        }
+        if (table === "sentiment_analysis") {
+          const valid = subjectType === "comment" ? comments.map((c) => c.id) : reports.map((r) => r.id);
+          data = ids.filter((id) => valid.includes(id)).map(sentiment);
+        }
+        if (range) data = data.slice(range[0], range[1] + 1);
+        return Promise.resolve({ data: error ? null : data, error }).then(resolve, reject);
+      };
+      return builder;
+    }) as unknown as typeof supabaseAdmin.from);
+    return { calls, reports, comments };
+  }
+
+  test("640 reports and 1280 comments retain all profiles, sentiment and images across batches", async (t) => {
+    const { calls } = fixture(t);
+    const result = await reportService.getAdminDashboard();
+    assert.equal(result.error, null);
+    assert.equal(result.data?.summary.total, 640);
+    assert.equal(result.data?.reports.reduce((sum, r) => sum + r.comments.length, 0), 1280);
+    assert.equal(calls.filter((c) => c.table === "report_credibility_analysis").length, 7);
+    assert.equal(calls.filter((c) => c.table === "profiles").length, 14);
+    assert.equal(calls.filter((c) => c.table === "sentiment_analysis").length, 20);
+    for (const [index, report] of (result.data?.reports || []).entries()) {
+      assert.equal(report.reporter_name, `Name poster-${index}`);
+      assert.equal(report.ai_score, 60);
+      assert.equal(report.sentiment, "neutral");
+      assert.equal(report.images.length, 1);
+      assert.equal(report.comments.length, 2);
+      for (const comment of report.comments) {
+        assert.equal(comment.user, `Name commenter-${index}`);
+        assert.equal(comment.sentiment, "neutral");
+      }
+    }
+  });
+
+  test("a failed later batch returns an error rather than a partial dashboard", async (t) => {
+    fixture(t, true);
+    const result = await reportService.getAdminDashboard();
+    assert.equal(result.data, null);
+    assert.equal(result.error, "Second analysis batch failed");
+  });
+
+  test("empty dashboards skip all relation queries", async (t) => {
+    const { calls } = fixture(t, false, true);
+    const result = await reportService.getAdminDashboard();
+    assert.equal(result.error, null);
+    assert.equal(result.data?.summary.total, 0);
+    assert.deepEqual(calls, []);
+  });
+
+  test("analytics paginates reports and busy threads and batches all sentiment UUIDs", async (t) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    t.after(() => { if (apiKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = apiKey; });
+    const { reports, comments } = fixture(t, false, false, { reportCount: 1100, replies: 12 });
+    const result = await reportService.getAdminAnalytics();
+    assert.equal(result.error, null);
+    assert.equal(result.data?.summary.activeIncidents, reports.length);
+    assert.equal(result.data?.summary.sentimentTotal, reports.length + comments.length);
+    assert.equal(result.data?.summary.sentimentAnalyzed, reports.length + comments.length);
+    assert.equal(result.data?.summary.sentimentDistribution.find(r => r.label === "neutral")?.count, 14300);
+  });
+
+  test("analytics returns errors instead of silently aggregating partial comment pages", async (t) => {
+    fixture(t, false, false, { replies: 12, failCommentPage: true });
+    const result = await reportService.getAdminAnalytics();
+    assert.equal(result.data, null);
+    assert.equal(result.error, "Comment page failed");
+  });
+
+  test("empty analytics skips relation reads", async (t) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    t.after(() => { if (apiKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = apiKey; });
+    const { calls } = fixture(t, false, true);
+    const result = await reportService.getAdminAnalytics();
+    assert.equal(result.error, null);
+    assert.equal(result.data?.summary.sentimentTotal, 0);
+    assert.deepEqual(calls, []);
+  });
+});
+
+describe("user notification preferences", () => {
+  test("master switch and crime switch independently control delivery", () => {
+    for (const notifications_enabled of [true, false]) {
+      for (const crime_alerts_enabled of [true, false]) {
+        const preferences = { notifications_enabled, crime_alerts_enabled };
+        assert.equal(allowsNotification(preferences, "report_status"), notifications_enabled);
+        assert.equal(allowsNotification(preferences, "nearby_incident"), notifications_enabled && crime_alerts_enabled);
+      }
+    }
+  });
+
+  const response = () => {
+    const result = { status: 200, body: undefined as unknown };
+    const res = {
+      status(code: number) { result.status = code; return res; },
+      json(body: unknown) { result.body = body; return res; },
+    } as Response;
+    return { res, result };
+  };
+  const request = (body?: unknown) => ({ user: { id: "user-1" } as User, body }) as Request & { user: User };
+
+  test("preferences require authentication", async () => {
+    for (const handler of [getNotificationPreferences, updateNotificationPreferences]) {
+      const { res, result } = response();
+      await handler({} as Request, res);
+      assert.equal(result.status, 401);
+    }
+  });
+
+  test("rejects empty, unknown, and non-boolean preferences", async () => {
+    for (const body of [undefined, {}, [], { role: "admin" }, { notifications_enabled: "false" }, { crime_alerts_enabled: null }]) {
+      const { res, result } = response();
+      await updateNotificationPreferences(request(body), res);
+      assert.equal(result.status, 400);
+    }
+  });
+
+  test("saves only the supplied preference for the authenticated user", async (t) => {
+    const saved = { notifications_enabled: false, crime_alerts_enabled: true };
+    t.mock.method(notificationPreferencesService, "update", async (id: string, patch: Record<string, boolean>) => {
+      assert.equal(id, "user-1");
+      assert.deepEqual(patch, { notifications_enabled: false });
+      return { data: saved, error: null };
+    });
+    const { res, result } = response();
+    await updateNotificationPreferences(request({ notifications_enabled: false }), res);
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body, saved);
+  });
+
+  test("returns an error instead of reporting a failed save as successful", async (t) => {
+    t.mock.method(notificationPreferencesService, "update", async () => ({ data: null, error: { message: "database unavailable" } }));
+    const { res, result } = response();
+    await updateNotificationPreferences(request({ crime_alerts_enabled: false }), res);
+    assert.equal(result.status, 500);
+  });
+
+  test("loads the authenticated user's saved preferences", async (t) => {
+    const saved = { notifications_enabled: true, crime_alerts_enabled: false };
+    t.mock.method(notificationPreferencesService, "get", async (id: string) => {
+      assert.equal(id, "user-1");
+      return { data: saved, error: null };
+    });
+    const { res, result } = response();
+    await getNotificationPreferences(request(), res);
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body, saved);
+  });
+
+  test("failed preference reads do not silently enable notifications", async (t) => {
+    t.mock.method(notificationPreferencesService, "get", async () => ({ data: null, error: { message: "database unavailable" } }));
+    const { res, result } = response();
+    await getNotificationPreferences(request(), res);
+    assert.equal(result.status, 500);
+    const delivery = await notificationService.createNotification({ userId: "user-1", type: "report_status", title: "Test" });
+    assert.ok(delivery.error);
+  });
+
+  test("opted-out user notifications are skipped before insertion", async (t) => {
+    t.mock.method(notificationPreferencesService, "get", async () => ({
+      data: { notifications_enabled: false, crime_alerts_enabled: true }, error: null,
+    }));
+    const typeLookup = t.mock.method(notificationService, "getTypeId", async () => { throw new Error("must not insert"); });
+    for (const type of ["report_status", "nearby_incident"] as const) {
+      const result = await notificationService.createNotification({ userId: "user-1", type, title: "Test" });
+      assert.equal(result.skipped, true);
+    }
+    assert.equal(typeLookup.mock.callCount(), 0);
+  });
+
+  test("crime opt-out suppresses nearby incidents even with notifications on", async (t) => {
+    t.mock.method(notificationPreferencesService, "get", async () => ({
+      data: { notifications_enabled: true, crime_alerts_enabled: false }, error: null,
+    }));
+    const result = await notificationService.createNotification({ userId: "user-1", type: "nearby_incident", title: "Test" });
+    assert.equal(result.skipped, true);
+  });
+});
 
 const basePrediction = (
   overrides: Partial<SentimentPrediction>
@@ -520,6 +933,12 @@ describe("API", () => {
     assert.match(await res.text(), /It is working/);
   });
 
+  test("GET /health supplies Render's unauthenticated liveness probe", async () => {
+    const res = await fetch(`${baseUrl}/health`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { status: "ok" });
+  });
+
   describe("public auth routes reject empty payloads with 400", () => {
     const publicCases: Array<{ path: string; error: string }> = [
       {
@@ -585,6 +1004,9 @@ describe("API", () => {
   describe("protected routes reject requests without a token", () => {
     const protectedRoutes: Array<{ method: string; path: string }> = [
       { method: "GET", path: "/api/profile" },
+      { method: "GET", path: "/api/session" },
+      { method: "GET", path: "/api/profile/notification-preferences" },
+      { method: "PATCH", path: "/api/profile/notification-preferences" },
       { method: "PUT", path: "/api/profile" },
       { method: "PUT", path: "/api/profile/email" },
       { method: "PUT", path: "/api/profile/password" },
@@ -609,6 +1031,8 @@ describe("API", () => {
       { method: "GET", path: "/api/incidents/options" },
       { method: "GET", path: "/api/admin/posts" },
       { method: "GET", path: "/api/admin/dashboard" },
+      { method: "GET", path: "/api/admin/overview" },
+      { method: "GET", path: "/api/admin/risk-outlook" },
       { method: "GET", path: "/api/admin/analytics" },
       { method: "POST", path: "/api/admin/announcements" },
       { method: "GET", path: "/api/admin/announcements" },
@@ -630,6 +1054,15 @@ describe("API", () => {
       { method: "POST", path: "/api/upload/image" },
 
       { method: "GET", path: "/api/ai/status" },
+      { method: "GET", path: "/api/sentiment/datasets" },
+      { method: "GET", path: "/api/sentiment/training" },
+      { method: "POST", path: "/api/sentiment/training" },
+      { method: "POST", path: "/api/sentiment/datasets/preview" },
+      { method: "POST", path: "/api/sentiment/datasets" },
+      { method: "GET", path: "/api/sentiment/datasets/00000000-0000-0000-0000-000000000000" },
+      { method: "PATCH", path: "/api/sentiment/datasets/00000000-0000-0000-0000-000000000000/samples/00000000-0000-0000-0000-000000000000" },
+      { method: "POST", path: "/api/sentiment/datasets/00000000-0000-0000-0000-000000000000/review" },
+      { method: "GET", path: "/api/sentiment/datasets/00000000-0000-0000-0000-000000000000/export" },
       { method: "POST", path: `/api/ai/analyze/${UUID}` },
       { method: "POST", path: "/api/ai/batch-analyze" },
       { method: "PUT", path: "/api/ai/toggle" },

@@ -1,3 +1,5 @@
+import { canonicalBarangay, deriveBarangay } from "./argaoLocation.js";
+
 const NOMINATIM_ENDPOINT = "https://nominatim.openstreetmap.org/reverse";
 
 type NominatimAddress = {
@@ -19,6 +21,21 @@ type NominatimResponse = {
   display_name?: string;
   error?: string;
 };
+
+export function formatGeocodedAddress(addr: NominatimAddress, coordinates?: { latitude: number; longitude: number }): string {
+  const locality = [addr.suburb, addr.village, addr.neighbourhood]
+    .map((value) => canonicalBarangay(value || "")).find(Boolean);
+  const road = (addr.road || "").trim();
+  const barangay = deriveBarangay(locality || "", coordinates);
+  const city = (addr.town || addr.city || addr.county || "").trim();
+  const province = (addr.state || addr.region || "").trim();
+  const parts: string[] = [];
+  // Barangay is the parent; retain the street as a more specific detail.
+  [barangay, road, city, province].forEach((part) => {
+    if (part && !parts.some((item) => item.toLowerCase() === part.toLowerCase())) parts.push(part);
+  });
+  return parts.join(", ");
+}
 
 export async function reverseGeocode(
   latitude: number,
@@ -48,18 +65,8 @@ export async function reverseGeocode(
     const addr = data.address;
 
     if (addr) {
-      const barangay = (addr.suburb || addr.village || addr.neighbourhood || addr.road || "").trim();
-      const city = (addr.town || addr.city || addr.county || "").trim();
-      const province = (addr.state || addr.region || "").trim();
-
-      const parts: string[] = [];
-      [barangay, city, province].forEach((item) => {
-        if (item && !parts.some((p) => p.toLowerCase() === item.toLowerCase())) {
-          parts.push(item);
-        }
-      });
-
-      if (parts.length) return parts.join(", ");
+      const location = formatGeocodedAddress(addr, { latitude, longitude });
+      if (location) return location;
     }
 
     if (data.display_name) {

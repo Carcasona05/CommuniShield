@@ -28,6 +28,7 @@ import apiClient from "../../services/apiClient";
 import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
+import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
 import { getCache, setCache, patchCachedReports, removeCachedReport } from "../../services/dataStore";
 
@@ -47,7 +48,6 @@ const statusOptions = [
   "Under Verification",
   "Resolved",
   "Rejected",
-  "Archived",
 ];
 
 const FALLBACK_CATEGORIES = [
@@ -606,6 +606,7 @@ const MyReportsInner = () => {
   });
   const [refreshing, setRefreshing] = useState(false);
   const scrollRef = useScrollToTop();
+  const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -647,11 +648,16 @@ const MyReportsInner = () => {
   }, [loadMyReports]);
 
   const filteredReports = useMemo(() => {
+    // Archived reports are removed from every user-facing surface.
+    const activeReports = myReports.filter(
+      (report) => report.status !== "Archived"
+    );
+
     if (selectedStatus === "All Status") {
-      return myReports;
+      return activeReports;
     }
 
-    return myReports.filter((report) => report.status === selectedStatus);
+    return activeReports.filter((report) => report.status === selectedStatus);
   }, [selectedStatus, myReports]);
 
   const visibleReports = filteredReports.slice(0, visibleCount);
@@ -670,11 +676,14 @@ const MyReportsInner = () => {
   };
 
   const statusCounts = useMemo(() => {
-    const counts = { "All Status": myReports.length };
+    const activeReports = myReports.filter(
+      (report) => report.status !== "Archived"
+    );
+    const counts = { "All Status": activeReports.length };
 
     statusOptions.forEach((status) => {
       if (status !== "All Status") {
-        counts[status] = myReports.filter(
+        counts[status] = activeReports.filter(
           (report) => report.status === status
         ).length;
       }
@@ -855,9 +864,12 @@ const MyReportsInner = () => {
           style={styles.scrollContainer}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          onScroll={(event) =>
-            setShowScrollTop(event.nativeEvent.contentOffset.y > 300)
-          }
+          onScroll={(event) => {
+            trackScroll(event);
+            setShowScrollTop(event.nativeEvent.contentOffset.y > 300);
+          }}
+          onScrollBeginDrag={stopScrollAnimation}
+          onTouchStart={stopScrollAnimation}
           scrollEventThrottle={16}
           refreshControl={
             <RefreshControl
@@ -958,9 +970,9 @@ const MyReportsInner = () => {
         <TouchableOpacity
           style={styles.scrollTopBtn}
           activeOpacity={0.8}
-          onPress={() =>
-            scrollRef.current?.scrollTo?.({ y: 0, animated: true })
-          }
+            accessibilityRole="button"
+            accessibilityLabel="Back to top"
+            onPress={scrollToTop}
         >
           <Ionicons name="arrow-up" size={22} color="#FFFFFF" />
         </TouchableOpacity>

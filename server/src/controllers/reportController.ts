@@ -9,6 +9,9 @@ import {
   type SentimentAnalysis,
 } from "../services/sentimentService.js";
 import { toReportCode } from "../utils/toReportCode.js";
+import { backgroundTasks } from "../services/backgroundTasks.js";
+import { reportSubmissionService } from "../services/reportSubmissionService.js";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string }; token?: string };
 
@@ -36,10 +39,12 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
   if (!id) return res.status(400).json({ error: "Report id required" });
 
   const { status, is_verified } = req.body ?? {};
+  const isArchive = status === "Archived";
 
   const result = await reportService.validateReport(String(id), {
     status,
-    is_verified,
+    // Archived reports are never verified; force the flag off with the status.
+    is_verified: isArchive ? false : is_verified,
   });
 
   if (result.error) return res.status(400).json({ error: result.error });
@@ -47,7 +52,9 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
   if (result.data?.ownerId) {
     const prev = result.data;
     const newStatus = status ?? prev.previousStatus ?? "Pending Review";
-    const verified = is_verified ?? prev.previousVerified ?? false;
+    const verified = isArchive
+      ? false
+      : is_verified ?? prev.previousVerified ?? false;
 
     if (newStatus === "Rejected") {
       await credibilityService
@@ -85,10 +92,16 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
     await notificationService.createNotification({
       userId: result.data.ownerId,
       type: "report_status",
-      title: verified ? "Your report was verified" : `Your report is now "${newStatus}"`,
+      title: verified
+        ? "Your report was verified"
+        : isArchive
+          ? "Your report was archived"
+          : `Your report is now "${newStatus}"`,
       message: verified
         ? "Your report has been reviewed and marked as VERIFIED by the admin."
-        : `The admin updated your report. Current status: "${newStatus}".`,
+        : isArchive
+          ? "The admin moved this report to archived reports, so it is no longer shown in active feeds."
+          : `The admin updated your report. Current status: "${newStatus}".`,
       reportId: result.data.id,
       location: result.data.location,
       isVerified: verified,
@@ -100,9 +113,11 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
         ? "Report Rejected"
         : newStatus === "Marked Fake"
           ? "Report Rejected"
-          : newStatus === "Mapped"
-            ? "Report Mapped"
-            : "Report Verified";
+          : newStatus === "Archived"
+            ? "Report Archived"
+            : newStatus === "Mapped"
+              ? "Report Mapped"
+              : "Report Verified";
 
     await reportService.insertAuditLog({
       actorId: user.id,
@@ -110,30 +125,37 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
       actionType: auditActionType,
       title: verified
         ? `Report verified: ${result.data.incidentType}`
-        : `Report status updated: ${result.data.incidentType}`,
+        : newStatus === "Archived"
+          ? `Report archived: ${result.data.incidentType}`
+          : `Report status updated: ${result.data.incidentType}`,
       details: verified
         ? `Report ${toReportCode(result.data.id)} was reviewed and verified by ${profile?.fullname || "admin"}.`
-        : `Report ${toReportCode(result.data.id)} status changed from "${result.data.previousStatus}" to "${newStatus}" by ${profile?.fullname || "admin"}.`,
+        : newStatus === "Archived"
+          ? `Report ${toReportCode(result.data.id)} was moved to archived reports by ${profile?.fullname || "admin"}.`
+          : `Report ${toReportCode(result.data.id)} status changed from "${result.data.previousStatus}" to "${newStatus}" by ${profile?.fullname || "admin"}.`,
       reportId: result.data.id,
       oldValue: result.data.previousStatus,
-      newValue: verified ? "Verified" : newStatus,
+      newValue: isArchive ? "Archived" : verified ? "Verified" : newStatus,
     }).catch(() => {});
 
-    const reportSeverity = await reportService.getReportSeverity(result.data.id);
-    const statusPriority = severityToPriority(reportSeverity);
+    // Archiving is quiet housekeeping: no broadcast to other admins.
+    if (!isArchive) {
+      const reportSeverity = await reportService.getReportSeverity(result.data.id);
+      const statusPriority = severityToPriority(reportSeverity);
 
-    await notificationService
-      .notifyAllAdmins({
-        type: "log",
-        reportId: result.data.id,
-        title: verified
-          ? `Report verified: ${toReportCode(result.data.id)}`
-          : `Report status changed to "${newStatus}"`,
-        message: `${profile?.fullname || "Admin"} updated ${toReportCode(result.data.id)} to "${verified ? "Verified" : newStatus}".`,
-        priority: statusPriority,
-        excludeUserId: user.id,
-      })
-      .catch(() => {});
+      await notificationService
+        .notifyAllAdmins({
+          type: "log",
+          reportId: result.data.id,
+          title: verified
+            ? `Report verified: ${toReportCode(result.data.id)}`
+            : `Report status changed to "${newStatus}"`,
+          message: `${profile?.fullname || "Admin"} updated ${toReportCode(result.data.id)} to "${verified ? "Verified" : newStatus}".`,
+          priority: statusPriority,
+          excludeUserId: user.id,
+        })
+        .catch(() => {});
+    }
 
     if (verified || newStatus === "Resolved") {
       const { data: coords } = await reportService.getReportCoords(
@@ -257,68 +279,27 @@ const createReportImpl = async (req: AuthRequest, res: Response) => {
     return res.status(500).json({ error: "Failed to create report" });
   }
 
-  await credibilityService
-    .addPoints(
-      user.id,
-      "report_submitted",
-      "Report submitted",
-      reportId
-    )
-    .catch(() => {});
-
-  const latNum = req.body?.latitude ? Number(req.body.latitude) : null;
-  const lngNum = req.body?.longitude ? Number(req.body.longitude) : null;
-
-  await notificationService
-    .notifyNearbyUsers({
-      reportId,
-      latitude: latNum,
-      longitude: lngNum,
-      title: req.body?.incident_type || "Incident report near you",
-      message: `A new "${req.body?.incident_type || "incident"}" report was filed near your location.`,
-      level: "Moderate",
-      excludeUserId: user.id,
-    })
-    .catch(() => {});
-
-  const reportLocation = createdReport.location || req.body?.location || "";
-  const analysisInput = {
-    incident_category: req.body?.incident_category || "",
-    incident_type: req.body?.incident_type || "",
-    location: reportLocation,
-    details: req.body?.details || "",
-    latitude: latNum,
-    longitude: lngNum,
+  const coordinate = (value: unknown) =>
+    (typeof value === "number" || typeof value === "string" && value.trim() !== "") && Number.isFinite(Number(value)) ? Number(value) : null;
+  const submitted = {
+    ownerId: user.id, reportId,
+    incidentCategory: String(req.body?.incident_category || ""),
+    incidentType: String(req.body?.incident_type || ""),
+    location: createdReport.location || String(req.body?.location || ""),
+    details: String(req.body?.details || ""),
+    latitude: coordinate(req.body?.latitude), longitude: coordinate(req.body?.longitude),
   };
-  const [credibility, sentiment] = await Promise.all([
-    aiService.analyzeReport(reportId, analysisInput).catch((error) => {
-      console.error("Credibility analysis failed:", error);
-      return null;
-    }),
-    sentimentService.analyze("report", reportId).catch((error) => {
-      console.error("Report sentiment analysis failed:", error);
-      return null;
-    }),
-  ]);
-
-  const reportPriority = severityToPriority(credibility?.severity);
-
-  await notificationService
-    .notifyAllAdmins({
-      reportId,
-      title: req.body?.incident_type || "New Incident Report",
-      message: `A new "${req.body?.incident_type || "incident"}" report was filed at ${req.body?.location || "an unspecified location"}.`,
-      priority: reportPriority,
-      excludeUserId: user.id,
-    })
-    .catch(() => {});
+  // Persist first. Register background work BEFORE sending HTTP 201; none of
+  // the AI/geographic notification/credibility work delays the submit button.
+  backgroundTasks.schedule(`report-submission:${reportId}`, () => reportSubmissionService.process(submitted));
 
   res.status(201).json({
     message: "Report submitted successfully",
     report_id: reportId,
     analysis: {
-      credibility: credibility?.status ?? "unavailable",
-      ...sentimentResponse(sentiment),
+      credibility: "pending",
+      ...sentimentResponse(null),
+      sentiment_status: "pending",
     },
   });
 };
@@ -372,7 +353,12 @@ export const updateReport = async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: "Report id required" });
 
-  const result = await reportService.updateReport(user.id, String(id), req.body ?? {});
+  const { data: profile } = await profileService.getProfile(user.id);
+  const adminScope = !!profile && ["admin", "super_admin"].includes(profile.role);
+
+  const result = await reportService.updateReport(user.id, String(id), req.body ?? {}, {
+    adminScope,
+  });
 
   if (result.error) return res.status(400).json({ error: result.error });
 
@@ -397,11 +383,12 @@ export const deleteReport = async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: "Report id required" });
 
-  const result = await reportService.deleteReport(user.id, String(id));
+  const { data: profile } = await profileService.getProfile(user.id);
+  const adminScope = !!profile && ["admin", "super_admin"].includes(profile.role);
+
+  const result = await reportService.deleteReport(user.id, String(id), { adminScope });
 
   if (result.error) return res.status(400).json({ error: result.error });
-
-  const { data: profile } = await profileService.getProfile(user.id);
 
   await reportService.insertAuditLog({
     actorId: user.id,
@@ -478,6 +465,13 @@ export const getAdminPosts = async (req: AuthRequest, res: Response) => {
   res.json({ posts: data });
 };
 
+export const getAdminOverview = async (_req: AuthRequest, res: Response) => {
+  const { data, error } = await reportService.getAdminOverview();
+  res.setHeader("Cache-Control", "no-store");
+  if (error || !data) return res.status(503).json({ error: error || "Report counts are unavailable." });
+  return res.json(data);
+};
+
 export const getAdminDashboard = async (req: AuthRequest, res: Response) => {
   const user = req.user;
   if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
@@ -529,11 +523,8 @@ export const getAdminDashboard = async (req: AuthRequest, res: Response) => {
       return false;
     }
     if (barangay) {
-      const locationParts = [
-        report.barangay,
-        ...String(report.location || "").split(","),
-      ].map((part) => String(part || "").trim().toLowerCase());
-      if (!locationParts.includes(barangay)) return false;
+      const resolvedBarangay = String(report.barangay || "").toLowerCase();
+      if (barangay === "__unresolved__" ? Boolean(resolvedBarangay) : resolvedBarangay !== barangay) return false;
     }
     if (Number.isFinite(fromTime) && (!Number.isFinite(createdAt) || createdAt < fromTime)) {
       return false;
@@ -668,6 +659,69 @@ export const createAdminAnnouncement = async (req: AuthRequest, res: Response) =
   res.status(201).json({ message: "Announcement published", announcement_id: result.data });
 };
 
+export const updateAdminAnnouncement = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Announcement id required" });
+
+  const { data: profile } = await profileService.getProfile(user.id);
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return res.status(403).json({ error: "Admin access only" });
+  }
+
+  const { type, title, location, details, pic_url } = req.body ?? {};
+  const result = await reportService.updateAnnouncement(String(id), {
+    type,
+    title,
+    location,
+    details,
+    pic_url,
+  });
+
+  if (result.error) return res.status(400).json({ error: result.error });
+
+  await reportService.insertAuditLog({
+    actorId: user.id,
+    actorName: profile?.fullname || "Admin",
+    actionType: "Announcement Updated",
+    title: "Announcement updated",
+    details: `Announcement "${title || ""}" was updated by ${profile?.fullname || "admin"}.`,
+  }).catch(() => {});
+
+  res.json({ message: "Announcement updated", announcement_id: result.data });
+};
+
+export const deleteAdminAnnouncement = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Announcement id required" });
+
+  const { data: profile } = await profileService.getProfile(user.id);
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return res.status(403).json({ error: "Admin access only" });
+  }
+
+  const result = await reportService.deleteAnnouncement(String(id));
+  if (result.error) {
+    const status = result.error === "Announcement not found" ? 404 : 400;
+    return res.status(status).json({ error: result.error });
+  }
+
+  await reportService.insertAuditLog({
+    actorId: user.id,
+    actorName: profile?.fullname || "Admin",
+    actionType: "Announcement Deleted",
+    title: "Announcement deleted",
+    details: `An announcement was deleted by ${profile?.fullname || "admin"}.`,
+  }).catch(() => {});
+
+  res.json({ message: "Announcement deleted" });
+};
+
 export const getAdminAnalytics = async (req: AuthRequest, res: Response) => {
   const user = req.user;
   if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
@@ -688,4 +742,168 @@ export const getAdminAnalytics = async (req: AuthRequest, res: Response) => {
     forecast: data.forecast,
     forecastSummary: data.forecastSummary,
   });
+};
+
+export const getAdminBlotters = async (_req: AuthRequest, res: Response) => {
+  const { data, error } = await supabaseAdmin
+    .from("admin_blotters")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ blotters: data || [] });
+};
+
+export const createAdminBlotter = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+  const body = req.body ?? {};
+  const required = ["blotterNo", "location", "incidentType", "complainantName", "respondent", "incidentDescription", "actionTaken", "reportedBy", "blotterOfficer"];
+  const values: Record<string, unknown> = { ...body };
+  if (typeof values.incidentDescription !== "string") {
+    values.incidentDescription = typeof body.details === "string" ? body.details : "";
+  }
+  const missing = required.filter((key) => typeof values[key] !== "string" || !String(values[key]).trim());
+  if (missing.length > 0) {
+    return res.status(400).json({ error: `Complete all required blotter fields: ${missing.join(", ")}.` });
+  }
+  const incidentDescription = String(values.incidentDescription).trim();
+
+  const { data, error } = await supabaseAdmin.from("admin_blotters").insert({
+    admin_id: user.id,
+    blotter_no: body.blotterNo.trim(),
+    barangay: body.barangay || null,
+    location: body.location.trim(),
+    incident_type: body.incidentType.trim(),
+    incident_datetime: body.incidentDateTime || null,
+    complainant_name: body.complainantName.trim(),
+    complainant_age: body.complainantAge || null,
+    complainant_contact: body.complainantContact || null,
+    respondent: body.respondent.trim(),
+    incident_description: incidentDescription,
+    action_taken: body.actionTaken.trim(),
+    status: body.status || "Pending Review",
+    reported_by: body.reportedBy.trim(),
+    blotter_officer: body.blotterOfficer.trim(),
+    date_reported: body.dateReported || null,
+    date_recorded: body.dateRecorded || null,
+  }).select("*").single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json({ message: "Blotter saved", blotter: data });
+};
+
+const BLOTTER_TEXT_FIELDS: Record<string, string> = {
+  blotterNo: "blotter_no",
+  barangay: "barangay",
+  location: "location",
+  incidentType: "incident_type",
+  incidentDateTime: "incident_datetime",
+  complainantName: "complainant_name",
+  complainantAge: "complainant_age",
+  complainantContact: "complainant_contact",
+  respondent: "respondent",
+  incidentDescription: "incident_description",
+  actionTaken: "action_taken",
+  reportedBy: "reported_by",
+  blotterOfficer: "blotter_officer",
+  dateReported: "date_reported",
+  dateRecorded: "date_recorded",
+};
+
+const BLOTTER_REQUIRED_FIELDS = [
+  "blotterNo",
+  "location",
+  "incidentType",
+  "complainantName",
+  "respondent",
+  "incidentDescription",
+  "actionTaken",
+  "reportedBy",
+  "blotterOfficer",
+];
+
+const buildBlotterUpdates = (
+  body: Record<string, unknown>
+): { error?: string; updates?: Record<string, unknown> } => {
+  const updates: Record<string, unknown> = {};
+  for (const [key, column] of Object.entries(BLOTTER_TEXT_FIELDS)) {
+    if (!(key in body)) continue;
+    const value = body[key];
+    if (typeof value !== "string") return { error: `${key} must be text.` };
+    const trimmed = value.trim();
+    if (BLOTTER_REQUIRED_FIELDS.includes(key) && !trimmed) {
+      return { error: `${key} is required.` };
+    }
+    updates[column] = trimmed || null;
+  }
+  if (Object.keys(updates).length === 0) return { error: "No blotter fields to update." };
+  return { updates };
+};
+
+export const updateAdminBlotter = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Blotter id required" });
+
+  const { data: profile } = await profileService.getProfile(user.id);
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return res.status(403).json({ error: "Admin access only" });
+  }
+
+  const built = buildBlotterUpdates(req.body ?? {});
+  if (built.error) return res.status(400).json({ error: built.error });
+
+  const { data, error } = await supabaseAdmin
+    .from("admin_blotters")
+    .update(built.updates!)
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "Blotter not found" });
+
+  await reportService.insertAuditLog({
+    actorId: user.id,
+    actorName: profile?.fullname || "Admin",
+    actionType: "Blotter Updated",
+    title: "Blotter updated",
+    details: `Blotter ${data.blotter_no} was updated by ${profile?.fullname || "admin"}.`,
+  }).catch(() => {});
+
+  res.json({ message: "Blotter updated", blotter: data });
+};
+
+export const deleteAdminBlotter = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Blotter id required" });
+
+  const { data: profile } = await profileService.getProfile(user.id);
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return res.status(403).json({ error: "Admin access only" });
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("admin_blotters")
+    .delete()
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "Blotter not found" });
+
+  await reportService.insertAuditLog({
+    actorId: user.id,
+    actorName: profile?.fullname || "Admin",
+    actionType: "Blotter Deleted",
+    title: "Blotter deleted",
+    details: `Blotter ${data.blotter_no} was deleted by ${profile?.fullname || "admin"}.`,
+  }).catch(() => {});
+
+  res.json({ message: "Blotter deleted" });
 };
