@@ -23,6 +23,7 @@ import {
   BatchFilterDropdown,
 } from "../../components/Admin_compo/AdminBatchFilters";
 import ToastProvider, { useToast } from "../../components/Toast";
+import ConfirmModal from "../../components/modals/ConfirmModal";
 import apiClient from "../../services/apiClient";
 import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
@@ -74,6 +75,33 @@ const getRecordDocumentSections = (record) => {
     ];
   }
 
+  if (record.kind === "Incident") {
+    return [
+      {
+        title: "Report Information",
+        fields: [
+          ["Report ID", record.id],
+          ["Date/Time Reported", formatDate(record.created_at)],
+          ["Reported By", record.poster_name || record.reporter_name || record.actor],
+          ["Status", record.status],
+          ["Severity", record.severity],
+        ],
+      },
+      {
+        title: "Incident Details",
+        fields: [
+          ["Incident Category", record.incident_category || record.incidentCategory],
+          ["Type of Incident", record.incident_type || record.incidentType],
+          ["Location", record.location],
+          ["Description", record.details],
+        ],
+      },
+    ].map((section) => ({
+      ...section,
+      fields: section.fields.filter(([, value]) => value !== null && value !== undefined && value !== ""),
+    }));
+  }
+
   if (record.kind === "Activity") {
     return [
       {
@@ -100,7 +128,7 @@ const getRecordDocumentSections = (record) => {
         ["Status", record.status],
         ["Severity", record.severity],
         ["Source", record.source || record.actorRole],
-      ],
+      ].filter(([label]) => !(record.kind === "Blotter" && label === "Status")),
     },
     {
       title: "Incident Information",
@@ -214,6 +242,10 @@ function Admin_ReportManagement() {
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewRecord, setPreviewRecord] = useState(null);
   const [archiving, setArchiving] = useState(false);
+  const [editingRecord, setEditingRecord] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const deleteTargetRef = useRef(null);
   const initialLoadRef = useRef(true);
 
   const [fontsLoaded] = useFonts({
@@ -246,7 +278,7 @@ function Admin_ReportManagement() {
         (Array.isArray(reportResponse.data?.reports)
           ? reportResponse.data.reports
           : []
-        ).filter((item) => item.status !== "Archived")
+        ).filter((item) => String(item.status || "").trim().toLowerCase() !== "archived")
       );
       setAnnouncements(Array.isArray(announcementResponse.data?.announcements) ? announcementResponse.data.announcements : []);
       setLogs(Array.isArray(logResponse.data?.logs) ? logResponse.data.logs : []);
@@ -276,7 +308,10 @@ function Admin_ReportManagement() {
   useAutoRefresh(loadRecords, 60000);
 
   const activityRecords = useMemo(() => {
-    return (status === "All" ? logs : []).map((item) => ({
+    return (status === "All" ? logs : [])
+      .filter((item) => !/^report archived(?:\s*:|\s*$)/i.test(String(item.actionType || "").trim()) &&
+        !/^report archived(?:\s*:|\s*$)/i.test(String(item.title || "").trim()))
+      .map((item) => ({
         ...item,
         id: `activity-${item.id}`,
         kind: "Activity",
@@ -297,6 +332,7 @@ function Admin_ReportManagement() {
       id: item.id,
       kind: "Blotter",
       reportType: "Blotter",
+      status: "",
       title: `${item.incident_type || "Blotter report"} • ${item.location || "Location unspecified"}`,
       incidentType: item.incident_type,
       incidentDateTime: item.incident_datetime,
@@ -309,7 +345,6 @@ function Admin_ReportManagement() {
       dateReported: item.date_reported,
       dateRecorded: item.date_recorded,
       location: item.location || "",
-      status: item.status || "Pending Review",
       severity: "Medium",
       created_at: item.created_at,
       details: item.incident_description || "",
@@ -322,7 +357,7 @@ function Admin_ReportManagement() {
       kind: [item.reportType, item.report_type, item.kind].includes("Blotter") ? "Blotter" : "Incident",
       title: `${item.incident_type || "Incident"}${item.location ? ` in ${item.location}` : ""}`,
       location: item.location || "",
-      status: item.status || "Pending Review",
+      status: [item.reportType, item.report_type, item.kind].includes("Blotter") ? "" : item.status || "Pending Review",
       severity: item.severity || "Medium",
       created_at: item.created_at,
       details: item.details || "",
@@ -352,6 +387,7 @@ function Admin_ReportManagement() {
     const end = to ? new Date(`${to}T23:59:59.999`) : null;
 
     return visibleRecords.filter((record) => {
+      if (String(record.status || "").trim().toLowerCase() === "archived") return false;
       const recordDate = new Date(record.created_at);
       const role = String(record.actorRole || "").toLowerCase();
       const matchesPostBy =
@@ -399,6 +435,7 @@ function Admin_ReportManagement() {
         status: "Archived",
         is_verified: false,
       }, { headers: { Authorization: `Bearer ${token}` } });
+      setReports((current) => current.filter((report) => report.id !== previewRecord.id));
       setPreviewVisible(false);
       setPreviewRecord(null);
       showSuccess("Report moved to Archived.");
@@ -411,26 +448,31 @@ function Admin_ReportManagement() {
   };
 
   const handleAddReport = async (payload) => {
+    const wasEditing = Boolean(editingRecord);
     const record = {
-      id: payload?.id || `incident-${Date.now()}`,
       kind: "Incident",
       reportType: "Incident",
       title: payload?.incident_type
         ? `${payload.incident_type}${payload.location ? ` in ${payload.location}` : ""}`
         : "New incident report",
       location: payload?.location || "",
-      status: payload?.status || "Pending Review",
-      severity: payload?.severity || "Medium",
-      created_at: payload?.created_at || new Date().toISOString(),
       details: payload?.details || "",
       actor: payload?.poster_name || "Admin",
       actorRole: "admin",
       ...payload,
+      id: payload?.id || `incident-${Date.now()}`,
+      status: editingRecord?.status || payload?.status || "Pending Review",
+      severity: editingRecord?.severity || payload?.severity || "Medium",
+      created_at: editingRecord?.created_at || payload?.created_at || new Date().toISOString(),
     };
 
     try {
       setAddReportVisible(false);
-      openRecordPreview(record, "Incident saved successfully.");
+      setEditingRecord(null);
+      openRecordPreview(
+        record,
+        wasEditing ? "Incident report updated." : "Incident saved successfully."
+      );
       loadRecords();
       return record;
     } catch (error) {
@@ -439,20 +481,44 @@ function Admin_ReportManagement() {
   };
 
   const handleAddAnnouncement = async (announcement) => {
+    const wasEditing = Boolean(editingRecord);
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) throw new Error("Please sign in before posting an announcement.");
-      let picUrl = null;
-      if (announcement.image?.uri) picUrl = await uploadImage(announcement.image.uri);
-      await apiClient.post("/admin/announcements", {
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const resolvePicUrl = async () => {
+        const uri = announcement.image?.uri;
+        if (!uri) return announcement.pic_url || null;
+        if (/^https?:\/\//i.test(uri)) return uri;
+        return await uploadImage(uri);
+      };
+
+      const body = {
         type: announcement.type,
         title: announcement.title,
         location: announcement.location,
         details: announcement.details,
-        pic_url: picUrl,
-      }, { headers: { Authorization: `Bearer ${token}` } });
+        pic_url: await resolvePicUrl(),
+      };
+
+      let serverId = null;
+      if (wasEditing) {
+        const announcementId = String(editingRecord.id).replace(/^announcement-/, "");
+        await apiClient.put(
+          `/admin/announcements/${encodeURIComponent(announcementId)}`,
+          body,
+          { headers }
+        );
+        serverId = announcementId;
+      } else {
+        const response = await apiClient.post("/admin/announcements", body, { headers });
+        serverId = response?.data?.announcement_id || null;
+      }
+
       const record = {
-        id: announcement.id || `announcement-${Date.now()}`,
+        ...announcement,
+        id: serverId ? `announcement-${serverId}` : announcement.id,
         kind: "Announcement",
         reportType: "Announcement",
         title: announcement.title,
@@ -463,38 +529,49 @@ function Admin_ReportManagement() {
         details: announcement.details,
         actor: "Admin",
         actorRole: "admin",
-        ...announcement,
+        pic_url: body.pic_url,
       };
       setAddAnnouncementVisible(false);
-      openRecordPreview(record, "Announcement published successfully.");
+      setEditingRecord(null);
+      openRecordPreview(
+        record,
+        wasEditing ? "Announcement updated." : "Announcement published successfully."
+      );
       loadRecords();
+      return record;
     } catch (error) {
       throw new Error(error?.response?.data?.error || error?.message || "Could not publish the announcement.");
     }
   };
 
   const handleAddBlotter = async (blotter) => {
+    const wasEditing = Boolean(editingRecord);
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) throw new Error("Please sign in before saving a blotter report.");
-      const response = await apiClient.post("/admin/blotters", blotter, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const headers = { Authorization: `Bearer ${token}` };
+      const response = wasEditing
+        ? await apiClient.put(
+            `/admin/blotters/${encodeURIComponent(editingRecord.id)}`,
+            blotter,
+            { headers }
+          )
+        : await apiClient.post("/admin/blotters", blotter, { headers });
       const saved = response.data?.blotter;
       const record = {
-        id: saved?.id || blotter.id || `blotter-${Date.now()}`,
         kind: "Blotter",
         reportType: "Blotter",
         title: blotter.title || `${blotter.incidentType || "Blotter report"} • ${blotter.location || "Location unspecified"}`,
         location: blotter.location || "",
         barangay: blotter.barangay || "",
-        status: blotter.status || "Pending Review",
-        severity: blotter.severity || "Medium",
         details: blotter.details || blotter.incidentDescription || "",
         actor: blotter.reportedBy || "Admin",
         actorRole: "admin",
         ...blotter,
         ...saved,
+        status: "",
+        id: saved?.id || blotter.id || `blotter-${Date.now()}`,
+        severity: blotter.severity || "Medium",
         incidentType: saved?.incident_type || blotter.incidentType,
         incidentDateTime: saved?.incident_datetime || blotter.incidentDateTime,
         complainantName: saved?.complainant_name || blotter.complainantName,
@@ -508,11 +585,71 @@ function Admin_ReportManagement() {
         created_at: saved?.created_at || blotter.created_at,
       };
       setAddBlotterVisible(false);
-      openRecordPreview(record, "Blotter report saved successfully.");
+      setEditingRecord(null);
+      openRecordPreview(
+        record,
+        wasEditing ? "Blotter report updated." : "Blotter report saved successfully."
+      );
       await loadRecords();
       return record;
     } catch (error) {
       throw new Error(error?.response?.data?.error || error?.message || "Could not save the blotter report.");
+    }
+  };
+
+  const startEditing = (record) => {
+    setPreviewVisible(false);
+    setPreviewRecord(null);
+    setEditingRecord(record);
+    if (record.kind === "Incident") setAddReportVisible(true);
+    else if (record.kind === "Announcement") setAddAnnouncementVisible(true);
+    else if (record.kind === "Blotter") setAddBlotterVisible(true);
+    else setEditingRecord(null);
+  };
+
+  const openDeleteConfirm = (record) => {
+    deleteTargetRef.current = record;
+    setDeleteTarget(record);
+  };
+
+  const handleDeleteRecord = async () => {
+    const target = deleteTargetRef.current;
+    if (!target || deleting) return;
+    deleteTargetRef.current = null;
+    setDeleting(true);
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) throw new Error("Please sign in before deleting a record.");
+      const headers = { Authorization: `Bearer ${token}` };
+
+      if (target.kind === "Incident") {
+        await apiClient.delete(`/reports/${encodeURIComponent(target.id)}`, { headers });
+      } else if (target.kind === "Announcement") {
+        const announcementId = String(target.id).replace(/^announcement-/, "");
+        await apiClient.delete(
+          `/admin/announcements/${encodeURIComponent(announcementId)}`,
+          { headers }
+        );
+      } else if (target.kind === "Blotter") {
+        await apiClient.delete(
+          `/admin/blotters/${encodeURIComponent(target.id)}`,
+          { headers }
+        );
+      } else {
+        throw new Error("This record cannot be deleted.");
+      }
+
+      setDeleteTarget(null);
+      setPreviewVisible(false);
+      setPreviewRecord(null);
+      showSuccess("Record deleted.");
+      await loadRecords();
+    } catch (error) {
+      showError(
+        error?.response?.data?.error || error?.message || "Could not delete the record."
+      );
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -522,7 +659,7 @@ function Admin_ReportManagement() {
       record.kind,
       record.title,
       record.location,
-      record.status,
+      record.kind === "Blotter" ? "" : record.status,
       record.severity,
       record.created_at,
       record.actor,
@@ -736,9 +873,11 @@ function Admin_ReportManagement() {
                         <Text style={styles.recordTitle}>{record.title}</Text>
                         <Text style={styles.recordMeta}>{record.kind} · {formatDate(record.created_at)}</Text>
                       </View>
-                      <View style={styles.statusBadge}>
-                        <Text style={styles.statusBadgeText}>{record.status}</Text>
-                      </View>
+                      {record.kind !== "Blotter" && record.status ? (
+                        <View style={styles.statusBadge}>
+                          <Text style={styles.statusBadgeText}>{record.status}</Text>
+                        </View>
+                      ) : null}
                     </View>
                     <View style={styles.recordInfoRow}>
                       {!!record.location && <Text style={styles.recordMeta}>{record.location}</Text>}
@@ -774,17 +913,20 @@ function Admin_ReportManagement() {
       </View>
       <Admin_AddReportModal
         visible={addReportVisible}
-        onClose={() => setAddReportVisible(false)}
+        record={editingRecord}
+        onClose={() => { setAddReportVisible(false); setEditingRecord(null); }}
         onSubmit={handleAddReport}
       />
       <Admin_AddAnnouncementModal
         visible={addAnnouncementVisible}
-        onClose={() => setAddAnnouncementVisible(false)}
+        record={editingRecord}
+        onClose={() => { setAddAnnouncementVisible(false); setEditingRecord(null); }}
         onSubmit={handleAddAnnouncement}
       />
       <Admin_AddBlotterModal
         visible={addBlotterVisible}
-        onClose={() => setAddBlotterVisible(false)}
+        record={editingRecord}
+        onClose={() => { setAddBlotterVisible(false); setEditingRecord(null); }}
         onSubmit={handleAddBlotter}
       />
 
@@ -852,6 +994,31 @@ function Admin_ReportManagement() {
                     <Text style={styles.previewPrimaryButtonText}>{archiving ? "Archiving..." : "Move to Archived"}</Text>
                   </TouchableOpacity>
                 ) : null}
+                {["Incident", "Announcement", "Blotter"].includes(previewRecord.kind) ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.previewSecondaryButton}
+                      onPress={() => startEditing(previewRecord)}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit record"
+                    >
+                      <Ionicons name="create-outline" size={18} color="#294880" />
+                      <Text style={styles.previewSecondaryButtonText}>Edit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.previewDeleteButton}
+                      onPress={() => openDeleteConfirm(previewRecord)}
+                      activeOpacity={0.85}
+                      disabled={deleting}
+                      accessibilityRole="button"
+                      accessibilityLabel="Delete record"
+                    >
+                      <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
+                      <Text style={styles.previewPrimaryButtonText}>{deleting ? "Deleting..." : "Delete"}</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : null}
                 <TouchableOpacity style={styles.previewPrimaryButton} onPress={handlePrintPreview} activeOpacity={0.85}>
                   <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
                   <Text style={styles.previewPrimaryButtonText}>Export as PDF</Text>
@@ -864,6 +1031,18 @@ function Admin_ReportManagement() {
           </View>
         </>
       ) : null}
+
+      <ConfirmModal
+        visible={Boolean(deleteTarget)}
+        onClose={() => {
+          if (!deleting) setDeleteTarget(null);
+        }}
+        onConfirm={handleDeleteRecord}
+        title="Delete Record"
+        message={`This permanently removes "${deleteTarget?.title || deleteTarget?.id}" from ${deleteTarget?.kind || "this list"}. This cannot be undone.`}
+        confirmLabel="Delete"
+        icon="trash"
+      />
     </Admin_Layout>
   );
 }
@@ -914,8 +1093,9 @@ const styles = StyleSheet.create({
   previewPrimaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#294880", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   previewArchiveButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#A34F25", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   previewPrimaryButtonText: { color: "#FFFFFF", fontFamily: "PoppinsSemiBold", fontSize: 13 },
-  previewSecondaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#EEF2F8", alignItems: "center", justifyContent: "center" },
+  previewSecondaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#EEF2F8", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
   previewSecondaryButtonText: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 13 },
+  previewDeleteButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#B42318", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
   batchFilterRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-end", gap: 10, paddingBottom: 2, width: "100%" },
   criteriaInput: { flexGrow: 1, minWidth: 145, height: 42, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 8, backgroundColor: "#FFFFFF", paddingHorizontal: 12, color: "#2F4267", fontFamily: "PoppinsRegular", fontSize: 13 },
   searchInput: { flexGrow: 2, minWidth: 220 },

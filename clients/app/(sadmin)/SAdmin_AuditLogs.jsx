@@ -324,7 +324,7 @@ function SAdmin_AuditLogsPage() {
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
     setArchivedVisibleCount(PAGE_SIZE);
-  }, [selectedStatus, selectedArchivedStatus, selectedPostBy, selectedDate]);
+  }, [activeTab, selectedStatus, selectedArchivedStatus, selectedPostBy, selectedDate]);
 
   const handleScroll = (e) => {
     trackScroll(e);
@@ -1021,13 +1021,13 @@ const styles = StyleSheet.create({
   },
 
   statValue: {
-    fontSize: 26,
+    fontSize: 22,
     fontFamily: "PoppinsSemiBold",
     color: "#2F4267",
   },
 
   statTitle: {
-    fontSize: 15,
+    fontSize: 12,
     color: "#5D6F92",
     marginTop: 4,
     fontFamily: "PoppinsMedium",
@@ -1161,20 +1161,20 @@ const styles = StyleSheet.create({
   },
 
   sectionTitle: {
-    fontSize: 21,
+    fontSize: 16,
     fontFamily: "PoppinsSemiBold",
     color: "#294880",
     marginBottom: 5,
   },
 
   sectionSubtitle: {
-    fontSize: 15,
+    fontSize: 13,
     color: "#5D6F92",
     fontFamily: "PoppinsRegular",
   },
 
   resultText: {
-    fontSize: 15,
+    fontSize: 12,
     fontFamily: "PoppinsMedium",
     color: "#294880",
   },
@@ -1232,17 +1232,17 @@ const styles = StyleSheet.create({
   },
 
   logTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: "PoppinsMedium",
     color: "#111827",
-    lineHeight: 23,
+    lineHeight: 22,
     marginBottom: 4,
   },
 
   logMeta: {
-    fontSize: 14,
+    fontSize: 12,
     color: "#5D6F92",
-    lineHeight: 20,
+    lineHeight: 18,
     fontFamily: "PoppinsRegular",
   },
 
@@ -1253,14 +1253,14 @@ const styles = StyleSheet.create({
   },
 
   actionBadgeText: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: "PoppinsMedium",
   },
 
   logDetails: {
-    fontSize: 15,
+    fontSize: 13,
     color: "#5D6F92",
-    lineHeight: 22,
+    lineHeight: 19,
     marginBottom: 14,
     fontFamily: "PoppinsRegular",
   },
@@ -1291,10 +1291,10 @@ const styles = StyleSheet.create({
   },
 
   statusValue: {
-    fontSize: 14,
+    fontSize: 12,
     color: "#294880",
     fontFamily: "PoppinsMedium",
-    lineHeight: 19,
+    lineHeight: 18,
   },
 
   statusArrowBox: {
@@ -1310,7 +1310,7 @@ const styles = StyleSheet.create({
   },
 
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: "PoppinsMedium",
     color: "#2F4267",
     marginTop: 12,
@@ -1318,7 +1318,7 @@ const styles = StyleSheet.create({
   },
 
   emptyText: {
-    fontSize: 15,
+    fontSize: 13,
     color: "#5D6F92",
     fontFamily: "PoppinsRegular",
   },

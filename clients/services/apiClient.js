@@ -26,7 +26,7 @@ export const clearDisabledReason = async () => {
 };
 
 const apiClient = axios.create({
-  baseURL: "http://192.168.8.134:3000/api",
+  baseURL: "http://172.20.10.5:3000/api",
   timeout: 180000,
   headers: {
     "Content-Type": "application/json",

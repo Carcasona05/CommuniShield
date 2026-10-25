@@ -353,7 +353,12 @@ export const updateReport = async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: "Report id required" });
 
-  const result = await reportService.updateReport(user.id, String(id), req.body ?? {});
+  const { data: profile } = await profileService.getProfile(user.id);
+  const adminScope = !!profile && ["admin", "super_admin"].includes(profile.role);
+
+  const result = await reportService.updateReport(user.id, String(id), req.body ?? {}, {
+    adminScope,
+  });
 
   if (result.error) return res.status(400).json({ error: result.error });
 
@@ -378,11 +383,12 @@ export const deleteReport = async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: "Report id required" });
 
-  const result = await reportService.deleteReport(user.id, String(id));
+  const { data: profile } = await profileService.getProfile(user.id);
+  const adminScope = !!profile && ["admin", "super_admin"].includes(profile.role);
+
+  const result = await reportService.deleteReport(user.id, String(id), { adminScope });
 
   if (result.error) return res.status(400).json({ error: result.error });
-
-  const { data: profile } = await profileService.getProfile(user.id);
 
   await reportService.insertAuditLog({
     actorId: user.id,
@@ -646,6 +652,69 @@ export const createAdminAnnouncement = async (req: AuthRequest, res: Response) =
   res.status(201).json({ message: "Announcement published", announcement_id: result.data });
 };
 
+export const updateAdminAnnouncement = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Announcement id required" });
+
+  const { data: profile } = await profileService.getProfile(user.id);
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return res.status(403).json({ error: "Admin access only" });
+  }
+
+  const { type, title, location, details, pic_url } = req.body ?? {};
+  const result = await reportService.updateAnnouncement(String(id), {
+    type,
+    title,
+    location,
+    details,
+    pic_url,
+  });
+
+  if (result.error) return res.status(400).json({ error: result.error });
+
+  await reportService.insertAuditLog({
+    actorId: user.id,
+    actorName: profile?.fullname || "Admin",
+    actionType: "Announcement Updated",
+    title: "Announcement updated",
+    details: `Announcement "${title || ""}" was updated by ${profile?.fullname || "admin"}.`,
+  }).catch(() => {});
+
+  res.json({ message: "Announcement updated", announcement_id: result.data });
+};
+
+export const deleteAdminAnnouncement = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Announcement id required" });
+
+  const { data: profile } = await profileService.getProfile(user.id);
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return res.status(403).json({ error: "Admin access only" });
+  }
+
+  const result = await reportService.deleteAnnouncement(String(id));
+  if (result.error) {
+    const status = result.error === "Announcement not found" ? 404 : 400;
+    return res.status(status).json({ error: result.error });
+  }
+
+  await reportService.insertAuditLog({
+    actorId: user.id,
+    actorName: profile?.fullname || "Admin",
+    actionType: "Announcement Deleted",
+    title: "Announcement deleted",
+    details: `An announcement was deleted by ${profile?.fullname || "admin"}.`,
+  }).catch(() => {});
+
+  res.json({ message: "Announcement deleted" });
+};
+
 export const getAdminAnalytics = async (req: AuthRequest, res: Response) => {
   const user = req.user;
   if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
@@ -682,9 +751,15 @@ export const createAdminBlotter = async (req: AuthRequest, res: Response) => {
   if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
   const body = req.body ?? {};
   const required = ["blotterNo", "location", "incidentType", "complainantName", "respondent", "incidentDescription", "actionTaken", "reportedBy", "blotterOfficer"];
-  if (required.some((key) => typeof body[key] !== "string" || !body[key].trim())) {
-    return res.status(400).json({ error: "Complete all required blotter fields." });
+  const values: Record<string, unknown> = { ...body };
+  if (typeof values.incidentDescription !== "string") {
+    values.incidentDescription = typeof body.details === "string" ? body.details : "";
   }
+  const missing = required.filter((key) => typeof values[key] !== "string" || !String(values[key]).trim());
+  if (missing.length > 0) {
+    return res.status(400).json({ error: `Complete all required blotter fields: ${missing.join(", ")}.` });
+  }
+  const incidentDescription = String(values.incidentDescription).trim();
 
   const { data, error } = await supabaseAdmin.from("admin_blotters").insert({
     admin_id: user.id,
@@ -697,7 +772,7 @@ export const createAdminBlotter = async (req: AuthRequest, res: Response) => {
     complainant_age: body.complainantAge || null,
     complainant_contact: body.complainantContact || null,
     respondent: body.respondent.trim(),
-    incident_description: body.incidentDescription.trim(),
+    incident_description: incidentDescription,
     action_taken: body.actionTaken.trim(),
     status: body.status || "Pending Review",
     reported_by: body.reportedBy.trim(),
@@ -707,4 +782,121 @@ export const createAdminBlotter = async (req: AuthRequest, res: Response) => {
   }).select("*").single();
   if (error) return res.status(500).json({ error: error.message });
   res.status(201).json({ message: "Blotter saved", blotter: data });
+};
+
+const BLOTTER_TEXT_FIELDS: Record<string, string> = {
+  blotterNo: "blotter_no",
+  barangay: "barangay",
+  location: "location",
+  incidentType: "incident_type",
+  incidentDateTime: "incident_datetime",
+  complainantName: "complainant_name",
+  complainantAge: "complainant_age",
+  complainantContact: "complainant_contact",
+  respondent: "respondent",
+  incidentDescription: "incident_description",
+  actionTaken: "action_taken",
+  reportedBy: "reported_by",
+  blotterOfficer: "blotter_officer",
+  dateReported: "date_reported",
+  dateRecorded: "date_recorded",
+};
+
+const BLOTTER_REQUIRED_FIELDS = [
+  "blotterNo",
+  "location",
+  "incidentType",
+  "complainantName",
+  "respondent",
+  "incidentDescription",
+  "actionTaken",
+  "reportedBy",
+  "blotterOfficer",
+];
+
+const buildBlotterUpdates = (
+  body: Record<string, unknown>
+): { error?: string; updates?: Record<string, unknown> } => {
+  const updates: Record<string, unknown> = {};
+  for (const [key, column] of Object.entries(BLOTTER_TEXT_FIELDS)) {
+    if (!(key in body)) continue;
+    const value = body[key];
+    if (typeof value !== "string") return { error: `${key} must be text.` };
+    const trimmed = value.trim();
+    if (BLOTTER_REQUIRED_FIELDS.includes(key) && !trimmed) {
+      return { error: `${key} is required.` };
+    }
+    updates[column] = trimmed || null;
+  }
+  if (Object.keys(updates).length === 0) return { error: "No blotter fields to update." };
+  return { updates };
+};
+
+export const updateAdminBlotter = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Blotter id required" });
+
+  const { data: profile } = await profileService.getProfile(user.id);
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return res.status(403).json({ error: "Admin access only" });
+  }
+
+  const built = buildBlotterUpdates(req.body ?? {});
+  if (built.error) return res.status(400).json({ error: built.error });
+
+  const { data, error } = await supabaseAdmin
+    .from("admin_blotters")
+    .update(built.updates!)
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "Blotter not found" });
+
+  await reportService.insertAuditLog({
+    actorId: user.id,
+    actorName: profile?.fullname || "Admin",
+    actionType: "Blotter Updated",
+    title: "Blotter updated",
+    details: `Blotter ${data.blotter_no} was updated by ${profile?.fullname || "admin"}.`,
+  }).catch(() => {});
+
+  res.json({ message: "Blotter updated", blotter: data });
+};
+
+export const deleteAdminBlotter = async (req: AuthRequest, res: Response) => {
+  const user = req.user;
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: "Blotter id required" });
+
+  const { data: profile } = await profileService.getProfile(user.id);
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return res.status(403).json({ error: "Admin access only" });
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("admin_blotters")
+    .delete()
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "Blotter not found" });
+
+  await reportService.insertAuditLog({
+    actorId: user.id,
+    actorName: profile?.fullname || "Admin",
+    actionType: "Blotter Deleted",
+    title: "Blotter deleted",
+    details: `Blotter ${data.blotter_no} was deleted by ${profile?.fullname || "admin"}.`,
+  }).catch(() => {});
+
+  res.json({ message: "Blotter deleted" });
 };

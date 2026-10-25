@@ -98,6 +98,7 @@ export default function Admin_AddReportModal({
   visible,
   onClose,
   onSubmit,
+  record: editingRecord,
 }) {
   const toast = useToast();
   const [fontsLoaded] = useFonts({
@@ -123,6 +124,7 @@ export default function Admin_AddReportModal({
   const [submitted, setSubmitted] = useState(false);
   const [formError, setFormError] = useState("");
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
+  const [baseline, setBaseline] = useState(null);
 
   const filteredBarangays = useMemo(() => {
     const query = locationSearch.trim().toLowerCase();
@@ -171,12 +173,73 @@ export default function Admin_AddReportModal({
   useEffect(() => {
     if (!visible) return;
 
-    loadAdminProfile();
+    if (editingRecord) {
+      const editLatitude =
+        editingRecord.latitude !== null && editingRecord.latitude !== undefined
+          ? String(editingRecord.latitude)
+          : "9.8816";
+      const editLongitude =
+        editingRecord.longitude !== null && editingRecord.longitude !== undefined
+          ? String(editingRecord.longitude)
+          : "123.5953";
+      const editPhotos = Array.isArray(editingRecord.images)
+        ? editingRecord.images
+        : Array.isArray(editingRecord.photos)
+          ? editingRecord.photos
+          : [];
+
+      setAdminName(editingRecord.poster_name || "");
+      setLocation(editingRecord.location || "");
+      setLatitude(editLatitude);
+      setLongitude(editLongitude);
+      setLocationSearch("");
+      setShowLocationDropdown(false);
+      setIncidentCategory(editingRecord.incident_category || editingRecord.incidentCategory || "");
+      setIncidentType(editingRecord.incident_type || editingRecord.incidentType || "");
+      setDetails(editingRecord.details || "");
+      setPhotos(editPhotos);
+      setSubmitted(false);
+      setFormError("");
+      setBaseline({
+        location: editingRecord.location || "",
+        latitude: editLatitude,
+        longitude: editLongitude,
+        incidentCategory: editingRecord.incident_category || editingRecord.incidentCategory || "",
+        incidentType: editingRecord.incident_type || editingRecord.incidentType || "",
+        details: editingRecord.details || "",
+        photos: editPhotos,
+      });
+    } else {
+      resetForm();
+      setBaseline({
+        location: "",
+        latitude: "9.8816",
+        longitude: "123.5953",
+        incidentCategory: "",
+        incidentType: "",
+        details: "",
+        photos: [],
+      });
+      loadAdminProfile();
+    }
+
     loadCategories();
-  }, [visible]);
+  }, [visible, editingRecord]);
+
+  const isDirty = !baseline
+    ? true
+    : JSON.stringify({
+        location,
+        latitude,
+        longitude,
+        incidentCategory,
+        incidentType,
+        details,
+        photos,
+      }) !== JSON.stringify(baseline);
 
   useEffect(() => {
-    if (!incidentTypes.includes(incidentType)) {
+    if (incidentCategory && incidentTypes.length > 0 && !incidentTypes.includes(incidentType)) {
       setIncidentType("");
     }
   }, [incidentCategory, incidentType, incidentTypes]);
@@ -184,7 +247,7 @@ export default function Admin_AddReportModal({
   const loadAdminProfile = async () => {
     try {
       const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
+      if (!token) return null;
 
       const cached = getCache("api:/profile");
 
@@ -212,8 +275,11 @@ export default function Admin_AddReportModal({
       if (fullName) {
         setAdminName(fullName);
       }
+
+      return fullName || cached?.name || null;
     } catch {
       // Keep cached/default admin name.
+      return null;
     }
   };
 
@@ -321,6 +387,7 @@ export default function Admin_AddReportModal({
   };
 
   const handleSubmit = async () => {
+    if (!isDirty) return;
     setSubmitted(true);
     setFormError("");
 
@@ -336,47 +403,52 @@ export default function Admin_AddReportModal({
         return;
       }
 
-      const photoUrls = await uploadImages(photos);
+      const isRemote = (uri) => typeof uri === "string" && /^https?:\/\//i.test(uri);
+      const localUris = photos.filter((uri) => !isRemote(uri));
+      const uploadedLocal = await uploadImages(localUris);
+      let uploadIndex = 0;
+      const photoUrls = photos.map((uri) => (isRemote(uri) ? uri : uploadedLocal[uploadIndex++]));
 
-      await apiClient.post(
-        "/reports",
-        {
-          poster_name: adminName.trim(),
-          display_name_type: "Fullname",
-          location,
-          latitude,
-          longitude,
-          incident_category: incidentCategory,
-          incident_type: incidentType,
-          details: details.trim(),
-          photos: photoUrls,
-          status: "Pending Review",
-          source: "Admin",
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const payload = {
+        poster_name: adminName.trim(),
+        display_name_type: "Fullname",
+        location,
+        latitude,
+        longitude,
+        incident_category: incidentCategory,
+        incident_type: incidentType,
+        details: details.trim(),
+        photos: photoUrls,
+        ...(editingRecord ? {} : { status: "Pending Review", source: "Admin" }),
+      };
+
+      let createdReportId = editingRecord?.id;
+
+      if (editingRecord) {
+        await apiClient.put(
+          `/reports/${encodeURIComponent(editingRecord.id)}`,
+          payload,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      } else {
+        const response = await apiClient.post("/reports", payload, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        createdReportId = response?.data?.report_id || createdReportId;
+      }
 
       if (onSubmit) {
         await onSubmit({
-          poster_name: adminName.trim(),
-          display_name_type: "Fullname",
-          location,
-          latitude,
-          longitude,
-          incident_category: incidentCategory,
-          incident_type: incidentType,
-          details: details.trim(),
-          photos: photoUrls,
-          status: "Pending Review",
-          source: "Admin",
+          ...payload,
+          id: createdReportId,
         });
       }
 
-      toast.success("The admin report has been submitted successfully.");
+      toast.success(
+        editingRecord
+          ? "The incident report has been updated successfully."
+          : "The admin report has been submitted successfully."
+      );
 
       resetForm();
       onClose();
@@ -415,11 +487,13 @@ export default function Admin_AddReportModal({
 
               <View>
                 <Text style={styles.title}>
-                  Add Report
+                  {editingRecord ? "Edit Report" : "Add Report"}
                 </Text>
 
                 <Text style={styles.subtitle}>
-                  Create a new incident report as an administrator
+                  {editingRecord
+                    ? "Update the incident report details"
+                    : "Create a new incident report as an administrator"}
                 </Text>
               </View>
             </View>
@@ -756,10 +830,10 @@ export default function Admin_AddReportModal({
             <TouchableOpacity
               style={[
                 styles.submitButton,
-                submitting && styles.submitButtonDisabled,
+                (submitting || !isDirty) && styles.submitButtonDisabled,
               ]}
               onPress={handleSubmit}
-              disabled={submitting}
+              disabled={submitting || !isDirty}
             >
               <Ionicons
                 name={
@@ -771,9 +845,9 @@ export default function Admin_AddReportModal({
                 color="#FFFFFF"
               />
 
-              <Text style={styles.submitButtonText}>
-                {submitting ? "Submitting..." : "Post"}
-              </Text>
+                <Text style={styles.submitButtonText}>
+                  {submitting ? "Submitting..." : !isDirty ? "No Changes" : editingRecord ? "Save Changes" : "Post"}
+                </Text>
             </TouchableOpacity>
           </View>
         </View>
