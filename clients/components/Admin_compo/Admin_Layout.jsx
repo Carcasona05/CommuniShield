@@ -106,7 +106,7 @@ function Admin_Layout({ children }) {
       description: "Review current indicators and report evidence",
     },
     {
-      label: "Report Management",
+      label: "Report  Management",
       route: "/(admin)/Admin_Validation",
       path: "/Admin_Validation",
       view: "incidents",

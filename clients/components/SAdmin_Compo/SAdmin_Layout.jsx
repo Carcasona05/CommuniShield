@@ -244,7 +244,7 @@ function SAdmin_Layout({ children }) {
       description: "Overview of reports, admin activity, and system status",
     },
     {
-      label: "Report Management",
+      label: "Report   Management",
       route: "/(sadmin)/SAdmin_Validation",
       path: "/SAdmin_Validation",
       icon: "shield-checkmark-outline",
