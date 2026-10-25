@@ -212,7 +212,7 @@ export default function Admin_Hotspot_Detection() {
   const isNarrow = width < 1000;
 
   // FILTER STATES
-  // Location filter has been removed.
+  const [selectedLocation, setSelectedLocation] = useState("All Locations");
 
   const [selectedCategory, setSelectedCategory] =
     useState("All Categories");
@@ -264,6 +264,16 @@ export default function Admin_Hotspot_Detection() {
     () => reports.filter((report) => !isExcluded(report)),
     [reports]
   );
+
+  const locationOptions = useMemo(() => {
+    const locations = [...new Set(validReports
+      .map((report) => textValue(report?.barangay || report?.location || report?.address))
+      .filter(Boolean))].sort();
+    return [
+      { label: "All Locations", value: "All Locations" },
+      ...locations.map((location) => ({ label: location, value: location })),
+    ];
+  }, [validReports]);
 
   const categoryOptions = useMemo(() => {
     const categories = [
@@ -331,6 +341,7 @@ export default function Admin_Hotspot_Detection() {
     return validReports.filter((report) => {
       const category = getCategory(report);
       const type = getIncidentType(report);
+      const location = textValue(report?.barangay || report?.location || report?.address);
 
       const matchesCategory =
         selectedCategory === "All Categories" ||
@@ -347,10 +358,15 @@ export default function Admin_Hotspot_Detection() {
       const matchesDate =
         !start || (date !== null && date >= start);
 
+      const matchesLocation =
+        selectedLocation === "All Locations" ||
+        location.toLowerCase() === selectedLocation.toLowerCase();
+
       return (
         matchesCategory &&
         matchesType &&
-        matchesDate
+        matchesDate &&
+        matchesLocation
       );
     });
   }, [
@@ -358,6 +374,7 @@ export default function Admin_Hotspot_Detection() {
     selectedCategory,
     selectedType,
     period,
+    selectedLocation,
   ]);
 
   // =====================================================
@@ -365,7 +382,7 @@ export default function Admin_Hotspot_Detection() {
   // =====================================================
 
   const hotspots = useMemo(() => {
-    const byId = new Map(validReports.map((report) => [report.id, report]));
+    const byId = new Map(filteredReports.map((report) => [report.id, report]));
     return (clustering?.clusters || []).map((cluster) => {
       const members = cluster.reportIds.map((id) => byId.get(id)).filter(Boolean);
       return {
@@ -378,7 +395,7 @@ export default function Admin_Hotspot_Detection() {
         level: getLevel(members.length),
       };
     });
-  }, [validReports, clustering]);
+  }, [filteredReports, clustering]);
 
   const visibleHotspots = useMemo(() => {
     return hotspots.filter(
@@ -593,10 +610,20 @@ export default function Admin_Hotspot_Detection() {
             </Pressable>
           </View>
 
-          {/* FOUR FILTER DROPDOWNS */}
+          {/* FILTER DROPDOWNS */}
           <View style={styles.filtersRow}>
             <BatchFilterDropdown
+              label="LOCATION"
+              compact
+              value={selectedLocation}
+              placeholder="All Locations"
+              options={locationOptions}
+              onChange={(value) => updateFilter(setSelectedLocation, value)}
+            />
+
+            <BatchFilterDropdown
               label="INCIDENT CATEGORY"
+              compact
               value={selectedCategory}
               placeholder="All Categories"
               options={categoryOptions}
@@ -610,6 +637,7 @@ export default function Admin_Hotspot_Detection() {
 
             <BatchFilterDropdown
               label="INCIDENT TYPE"
+              compact
               value={selectedType}
               placeholder="All Incident Types"
               options={typeOptions}
@@ -620,6 +648,7 @@ export default function Admin_Hotspot_Detection() {
 
             <BatchFilterDropdown
               label="DATE"
+              compact
               value={period}
               placeholder="Any date"
               options={periodOptions}
@@ -630,6 +659,7 @@ export default function Admin_Hotspot_Detection() {
 
             <BatchFilterDropdown
               label="CONCENTRATION LEVEL"
+              compact
               value={selectedLevel}
               placeholder="All Levels"
               options={levelOptions}

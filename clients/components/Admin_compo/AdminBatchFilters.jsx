@@ -56,6 +56,7 @@ export function BatchFilterDropdown({
   searchable = false,
   searchPlaceholder = "Search...",
   disabled = false,
+  compact = false,
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -82,7 +83,7 @@ export function BatchFilterDropdown({
 
   return (
     <View style={fieldStyle}>
-      <Text style={styles.label} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.label, compact && styles.compactLabel]} numberOfLines={1}>{label}</Text>
 
       <View style={styles.control}>
         <TouchableOpacity
@@ -90,11 +91,11 @@ export function BatchFilterDropdown({
           accessibilityRole="button"
           accessibilityLabel={label}
           disabled={disabled}
-          style={[styles.trigger, disabled && styles.triggerDisabled]}
+          style={[styles.trigger, compact && styles.compactTrigger, disabled && styles.triggerDisabled]}
           onPress={() => (open ? close() : setOpen(true))}
           activeOpacity={0.85}
         >
-          <Text style={[styles.triggerText, !selectedLabel && styles.placeholder]} numberOfLines={1}>
+          <Text style={[styles.triggerText, compact && styles.compactTriggerText, !selectedLabel && styles.placeholder]} numberOfLines={1}>
             {selectedLabel || placeholder || "Select"}
           </Text>
           <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color="#5D6F92" />
@@ -286,10 +287,14 @@ const styles = StyleSheet.create({
   label: {
     color: "#5D6F92",
     fontFamily: "PoppinsMedium",
-    fontSize: 12,
+    fontSize: 10,
     marginBottom: 6,
     textTransform: "uppercase",
     letterSpacing: 0.5,
+  },
+  compactLabel: {
+    fontSize: 9,
+    marginBottom: 3,
   },
   control: {
     position: "relative",
@@ -306,6 +311,14 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
+  compactTrigger: {
+    height: 38,
+    paddingHorizontal: 10,
+    borderRadius: 9,
+  },
+  compactTriggerText: {
+    fontSize: 11,
+  },
   triggerDisabled: {
     opacity: 0.55,
   },
@@ -313,7 +326,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: BLUE,
     fontFamily: "PoppinsMedium",
-    fontSize: 14,
+    fontSize: 12,
   },
   placeholder: {
     color: "#8A98B3",
