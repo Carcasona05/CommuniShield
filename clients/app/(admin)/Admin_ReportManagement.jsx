@@ -213,6 +213,7 @@ function Admin_ReportManagement() {
   const [addBlotterVisible, setAddBlotterVisible] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewRecord, setPreviewRecord] = useState(null);
+  const [archiving, setArchiving] = useState(false);
   const initialLoadRef = useRef(true);
 
   const [fontsLoaded] = useFonts({
@@ -232,14 +233,13 @@ function Admin_ReportManagement() {
         to: to.trim() || undefined,
         status: status === "All" ? undefined : status,
       };
-      const [reportResponse, announcementResponse, logResponse, blotterResponse] = await Promise.all([
+      const [reportResponse, announcementResponse, logResponse] = await Promise.all([
         apiClient.get("/admin/dashboard", { headers, params }),
         apiClient.get("/admin/announcements", { headers, params }),
         apiClient.get("/admin/logs", {
           headers,
           params: { from: params.from, to: params.to },
         }),
-        apiClient.get("/admin/blotters", { headers }),
       ]);
       // Archived reports only ever appear under Logs > Archived reports.
       setReports(
@@ -249,8 +249,16 @@ function Admin_ReportManagement() {
         ).filter((item) => item.status !== "Archived")
       );
       setAnnouncements(Array.isArray(announcementResponse.data?.announcements) ? announcementResponse.data.announcements : []);
-      setBlotters(Array.isArray(blotterResponse.data?.blotters) ? blotterResponse.data.blotters : []);
       setLogs(Array.isArray(logResponse.data?.logs) ? logResponse.data.logs : []);
+
+      // Blotters are an additional admin-only source. A failure to load them
+      // should not prevent the rest of Record Management from loading.
+      try {
+        const blotterResponse = await apiClient.get("/admin/blotters", { headers });
+        setBlotters(Array.isArray(blotterResponse.data?.blotters) ? blotterResponse.data.blotters : []);
+      } catch {
+        setBlotters([]);
+      }
     } catch (error) {
       showError(error?.response?.data?.error || "Could not load admin records.");
     } finally {
@@ -379,6 +387,27 @@ function Admin_ReportManagement() {
     setPreviewRecord(record);
     setPreviewVisible(true);
     if (successMessage) showSuccess(successMessage);
+  };
+
+  const handleArchiveRecord = async () => {
+    if (!previewRecord || previewRecord.kind !== "Incident" || archiving) return;
+    setArchiving(true);
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) throw new Error("Please sign in before archiving a report.");
+      await apiClient.post(`/reports/${encodeURIComponent(previewRecord.id)}/status`, {
+        status: "Archived",
+        is_verified: false,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setPreviewVisible(false);
+      setPreviewRecord(null);
+      showSuccess("Report moved to Archived.");
+      await loadRecords();
+    } catch (error) {
+      showError(error?.response?.data?.error || error?.message || "Could not archive the report.");
+    } finally {
+      setArchiving(false);
+    }
   };
 
   const handleAddReport = async (payload) => {
@@ -810,6 +839,19 @@ function Admin_ReportManagement() {
               </ScrollView>
 
               <View style={styles.previewFooter}>
+                {previewRecord.kind === "Incident" && previewRecord.status !== "Archived" ? (
+                  <TouchableOpacity
+                    style={styles.previewArchiveButton}
+                    onPress={handleArchiveRecord}
+                    activeOpacity={0.85}
+                    disabled={archiving}
+                    accessibilityRole="button"
+                    accessibilityLabel="Move report to Archived"
+                  >
+                    <Ionicons name="archive-outline" size={18} color="#FFFFFF" />
+                    <Text style={styles.previewPrimaryButtonText}>{archiving ? "Archiving..." : "Move to Archived"}</Text>
+                  </TouchableOpacity>
+                ) : null}
                 <TouchableOpacity style={styles.previewPrimaryButton} onPress={handlePrintPreview} activeOpacity={0.85}>
                   <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
                   <Text style={styles.previewPrimaryButtonText}>Export as PDF</Text>
@@ -870,6 +912,7 @@ const styles = StyleSheet.create({
   previewImage: { width: 150, height: 112, borderRadius: 8, backgroundColor: "#E7ECF3" },
   previewFooter: { flexDirection: "row", justifyContent: "flex-end", gap: 10, paddingHorizontal: 18, paddingVertical: 14, borderTopWidth: 1, borderTopColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
   previewPrimaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#294880", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  previewArchiveButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#A34F25", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   previewPrimaryButtonText: { color: "#FFFFFF", fontFamily: "PoppinsSemiBold", fontSize: 13 },
   previewSecondaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#EEF2F8", alignItems: "center", justifyContent: "center" },
   previewSecondaryButtonText: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 13 },
