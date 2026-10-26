@@ -18,6 +18,8 @@ import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import Admin_AddReportModal from "../../components/Admin_compo/Admin_AddReportModal";
 import Admin_AddAnnouncementModal from "../../components/Admin_compo/Admin_AddAnnouncementModal";
 import Admin_AddBlotterModal from "../../components/Admin_compo/Admin_AddBlotterModal";
+import PoliceCertificationPreview from "../../components/Admin_compo/PoliceCertificationPreview";
+import { buildPoliceCertificationHtml } from "../../utils/policeCertification";
 import {
   BatchDateRangeDropdown,
   BatchFilterDropdown,
@@ -25,7 +27,11 @@ import {
 import ToastProvider, { useToast } from "../../components/Toast";
 import ConfirmModal from "../../components/modals/ConfirmModal";
 import apiClient from "../../services/apiClient";
+<<<<<<< HEAD
 import { getCache, getCachedPage } from "../../services/dataStore";
+=======
+import localBlotterStore from "../../services/localBlotterStore";
+>>>>>>> fixingUI
 import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
@@ -164,6 +170,7 @@ const getRecordDocumentSections = (record) => {
 };
 
 const buildRecordDocumentHtml = (record) => {
+  if (record.kind === "Blotter") return buildPoliceCertificationHtml(record);
   const sections = getRecordDocumentSections(record);
   const sectionMarkup = sections.map((section) => `
     <section>
@@ -259,6 +266,11 @@ function Admin_ReportManagement() {
 
   const loadRecords = useCallback(async () => {
     try {
+      setBlotters(await localBlotterStore.list());
+    } catch (error) {
+      showError(error?.message || "Could not load local blotter records.");
+    }
+    try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
       const headers = { Authorization: `Bearer ${token}` };
@@ -286,14 +298,6 @@ function Admin_ReportManagement() {
       setAnnouncements(Array.isArray(announcementResponse.data?.announcements) ? announcementResponse.data.announcements : []);
       setLogs(Array.isArray(logResponse.data?.logs) ? logResponse.data.logs : []);
 
-      // Blotters are an additional admin-only source. A failure to load them
-      // should not prevent the rest of Record Management from loading.
-      try {
-        const blotterResponse = await apiClient.get("/admin/blotters", { headers });
-        setBlotters(Array.isArray(blotterResponse.data?.blotters) ? blotterResponse.data.blotters : []);
-      } catch {
-        setBlotters([]);
-      }
     } catch (error) {
       showError(error?.response?.data?.error || "Could not load admin records.");
     } finally {
@@ -550,17 +554,7 @@ function Admin_ReportManagement() {
   const handleAddBlotter = async (blotter) => {
     const wasEditing = Boolean(editingRecord);
     try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) throw new Error("Please sign in before saving a blotter report.");
-      const headers = { Authorization: `Bearer ${token}` };
-      const response = wasEditing
-        ? await apiClient.put(
-            `/admin/blotters/${encodeURIComponent(editingRecord.id)}`,
-            blotter,
-            { headers }
-          )
-        : await apiClient.post("/admin/blotters", blotter, { headers });
-      const saved = response.data?.blotter;
+      const saved = await localBlotterStore.save(blotter, wasEditing ? editingRecord.id : undefined);
       const record = {
         kind: "Blotter",
         reportType: "Blotter",
@@ -587,13 +581,15 @@ function Admin_ReportManagement() {
         dateRecorded: saved?.date_recorded || blotter.dateRecorded,
         created_at: saved?.created_at || blotter.created_at,
       };
+      setBlotters((previous) => wasEditing
+        ? previous.map((item) => item.id === saved.id ? saved : item)
+        : [saved, ...previous]);
       setAddBlotterVisible(false);
       setEditingRecord(null);
       openRecordPreview(
         record,
         wasEditing ? "Blotter report updated." : "Blotter report saved successfully."
       );
-      await loadRecords();
       return record;
     } catch (error) {
       throw new Error(error?.response?.data?.error || error?.message || "Could not save the blotter report.");
@@ -621,32 +617,32 @@ function Admin_ReportManagement() {
     deleteTargetRef.current = null;
     setDeleting(true);
     try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) throw new Error("Please sign in before deleting a record.");
-      const headers = { Authorization: `Bearer ${token}` };
-
-      if (target.kind === "Incident") {
-        await apiClient.delete(`/reports/${encodeURIComponent(target.id)}`, { headers });
-      } else if (target.kind === "Announcement") {
-        const announcementId = String(target.id).replace(/^announcement-/, "");
-        await apiClient.delete(
-          `/admin/announcements/${encodeURIComponent(announcementId)}`,
-          { headers }
-        );
-      } else if (target.kind === "Blotter") {
-        await apiClient.delete(
-          `/admin/blotters/${encodeURIComponent(target.id)}`,
-          { headers }
-        );
+      if (target.kind === "Blotter") {
+        await localBlotterStore.remove(target.id);
+        setBlotters((previous) => previous.filter((item) => item.id !== target.id));
       } else {
-        throw new Error("This record cannot be deleted.");
+        const token = await AsyncStorage.getItem("access_token");
+        if (!token) throw new Error("Please sign in before deleting a record.");
+        const headers = { Authorization: `Bearer ${token}` };
+
+        if (target.kind === "Incident") {
+          await apiClient.delete(`/reports/${encodeURIComponent(target.id)}`, { headers });
+        } else if (target.kind === "Announcement") {
+          const announcementId = String(target.id).replace(/^announcement-/, "");
+          await apiClient.delete(
+            `/admin/announcements/${encodeURIComponent(announcementId)}`,
+            { headers }
+          );
+        } else {
+          throw new Error("This record cannot be deleted.");
+        }
       }
 
       setDeleteTarget(null);
       setPreviewVisible(false);
       setPreviewRecord(null);
       showSuccess("Record deleted.");
-      await loadRecords();
+      if (target.kind !== "Blotter") await loadRecords();
     } catch (error) {
       showError(
         error?.response?.data?.error || error?.message || "Could not delete the record."
@@ -703,7 +699,10 @@ function Admin_ReportManagement() {
         return;
       }
 
-      const { uri } = await Print.printToFileAsync({ html });
+      const { uri } = await Print.printToFileAsync({
+        html,
+        ...(previewRecord.kind === "Blotter" ? { width: 595.28, height: 841.89 } : {}),
+      });
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, {
           mimeType: "application/pdf",
@@ -952,6 +951,7 @@ function Admin_ReportManagement() {
                 style={[styles.previewScroll, { scrollbarWidth: "none", msOverflowStyle: "none" }]}
                 showsVerticalScrollIndicator={false}
               >
+                {previewRecord.kind === "Blotter" ? <PoliceCertificationPreview record={previewRecord} /> : <>
                 <View style={styles.documentHeading}>
                   <Text style={styles.documentEyebrow}>COMMUNITY SAFETY RECORD</Text>
                   <Text style={styles.documentTitle}>{previewRecord.title || `${previewRecord.kind} Record`}</Text>
@@ -981,6 +981,7 @@ function Admin_ReportManagement() {
                     </View>
                   </View>
                 ) : null}
+                </>}
               </ScrollView>
 
               <View style={styles.previewFooter}>
