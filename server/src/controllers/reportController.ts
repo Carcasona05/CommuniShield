@@ -12,6 +12,7 @@ import { toReportCode } from "../utils/toReportCode.js";
 import { backgroundTasks } from "../services/backgroundTasks.js";
 import { reportSubmissionService } from "../services/reportSubmissionService.js";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import { buildBlotterUpdates } from "../utils/blotterFields.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string }; token?: string };
 
@@ -749,87 +750,15 @@ export const getAdminBlotters = async (_req: AuthRequest, res: Response) => {
 export const createAdminBlotter = async (req: AuthRequest, res: Response) => {
   const user = req.user;
   if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
-  const body = req.body ?? {};
-  const required = ["blotterNo", "location", "incidentType", "complainantName", "respondent", "incidentDescription", "actionTaken", "reportedBy", "blotterOfficer"];
-  const values: Record<string, unknown> = { ...body };
-  if (typeof values.incidentDescription !== "string") {
-    values.incidentDescription = typeof body.details === "string" ? body.details : "";
-  }
-  const missing = required.filter((key) => typeof values[key] !== "string" || !String(values[key]).trim());
-  if (missing.length > 0) {
-    return res.status(400).json({ error: `Complete all required blotter fields: ${missing.join(", ")}.` });
-  }
-  const incidentDescription = String(values.incidentDescription).trim();
+  const built = buildBlotterUpdates(req.body ?? {}, true);
+  if (built.error) return res.status(400).json({ error: built.error });
 
   const { data, error } = await supabaseAdmin.from("admin_blotters").insert({
     admin_id: user.id,
-    blotter_no: body.blotterNo.trim(),
-    barangay: body.barangay || null,
-    location: body.location.trim(),
-    incident_type: body.incidentType.trim(),
-    incident_datetime: body.incidentDateTime || null,
-    complainant_name: body.complainantName.trim(),
-    complainant_age: body.complainantAge || null,
-    complainant_contact: body.complainantContact || null,
-    respondent: body.respondent.trim(),
-    incident_description: incidentDescription,
-    action_taken: body.actionTaken.trim(),
-    status: body.status || "Pending Review",
-    reported_by: body.reportedBy.trim(),
-    blotter_officer: body.blotterOfficer.trim(),
-    date_reported: body.dateReported || null,
-    date_recorded: body.dateRecorded || null,
+    ...built.updates!,
   }).select("*").single();
   if (error) return res.status(500).json({ error: error.message });
   res.status(201).json({ message: "Blotter saved", blotter: data });
-};
-
-const BLOTTER_TEXT_FIELDS: Record<string, string> = {
-  blotterNo: "blotter_no",
-  barangay: "barangay",
-  location: "location",
-  incidentType: "incident_type",
-  incidentDateTime: "incident_datetime",
-  complainantName: "complainant_name",
-  complainantAge: "complainant_age",
-  complainantContact: "complainant_contact",
-  respondent: "respondent",
-  incidentDescription: "incident_description",
-  actionTaken: "action_taken",
-  reportedBy: "reported_by",
-  blotterOfficer: "blotter_officer",
-  dateReported: "date_reported",
-  dateRecorded: "date_recorded",
-};
-
-const BLOTTER_REQUIRED_FIELDS = [
-  "blotterNo",
-  "location",
-  "incidentType",
-  "complainantName",
-  "respondent",
-  "incidentDescription",
-  "actionTaken",
-  "reportedBy",
-  "blotterOfficer",
-];
-
-const buildBlotterUpdates = (
-  body: Record<string, unknown>
-): { error?: string; updates?: Record<string, unknown> } => {
-  const updates: Record<string, unknown> = {};
-  for (const [key, column] of Object.entries(BLOTTER_TEXT_FIELDS)) {
-    if (!(key in body)) continue;
-    const value = body[key];
-    if (typeof value !== "string") return { error: `${key} must be text.` };
-    const trimmed = value.trim();
-    if (BLOTTER_REQUIRED_FIELDS.includes(key) && !trimmed) {
-      return { error: `${key} is required.` };
-    }
-    updates[column] = trimmed || null;
-  }
-  if (Object.keys(updates).length === 0) return { error: "No blotter fields to update." };
-  return { updates };
 };
 
 export const updateAdminBlotter = async (req: AuthRequest, res: Response) => {
