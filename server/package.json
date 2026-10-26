@@ -6,16 +6,9 @@
   "scripts": {
     "start": "node --import tsx app.ts",
     "dev": "nodemon --exec tsx app.ts",
-<<<<<<< HEAD
-    "lint": "eslint src ../tests/server ../tests/helpers",
-    "build": "tsc --noEmit && tsc --noEmit --project ../tests/tsconfig.json",
-    "build:render": "tsc --noEmit",
-    "test": "node ../tests/run.mjs server",
-=======
     "lint": "eslint src",
     "build": "tsc --noEmit",
     "test": "node --import tsx --test src/TestBackend.ts src/LoginVerification.test.ts src/SentimentDataset.test.ts src/SentimentTraining.test.ts src/HotspotClustering.test.ts src/SyntheticHotspots.test.ts src/HotspotSentiment.test.ts src/ReportSubmission.test.ts src/RiskOutlook.test.ts src/SampleSeed.test.ts src/BlotterCertification.test.ts",
->>>>>>> fixingUI
     "hotspots:generate": "node --import tsx scripts/hotspot/generate.ts",
     "hotspots:evaluate": "node --import tsx scripts/hotspot/evaluate.ts",
     "risk:evaluate": "node --import tsx scripts/riskOutlook/evaluate.ts",

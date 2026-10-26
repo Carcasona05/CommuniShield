@@ -27,11 +27,8 @@ import {
 import ToastProvider, { useToast } from "../../components/Toast";
 import ConfirmModal from "../../components/modals/ConfirmModal";
 import apiClient from "../../services/apiClient";
-<<<<<<< HEAD
 import { getCache, getCachedPage } from "../../services/dataStore";
-=======
 import localBlotterStore from "../../services/localBlotterStore";
->>>>>>> fixingUI
 import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
