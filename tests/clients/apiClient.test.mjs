@@ -10,15 +10,17 @@ const source = readFileSync(new URL("../../clients/services/apiClient.js", impor
 
 function clientOptions(url, development) {
   let options;
-  vm.runInNewContext(source, {
+  let requestInterceptor;
+  const context = {
     process: { env: { EXPO_PUBLIC_API_URL: url } },
     __DEV__: development,
     axios: { create(value) {
       options = value;
-      return { defaults: { adapter: "test" }, interceptors: { request: { use() {} }, response: { use() {} } } };
+      return { defaults: { adapter: "test" }, interceptors: { request: { use(fn) { requestInterceptor = fn; } }, response: { use() {} } } };
     }, getAdapter() { return () => {}; } },
-  });
-  return options;
+  };
+  vm.runInNewContext(`${source}\n globalThis.configurationError = API_CONFIGURATION_ERROR;`, context);
+  return { ...options, requestInterceptor, configurationError: context.configurationError };
 }
 
 test("web and native use the configured API URL, normalized without trailing slashes", () => {
@@ -28,9 +30,21 @@ test("web and native use the configured API URL, normalized without trailing sla
     "http://localhost:3000/api");
 });
 
-test("only development may fall back to the existing LAN backend", () => {
+test("only development may fall back to LAN; missing release configuration no longer crashes at import", async () => {
   assert.equal(clientOptions(undefined, true).baseURL, "http://192.168.1.37:3000/api");
   for (const value of [undefined, "", "   "]) {
-    assert.throws(() => clientOptions(value, false), /Set EXPO_PUBLIC_API_URL/);
+    const release = clientOptions(value, false);
+    assert.equal(release.baseURL, "");
+    assert.match(release.configurationError, /EXPO_PUBLIC_API_URL/);
+    await assert.rejects(release.requestInterceptor({ method: "post", url: "/login" }),
+      error => error.code === "API_CONFIGURATION_ERROR" && /EAS/.test(error.response.data.error));
+  }
+});
+
+test("malformed API addresses fail gracefully without making a request", async () => {
+  for (const value of ["undefined", "not-a-url", "https://", "https://example.com/api?key=secret"]) {
+    const release = clientOptions(value, false);
+    assert.match(release.configurationError, /invalid backend address/);
+    await assert.rejects(release.requestInterceptor({ url: "/profile" }), error => error.code === "API_CONFIGURATION_ERROR");
   }
 });

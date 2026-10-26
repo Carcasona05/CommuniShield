@@ -48,6 +48,10 @@
 
 ## 1. Installation and setup
 
+> [!IMPORTANT]
+> **Building an Android APK?** Configure the Expo **EAS** build environment as
+> well as the web/backend hosts. See [Android APK setup and crash diagnostics](docs/ANDROID_STARTUP.md).
+
 > [!TIP]
 > **Start here:** install all three npm dependency sets, configure your services,
 > install the database schema, then start the backend and client. Python is optional

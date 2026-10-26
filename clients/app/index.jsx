@@ -5,11 +5,14 @@ import ThemedView from "../components/ThemedView";
 import ThemedText from "../components/ThemedText";
 import { restoreAuth } from "../services/auth";
 import SessionRetry from "../components/SessionRetry";
+import AppConfigurationNotice from "../components/AppConfigurationNotice";
+import { API_CONFIGURATION_ERROR } from "../services/apiClient";
 
 const LoadingScreen = () => {
   const [attempt, setAttempt] = useState(0);
   const [connectionError, setConnectionError] = useState(false);
   useEffect(() => {
+    if (API_CONFIGURATION_ERROR) return;
     let active = true;
 
     const init = async () => {
@@ -52,6 +55,7 @@ const LoadingScreen = () => {
     };
   }, [attempt]);
 
+  if (API_CONFIGURATION_ERROR) return <AppConfigurationNotice message={API_CONFIGURATION_ERROR} />;
   if (connectionError) return <SessionRetry onRetry={() => { setConnectionError(false); setAttempt(value => value + 1); }} />;
 
   return (

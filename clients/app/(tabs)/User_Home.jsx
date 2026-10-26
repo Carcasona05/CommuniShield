@@ -338,6 +338,7 @@ const User_Home = () => {
     return getCache("api:/reports") === undefined && getCache("api:/admin/posts") === undefined;
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -369,8 +370,9 @@ const User_Home = () => {
       setCache("api:/reports", reportsRes.data ?? {});
       setCache("api:/admin/posts", adminRes.data ?? {});
       setReports(mapFeed(reportsRes.data, adminRes.data));
+      setLoadError(null);
     } catch {
-      // keep empty feed on failure
+      setLoadError("Could not load reports. Check your connection and try again.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -575,6 +577,15 @@ const User_Home = () => {
         </View>
 
         <View style={styles.feedList}>
+          {loadError ? (
+            <View style={styles.emptyCard} accessibilityRole="alert">
+              <ThemedText style={styles.emptyTitle}>Reports unavailable</ThemedText>
+              <ThemedText style={styles.emptyText}>{loadError}</ThemedText>
+              <TouchableOpacity style={styles.viewMoreBtn} onPress={handleRefresh} disabled={refreshing} accessibilityRole="button">
+                <ThemedText style={styles.viewMoreText}>{refreshing ? "Retrying..." : "Try again"}</ThemedText>
+              </TouchableOpacity>
+            </View>
+          ) : null}
           {visibleReports.map((report, index) => {
             const cardSpacing =
               index !== visibleReports.length - 1
@@ -642,7 +653,7 @@ const User_Home = () => {
 
           {loading && filteredReports.length === 0 ? (
             <SkeletonFeed count={3} />
-          ) : filteredReports.length === 0 ? (
+          ) : !loadError && filteredReports.length === 0 ? (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIcon}>
                 <Ionicons name="search-outline" size={24} color="#9CA3AF" />

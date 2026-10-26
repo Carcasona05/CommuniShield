@@ -173,7 +173,7 @@ describe("archived reports", () => {
           }
           return builder;
         };
-      ["select", "order", "limit", "eq", "neq", "in", "gte", "lte", "not"].forEach(
+      ["select", "order", "limit", "range", "eq", "neq", "in", "gte", "lte", "not"].forEach(
         (name) => {
           builder[name] = chain(name);
         }
@@ -216,7 +216,7 @@ describe("archived reports", () => {
 
 describe("dashboard relation batching", () => {
   function fixture(t: TestContext, failSecondAnalysisBatch = false, empty = false,
-    options: { reportCount?: number; replies?: number; failCommentPage?: boolean } = {}) {
+    options: { reportCount?: number; replies?: number; images?: number; likes?: number; failCommentPage?: boolean } = {}) {
     const reports = Array.from({ length: empty ? 0 : options.reportCount ?? 640 }, (_, i) => ({
       id: `report-${i}`, user_id: `poster-${i}`, location: "Lamacan, Argao, Cebu",
       latitude: 9.880192, longitude: 123.583668, details: "Synthetic test",
@@ -253,7 +253,8 @@ describe("dashboard relation batching", () => {
         if (table === "profiles") data = ids.map((id) => ({ id, fullname: `Name ${id}`, user_name: id }));
         if (table === "report_comments") data = comments.filter((c) => ids.includes(c.report_id));
         if (table === "report_comments" && options.failCommentPage && range && range[0] >= 500) error = { message: "Comment page failed" };
-        if (table === "report_images") data = ids.map((id) => ({ report_id: id, image_url: `https://example.test/${id}.png` }));
+        if (table === "report_images") data = ids.flatMap((id) => Array.from({ length: options.images ?? 1 }, (_, n) => ({ report_id: id, image_url: `https://example.test/${id}-${n}.png` })));
+        if (table === "report_likes") data = ids.flatMap((id) => Array.from({ length: options.likes ?? 0 }, (_, n) => ({ report_id: id, user_id: `liker-${n}` })));
         if (table === "report_credibility_analysis") {
           if (failSecondAnalysisBatch && calls.filter((c) => c.table === table).length === 2) error = { message: "Second analysis batch failed" };
           else data = ids.map((id) => ({ report_id: id, ai_score: 60, severity: "Low", credibility_review: "Synthetic" }));
@@ -335,6 +336,53 @@ describe("dashboard relation batching", () => {
     const result = await reportService.getAdminAnalytics();
     assert.equal(result.error, null);
     assert.equal(result.data?.summary.sentimentTotal, 0);
+    assert.deepEqual(calls, []);
+  });
+
+  test("user feeds batch UUIDs and retain reports, comments, likes and images beyond response caps", async (t) => {
+    fixture(t, false, false, { reportCount: 1100, replies: 12, images: 11, likes: 12 });
+    const result = await reportService.listReports("liker-0");
+    assert.equal(result.error, null);
+    assert.equal(result.data?.length, 1100);
+    for (const report of result.data || []) {
+      assert.equal(report.comments, 12);
+      assert.equal(report.likes, 12);
+      assert.equal(report.images.length, 11);
+      assert.equal(report.is_liked, true);
+      assert.equal(report.sentiment, "neutral");
+      assert.equal(report.ai_score, 60);
+    }
+  });
+
+  test("My Reports and report details load through the batched feed", async (t) => {
+    fixture(t);
+    const mine = await reportService.listMyReports("poster-7");
+    assert.equal(mine.error, null);
+    assert.deepEqual(mine.data?.map(r => r.id), ["report-7"]);
+    const details = await reportService.getReportById("poster-7", "report-7");
+    assert.equal(details.error, null);
+    assert.equal(details.data?.id, "report-7");
+  });
+
+  test("user feeds surface failed relation batches instead of partial results", async (t) => {
+    fixture(t, true);
+    const result = await reportService.listReports();
+    assert.equal(result.data, null);
+    assert.equal(result.error, "Second analysis batch failed");
+  });
+
+  test("user feeds surface a failed later comment page", async (t) => {
+    fixture(t, false, false, { replies: 12, failCommentPage: true });
+    const result = await reportService.listReports();
+    assert.equal(result.data, null);
+    assert.equal(result.error, "Comment page failed");
+  });
+
+  test("empty user feeds skip relation reads", async (t) => {
+    const { calls } = fixture(t, false, true);
+    const result = await reportService.listReports();
+    assert.equal(result.error, null);
+    assert.deepEqual(result.data, []);
     assert.deepEqual(calls, []);
   });
 });

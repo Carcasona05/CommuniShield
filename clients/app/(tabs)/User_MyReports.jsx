@@ -605,6 +605,7 @@ const MyReportsInner = () => {
     return Array.isArray(cached?.reports) ? mapMyReports(cached) : [];
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const scrollRef = useScrollToTop();
   const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -630,8 +631,9 @@ const MyReportsInner = () => {
 
       setCache("api:/reports/mine", res.data ?? {});
       setMyReports(mapMyReports(res.data));
+      setLoadError(null);
     } catch {
-      // keep empty list on failure
+      setLoadError("Could not load your reports. Check your connection and try again.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -897,7 +899,17 @@ const MyReportsInner = () => {
             />
           </View>
 
-          {filteredReports.length === 0 ? (
+          {loadError ? (
+            <View style={styles.emptyCard} accessibilityRole="alert">
+              <ThemedText style={styles.emptyTitle}>Reports unavailable</ThemedText>
+              <ThemedText style={styles.emptySubtitle}>{loadError}</ThemedText>
+              <TouchableOpacity style={styles.viewMoreBtn} onPress={handleRefresh} disabled={refreshing} accessibilityRole="button">
+                <ThemedText style={styles.viewMoreText}>{refreshing ? "Retrying..." : "Try again"}</ThemedText>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
+          {!loadError && filteredReports.length === 0 ? (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIcon}>
                 <Ionicons name="folder-open-outline" size={28} color="#9CA3AF" />
