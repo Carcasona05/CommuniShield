@@ -57,6 +57,18 @@ apiClient.interceptors.response.use(
       } catch {}
     }
 
+    if (status === 401 && error.response?.data?.code === "DEVICE_VERIFICATION_REQUIRED") {
+      // Old/password-only sessions must return to sign-in, never bypass the code.
+      // Ignore stale requests from a previous session after a new login completes.
+      const token = await AsyncStorage.getItem("access_token");
+      if (token && error.config?.headers?.Authorization === `Bearer ${token}`) {
+        const { clearAuth } = await import("./auth");
+        await clearAuth();
+        const { router } = await import("expo-router");
+        router.replace(Platform.OS === "web" ? "/(auth)/Admin_Login" : "/(auth)/User_Login");
+      }
+    }
+
     return Promise.reject(error);
   }
 );
