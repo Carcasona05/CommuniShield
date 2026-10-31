@@ -1,4 +1,4 @@
-import { ARGAO_POLICE_STATION } from "../constants/policeStation.js";
+import { ARGAO_POLICE_STATION, PNP_LOGO_URI, STATION_LOGO_URI } from "../constants/policeStation.js";
 
 const valueOr = (value, placeholder) => {
   const text = String(value ?? "").trim();
@@ -54,7 +54,8 @@ export const getPoliceCertification = (record) => {
     commanderName: valueOr(record.commanderName || record.commander_name, "[COMMANDER'S FULL NAME]"),
     commanderRank: valueOr(record.commanderRank || record.commander_rank, "Police [Rank]"),
     commanderPosition: valueOr(record.commanderPosition || record.commander_position, "[Official Position]"),
-    logoUri: record.pnpLogoUri || record.pnp_logo_uri || "",
+    logoUri: record.pnpLogoUri || record.pnp_logo_uri || PNP_LOGO_URI,
+    rightLogoUri: record.rightLogoUri || record.right_logo_uri || STATION_LOGO_URI,
   };
 };
 
@@ -66,32 +67,38 @@ export const buildPoliceCertificationHtml = (record) => {
   @page { size: A4 portrait; margin: 18mm; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #fff; color: #000; }
-  body { font: 10.5pt Arial, sans-serif; line-height: 1.4; }
+  body { font: 10.5pt Arial, sans-serif; line-height: 1.5; }
   .page { position: relative; width: 174mm; height: 260mm; margin: 0 auto; overflow: hidden; }
   .certificate { position: absolute; top: 0; left: 0; width: 100%; transform-origin: top left; overflow-wrap: anywhere; }
-  header { display: flex; align-items: flex-start; gap: 8mm; margin-bottom: 9mm; }
-  .logo { width: 24mm; height: 27mm; flex: 0 0 24mm; object-fit: contain; }
-  .logo-placeholder { display: flex; align-items: center; justify-content: center; text-align: center; font-size: 10pt; }
-  .office { flex: 1; text-align: center; padding-right: 12mm; line-height: 1.25; }
-  h1 { text-align: center; font-size: 14pt; margin: 0 0 9mm; letter-spacing: 1pt; }
-  h2 { font-size: 10.5pt; margin: 6mm 0 3mm; }
+  header { display: flex; align-items: center; gap: 0; margin: 0 21mm 6mm; padding-bottom: 5mm; }
+  .header-balance { width: 28mm; flex: 0 0 28mm; }
+  .logo { width: 28mm; height: 32mm; flex: 0 0 28mm; object-fit: contain; }
+  .logo-left { transform: translateX(3mm) scale(1.9); transform-origin: center right; }
+  .logo-right { transform: scale(1.35); transform-origin: center left; }
+  .logo-placeholder { display: flex; align-items: center; justify-content: center; text-align: center; font-size: 9pt; }
+  .office { flex: 1; text-align: center; line-height: 1.3; font-size: 9.5pt; }
+  .office .station { font-size: 11pt; font-weight: bold; text-transform: uppercase; margin-top: 1mm; }
+  h1 { text-align: center; font-size: 16pt; margin: 0 0 6mm; letter-spacing: 2pt; }
+  h2 { font-size: 10.5pt; margin: 6mm 0 3mm; padding-bottom: 2mm; letter-spacing: 0.5pt; break-after: avoid; }
   p { margin: 0 0 4mm; text-align: justify; }
   .opening, .narrative { text-indent: 10mm; }
   .narrative { white-space: pre-wrap; }
   .salutation { font-weight: bold; margin-bottom: 5mm; }
   table { border-collapse: collapse; width: 100%; margin: 5mm 0; table-layout: fixed; }
-  th, td { padding: 1mm 0; vertical-align: top; text-align: left; white-space: pre-wrap; }
-  th { width: 65mm; font-weight: bold; }
-  td::before { content: ": "; }
-  .disposition { margin: 5mm 0; }
-  .disposition p { margin-bottom: 2mm; white-space: pre-wrap; }
-  .signature { width: 48%; margin: 9mm 0 0 auto; text-align: center; break-inside: avoid; }
+  tr { break-inside: avoid; }
+  th, td { padding: 2.5mm 3mm; vertical-align: top; text-align: left; white-space: pre-wrap; }
+  th { width: 65mm; font-weight: bold; font-size: 9pt; }
+  .disposition { margin: 5mm 0; padding: 3mm 4mm; break-inside: avoid; }
+  .disposition p { margin-bottom: 2mm; white-space: pre-wrap; text-align: left; }
+  .disposition p:last-child { margin-bottom: 0; }
+  .signature { width: 48%; margin: 7mm 0 0 auto; text-align: center; break-inside: avoid; }
   .signature p { text-align: center; margin: 0; }
-  .signature .name { margin-top: 14mm; font-weight: bold; text-transform: uppercase; }
+  .signature .name { margin-top: 12mm; padding-top: 2mm; font-weight: bold; text-transform: uppercase; }
 </style></head><body><main class="page"><article class="certificate">
   <header>
-    ${certificate.logoUri ? `<img class="logo" src="${escapeHtml(certificate.logoUri)}" alt="Philippine National Police logo" />` : '<div class="logo logo-placeholder">[PNP Logo]</div>'}
-    <div class="office">${certificate.officeLines.map((line, index) => `<div>${index === 2 ? `<strong>${escapeHtml(line)}</strong>` : escapeHtml(line)}</div>`).join("")}</div>
+    ${certificate.logoUri ? `<img class="logo logo-left" src="${escapeHtml(certificate.logoUri)}" alt="Philippine National Police logo" />` : '<div class="logo logo-placeholder">[PNP Logo]</div>'}
+    <div class="office">${certificate.officeLines.map((line, index) => `<div${index === 4 ? ' class="station"' : ""}>${index === 2 ? `<strong>${escapeHtml(line)}</strong>` : escapeHtml(line)}</div>`).join("")}</div>
+    ${certificate.rightLogoUri ? `<img class="logo logo-right" src="${escapeHtml(certificate.rightLogoUri)}" alt="Station logo" />` : '<div class="header-balance"></div>'}
   </header>
   <h1>CERTIFICATION</h1>
   <p class="salutation">TO WHOM IT MAY CONCERN:</p>
