@@ -1028,9 +1028,6 @@ function Admin_ReportManagement() {
                   <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
                   <Text style={styles.previewPrimaryButtonText}>Export as PDF</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.previewSecondaryButton} onPress={() => setPreviewVisible(false)} activeOpacity={0.85}>
-                  <Text style={styles.previewSecondaryButtonText}>Close</Text>
-                </TouchableOpacity>
               </View>
             </View>
           </View>
