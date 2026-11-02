@@ -191,7 +191,7 @@ export default function SentimentDatasetManager({ embedded = false }) {
     try {
       await apiClient.post(`/sentiment/datasets/${detail.dataset.id}/review`, { action, version: detail.dataset.version, note: reviewNote });
       setTrainingRefreshKey((value) => value + 1);
-      tell(action === "approve" ? "Dataset approved. Review the collected examples in Training." : action === "reject" ? "Dataset rejected." : "Dataset archived."); await openDetail(detail.dataset.id, detailPage); await load();
+      tell(action === "approve" ? "Dataset approved. Training queued." : action === "reject" ? "Dataset rejected." : "Dataset archived."); await openDetail(detail.dataset.id, detailPage); await load();
     } catch (err) { fail(err); }
     finally { setBusy(false); }
   };
@@ -217,7 +217,7 @@ export default function SentimentDatasetManager({ embedded = false }) {
   return <View style={[s.card, embedded && s.embeddedCard]}>
     <View style={s.managerHeading}>
       <View style={s.headingIcon}><Ionicons name="layers-outline" size={21} color="#294880" /></View>
-      <View style={s.flex}><Text style={s.title}>Sentiment Training Data</Text><Text style={s.note}>Collect examples. Review labels. Train and approve supporting models.</Text></View>
+      <View style={s.flex}><Text style={s.title}>Sentiment Training Data</Text><Text style={s.note}>{embedded ? "Add examples and track their progress." : "Review datasets and manage model updates."}</Text></View>
     </View>
     <SectionTabs value={activeTab} disabled={busy} onChange={(tab) => { setActiveTab(tab); setNotice(""); setFilterOpen(false); }} options={embedded ? [
       { key: "add", label: "Add data" }, { key: "datasets", label: "Datasets" }, { key: "training", label: "Training" },
@@ -227,10 +227,8 @@ export default function SentimentDatasetManager({ embedded = false }) {
     {!mode && error ? <Text accessibilityRole="alert" style={s.error}>{error}</Text> : null}
     {notice ? <View style={s.successBanner}><Ionicons name="checkmark-circle" size={16} color="#16794B" /><Text style={s.success}>{notice}</Text></View> : null}
     {activeTab === "add" ? <View style={[s.stack, !embedded && s.formWidth]}>
-      <View style={s.guideCard}><Text style={s.subtitle}>Start with one useful example</Text><Text style={s.note}>One row is welcome. Contributions collect in the reviewed pool; a small submission is not evidence that a model is ready to serve.</Text></View>
       <View style={s.between}><Text style={s.subtitle}>New example</Text><Button title="Import datasets" icon="cloud-upload-outline" secondary onPress={openImport} disabled={busy} /></View>
       <SampleFields sample={sample} onChange={setSample} disabled={busy} />
-      {sample.text.trim() && sample.text.trim().split(/\s+/).length === 1 ? <View style={s.contextHint}><Ionicons name="information-circle-outline" size={18} color="#946212" /><Text style={[s.note, s.flex]}>Single words need careful review. Use a sentence when the sentiment depends on context; incident words are not automatically negative.</Text></View> : null}
       <Button title="Preview example" icon="arrow-forward-outline" disabled={busy || !sample.text.trim() || !sample.language || !sample.label} onPress={() => makePreview(true)} />
       <Disclosure title="Labeling tips"><Text style={s.note}>Label the emotion expressed, not the incident severity. Include enough context for slang or sarcasm.</Text></Disclosure>
     </View> : null}
@@ -267,7 +265,6 @@ export default function SentimentDatasetManager({ embedded = false }) {
       {busy ? <ActivityIndicator color="#294880" /> : null}
       {error ? <Text accessibilityRole="alert" style={s.error}>{error}</Text> : null}
       {preview ? <>
-        {preview.rows.some((item) => item.status === "valid" && item.text.trim().split(/\s+/).length === 1) ? <Text style={s.note}>Some examples contain one word. Review their context carefully; single-word entries are allowed but are not sufficient evidence for model eligibility.</Text> : null}
         <View style={s.previewSummary}><Ionicons name={validCount ? "checkmark-circle-outline" : "alert-circle-outline"} size={22} color={validCount ? "#16794B" : "#B93838"} /><View style={s.flex}><Text style={s.subtitle}>{validCount} valid / {preview.rows.length} total</Text>{validCount < preview.rows.length ? <Text style={s.note}>{preview.rows.length - validCount} rows will be skipped.</Text> : null}</View></View>
         {preview.rows.slice((previewPage - 1) * 20, previewPage * 20).map((item) => <View key={item.row} style={s.entry}>
           <View style={s.between}><Text style={s.note}>Row {item.row}</Text><StatusBadge status={item.status} /></View>
@@ -320,7 +317,7 @@ export default function SentimentDatasetManager({ embedded = false }) {
         </Disclosure> : null}
       </> : null}
     </Sheet> : null}
-    {confirmation ? <ConfirmModal visible onClose={() => setConfirmation(null)} onConfirm={() => review(confirmation)} title={`${confirmation[0].toUpperCase() + confirmation.slice(1)} dataset?`} message={confirmation === "approve" ? "Approve these labels for the reviewed training pool? You can collect more examples before queueing training. The built-in model stays permanent." : confirmation === "reject" ? "Reject this submission with your review note?" : "Archive this dataset? Its history will be kept."} confirmLabel="Confirm" /> : null}
+    {confirmation ? <ConfirmModal visible onClose={() => setConfirmation(null)} onConfirm={() => review(confirmation)} title={`${confirmation[0].toUpperCase() + confirmation.slice(1)} dataset?`} message={confirmation === "approve" ? "Approve these examples and queue retraining? The active model will not change yet." : confirmation === "reject" ? "Reject this submission with your review note?" : "Archive this dataset? Its history will be kept."} confirmLabel="Confirm" /> : null}
   </View>;
 }
 
@@ -349,10 +346,6 @@ const s = StyleSheet.create({
   success: { color: "#16794B", fontSize: 12 },
   row: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
   stack: { gap: 12 },
-  guideCard: { padding: 16, backgroundColor: "#F4F7FC", borderRadius: 12, gap: 10, borderWidth: 1, borderColor: "#E2EAF5" },
-  flowStep: { flexDirection: "row", alignItems: "center", gap: 7, paddingRight: 12, paddingVertical: 4 },
-  flowNumber: { width: 23, height: 23, borderRadius: 12, textAlign: "center", lineHeight: 23, backgroundColor: "#E2EAF8", color: "#294880", fontSize: 11, fontFamily: "PoppinsMedium" },
-  contextHint: { flexDirection: "row", gap: 8, padding: 12, borderRadius: 9, backgroundColor: "#FFF9ED", alignItems: "flex-start" },
   fieldRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   fieldColumn: { flex: 1, minWidth: 0, gap: 8 },
   button: { backgroundColor: "#294880", borderRadius: 9, paddingHorizontal: 13, paddingVertical: 11, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 7, minHeight: 40 },

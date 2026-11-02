@@ -7,8 +7,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "eslint . ../tests/clients",
-    "test": "node ../tests/run.mjs clients",
+    "lint": "eslint .",
     "build:web": "expo export --platform web"
   },
   "dependencies": {

@@ -40,10 +40,6 @@ export const authenticate = async (
 
   req.user = data.user;
   req.token = token;
-  // Reuse this already-authorized lookup for the lightweight startup probe.
-  res.locals.verifiedSession = profile.data && !profile.error
-    ? { userId: data.user.id, role: profile.data.role }
-    : null;
   next();
 };
 
@@ -57,8 +53,7 @@ export const requireRole = (roles: string[]) => {
 
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-    const verified = res.locals?.verifiedSession;
-    const { data } = verified?.userId === user.id ? { data: verified } : await profileService.getProfile(user.id);
+    const { data } = await profileService.getProfile(user.id);
 
     if (!data || !roles.includes(data.role)) {
       return res.status(403).json({ error: "Forbidden" });

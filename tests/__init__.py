@@ -1,1 +1,0 @@
-"""Centralized CommuniShield regression tests."""

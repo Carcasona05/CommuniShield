@@ -4,9 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { InferenceSession, Tensor } from "onnxruntime-node";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
-import { getActiveModelBundle, supportingModelsEnabled } from "./sentimentModelRegistry.js";
-import { supportingProposals } from "./supportingModelRegistry.js";
-import { routeSupportingModels, type Scores } from "./supportingModelRouting.js";
+import { getActiveModelBundle } from "./sentimentModelRegistry.js";
 import {
   GeminiClientError,
   candidateModels,
@@ -238,16 +236,12 @@ const runLocalPrediction = async (
   const label = labels[bestIndex];
   if (!label) throw new Error("Local sentiment model returned an invalid label");
 
-  const scores: Scores = { negative: Number(probabilities[0]), neutral: Number(probabilities[1]), positive: Number(probabilities[2]) };
-  const proposals = await supportingProposals(modelDirectory, language, text, scores);
-  const routed = routeSupportingModels(scores, proposals);
   return {
-    label: routed.label,
-    confidence: routed.confidence,
+    label,
+    confidence: clamp(Number(probabilities[bestIndex])),
     language,
-    provider: routed.origin === "builtin" ? "local" : "ensemble",
-    model: routed.origin === "builtin" ? `word-character-tfidf-logistic-regression-${language}@${version}`
-      : `cascade:${routed.origin}|${routed.reason}|builtin:${version}|support:${routed.ids.join(",")}`,
+    provider: "local",
+    model: `word-character-tfidf-logistic-regression-${language}@${version}`,
     input_hash: sentimentInputHash(text),
     source_text: text,
   };
@@ -522,15 +516,15 @@ const predict = async (
   const localLanguage =
     detectedLanguage === "english" ||
     detectedLanguage === "filipino" ||
-    (detectedLanguage === "cebuano" && (cebuanoMode === "local" || (supportingModelsEnabled() && cebuanoMode !== "disabled")));
+    (detectedLanguage === "cebuano" && cebuanoMode === "local");
   const shouldUseLocal = localEnabled && localLanguage;
-  let shouldUseGemini = !supportingModelsEnabled() && !localOnly && geminiEnabled && geminiConfigured();
+  let shouldUseGemini = !localOnly && geminiEnabled && geminiConfigured();
 
   if (detectedLanguage === "cebuano") {
     if (cebuanoMode === "disabled") {
       shouldUseGemini = false;
     } else {
-      shouldUseGemini = !supportingModelsEnabled() && !localOnly && geminiEnabled && geminiConfigured();
+      shouldUseGemini = !localOnly && geminiEnabled && geminiConfigured();
     }
   }
 
@@ -543,9 +537,6 @@ const predict = async (
     ]);
 
     if (localResult.ok) {
-      // Pool decisions have already applied their validated routing policy.
-      // A Gemini vote must not silently override a protected primary/cascade.
-      if (localResult.value.model.startsWith("cascade:")) return { prediction: localResult.value, errorCode: "" };
       if (!geminiResult || !geminiResult.ok) {
         if (shouldUseGemini) {
           console.error(
@@ -608,7 +599,6 @@ const predict = async (
   }
 
   if (detectedLanguage === "unknown" && localEnabled) {
-    if (supportingModelsEnabled()) return { prediction: unavailableResult(text, "unknown", "language_uncertain"), errorCode: "language_uncertain" };
     const fallbackLanguages: LocalModelLanguage[] = ["english", "filipino"];
     if (cebuanoMode !== "disabled") fallbackLanguages.push("cebuano");
     const fallbackResults = await Promise.all(
@@ -1138,13 +1128,6 @@ export const sentimentService = {
         continue;
       }
 
-      if (persisted.model.startsWith("cascade:supporting|")) {
-        const ids = (persisted.model.split("|support:")[1] || "").split(",")
-          .filter((id) => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id));
-        if (ids.length) {
-          try { await supabaseAdmin.rpc("record_sentiment_support_usage", { p_ids: ids }); } catch { /* Provenance is still saved in model. */ }
-        }
-      }
       return toAnalysis(subjectType, persisted);
     }
 

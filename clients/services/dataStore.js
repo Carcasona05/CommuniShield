@@ -1,27 +1,100 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AppState } from "react-native";
+import { Platform } from "react-native";
+import { Image } from "expo-image";
 import { apiRequest } from "./apiClient";
-import { prefetchPlan, sessionData } from "./sessionData";
-import { querySnapshotKey, usableQuerySnapshot } from "./querySnapshots";
+import { ROLE_KEY } from "./auth";
 
 const CACHE_KEY = "communishield_data_cache";
-// Keep the existing page-cache API, but never hydrate unscoped data left by a
-// previous account. Private page data now lives only in session-scoped memory.
-export const setCache = (key, value) => sessionData.set(key, value);
-export const getCache = (key) => sessionData.get(key);
-export const getCachedPage = (endpoint, params = {}) => {
-  const snapshot = getCache(querySnapshotKey(endpoint, params));
-  return usableQuerySnapshot(snapshot) ? snapshot.data : undefined;
+const cache = new Map();
+let persistTimer = null;
+
+const isWeb = Platform.OS === "web";
+
+const readStorageSync = () => {
+  if (isWeb && typeof localStorage !== "undefined") {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 };
-export const hydrateCache = async () => {
+
+const writeStorage = (obj) => {
   try {
-    if (typeof localStorage !== "undefined") localStorage.removeItem(CACHE_KEY);
-    await AsyncStorage.removeItem(CACHE_KEY);
+    const json = JSON.stringify(obj);
+    if (isWeb && typeof localStorage !== "undefined") {
+      localStorage.setItem(CACHE_KEY, json);
+    }
+    AsyncStorage.setItem(CACHE_KEY, json).catch(() => {});
   } catch {}
 };
+
+const persistCache = () => {
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    flushCache();
+  }, 300);
+};
+
+const flushCache = () => {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  const obj = {};
+  cache.forEach((v, k) => {
+    obj[k] = v;
+  });
+  writeStorage(obj);
+};
+
+export const setCache = (key, value) => {
+  cache.set(key, value);
+  persistCache();
+};
+
+export const getCache = (key) => (cache.has(key) ? cache.get(key) : undefined);
+
+const hydrateFromStorage = () => {
+  const obj = readStorageSync();
+  if (obj) {
+    Object.entries(obj).forEach(([k, v]) => cache.set(k, v));
+  }
+};
+
+if (isWeb) {
+  hydrateFromStorage();
+  if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", flushCache);
+  }
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flushCache();
+    });
+  }
+}
+
+export const hydrateCache = async () => {
+  if (cache.size > 0) return;
+  try {
+    const raw = await AsyncStorage.getItem(CACHE_KEY);
+    if (raw) {
+      const obj = JSON.parse(raw);
+      Object.entries(obj).forEach(([k, v]) => cache.set(k, v));
+    }
+  } catch {}
+};
+
 export const clearDataCache = () => {
-  sessionData.reset();
-  void hydrateCache();
+  cache.clear();
+  if (isWeb && typeof localStorage !== "undefined") {
+    localStorage.removeItem(CACHE_KEY);
+  }
+  AsyncStorage.removeItem(CACHE_KEY).catch(() => {});
 };
 
 const REPORT_CACHE_KEYS = ["api:/reports", "api:/reports/mine"];

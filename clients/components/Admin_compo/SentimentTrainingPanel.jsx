@@ -13,17 +13,16 @@ import TrainingProgressBar from "./TrainingProgressBar";
 import SentimentActionButton from "./SentimentActionButton";
 import { trainingProgress } from "../../services/trainingProgress";
 
+const percentage = (value) => value != null && Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(1)}%` : "—";
+const shortId = (id) => id ? id.slice(0, 8) : "Built-in model";
 const STAGES = ["Queued", "Training", "Checking", "Ready"];
 
 export default function SentimentTrainingPanel({ isSuperAdmin, refreshKey = 0 }) {
   const toast = useToast();
-  const [status, setStatus] = useState(() => getCache("api:/sentiment/training") || null);
+  const [status, setStatus] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [confirmation, setConfirmation] = useState(null);
-  const [poolRefreshKey, setPoolRefreshKey] = useState(0);
-  const [selectedDatasetIds, setSelectedDatasetIds] = useState([]);
   const sequence = useRef(0);
   const refreshRef = useRef(null);
   const [now, setNow] = useState(Date.now);
@@ -32,14 +31,11 @@ export default function SentimentTrainingPanel({ isSuperAdmin, refreshKey = 0 })
     let mounted = true;
     const refresh = async ({ force = false } = {}) => {
       const request = ++sequence.current;
-      setLoading(true);
       try {
         const { data } = await apiClient.get("/sentiment/training", force ? { cacheMode: "network" } : {});
         if (mounted && request === sequence.current) { setStatus(data); setError(""); }
       } catch (err) {
         if (mounted && request === sequence.current) setError(err.response?.data?.error || "Could not load training status.");
-      } finally {
-        if (mounted && request === sequence.current) setLoading(false);
       }
     };
     refreshRef.current = refresh;
@@ -88,6 +84,7 @@ export default function SentimentTrainingPanel({ isSuperAdmin, refreshKey = 0 })
     const worker = trainingProgress(job, now);
     const expired = worker.interrupted;
     const stage = { queued: 0, training: 1, evaluating: 2, ready: 3 }[job.status] ?? -1;
+    const canActivate = job.status === "ready" && !active;
     return <View style={s.job} key={job.id}>
       <View style={s.between}><Text style={s.label}>Training run</Text><StatusBadge status={expired ? "failed" : worker.disconnected ? "outdated" : job.status} label={expired ? "Interrupted" : worker.disconnected ? "Worker disconnected" : undefined} /></View>
       <Text style={s.note}>{new Date(job.created_at).toLocaleString()}</Text>
@@ -95,7 +92,7 @@ export default function SentimentTrainingPanel({ isSuperAdmin, refreshKey = 0 })
       {!compact ? <TrainingProgressBar job={job} now={now} /> : null}
       {!compact && stage >= 0 && !worker.stopped && !worker.disconnected ? <View style={s.progress}>
         {STAGES.map((label, index) => <View key={label} style={s.stage}>
-          <View style={[s.stageCircle, index <= stage && s.stageReached]}>{index < stage ? <Ionicons name="checkmark" size={12} color="#FFFFFF" /> : <Text style={[s.stageNumber, index <= stage && { color: "#FFFFFF" }]}>{index + 1}</Text>}</View>
+          <View style={[s.stageCircle, index <= stage && s.stageReached]}>{index < stage || active ? <Ionicons name="checkmark" size={12} color="#FFFFFF" /> : <Text style={[s.stageNumber, index <= stage && { color: "#FFFFFF" }]}>{index + 1}</Text>}</View>
           <Text style={[s.stageLabel, index <= stage && { color: "#294880" }]}>{label}</Text>
         </View>)}
       </View> : null}
@@ -106,10 +103,10 @@ export default function SentimentTrainingPanel({ isSuperAdmin, refreshKey = 0 })
       <Disclosure title="Run details">
         <Text selectable style={s.note}>Run {job.id}</Text>
         {Array.isArray(job.datasets) ? <Text style={s.note}>{job.datasets.length} approved dataset versions included.</Text> : null}
-        <Text style={s.note}>Training approach: {job.training_mode === "fresh" ? "fresh challenger trained from scratch on all approved data." : "continued training from the built-in state."}</Text>
         {job.status === "queued" ? <Text style={s.note}>The Python worker starts this job after a short batching window. If it stays queued, check that the worker is running.</Text> : null}
         {job.error ? <Text style={s.error}>{job.error}</Text> : null}
-        {compact && job.metrics?.languages ? <TrainingEvaluation metrics={job.metrics} /> : null}
+        {stale ? <Text style={s.warning}>Queue fresh training before activating this candidate.</Text> : null}
+        {compact && job.metrics?.languages ? Object.entries(job.metrics.languages).map(([language, result]) => <Text style={s.note} key={language}>{language}: {percentage(result.baseline?.macro_f1)} → {percentage(result.candidate?.macro_f1)}</Text>) : null}
         {job.metrics?.data ? <Text style={s.note}>{job.metrics.data.accepted} examples added · {job.metrics.data.duplicates} duplicates skipped · {job.metrics.data.held_out} held-out examples excluded.</Text> : null}
         {job.metrics?.data?.baseline_train_holdout_excluded ? <Text style={s.note}>{job.metrics.data.baseline_train_holdout_excluded} training/holdout overlaps excluded from this snapshot.</Text> : null}
         {job.metrics?.data?.heldout_conflicting_keys ? <Text style={s.warning}>{job.metrics.data.heldout_conflicting_keys} holdout phrases have conflicting labels. Review the benchmark quality.</Text> : null}
@@ -160,6 +157,10 @@ export default function SentimentTrainingPanel({ isSuperAdmin, refreshKey = 0 })
       </View> : null}
       {status.supportingPool ? <SupportingModelsPanel isSuperAdmin={isSuperAdmin} servingEnabled={status.supportingServingEnabled} refreshKey={`${refreshKey}:${poolRefreshKey}`} /> : null}
       {otherJobs.length ? <Disclosure title={`Previous runs (${otherJobs.length})`}>{otherJobs.map((job) => renderJob(job, true))}</Disclosure> : null}
+      {isSuperAdmin ? <Disclosure title="Model controls">
+        <View style={s.row}>{button("Queue retraining", () => confirm("queue"), false, false, "refresh-outline")}{state.active_job_id ? button("Roll back model", () => confirm("rollback"), !status.registryEnabled || running) : null}</View>
+        <Text style={s.note}>Use these controls to retry training or restore the previous model.</Text>
+      </Disclosure> : null}
       <Disclosure title="How training works">
         <Text style={s.note}>Approval adds examples to the reviewed pool. Queue retraining continues existing weights with replay data; Queue fresh challenger learns a new vocabulary from the full training snapshot. Neither approach overwrites built-in files.</Text>
         <Text style={s.note}>With language-scoped training installed, dataset language columns select the languages to train. Each is checked separately; failed languages do not block passing ones and are never enabled. Other languages continue using the built-in. Quality requirements remain unchanged, and passing languages stay disabled for manual review.</Text>
@@ -199,12 +200,9 @@ const s = StyleSheet.create({
   buttonText: { fontFamily: "PoppinsMedium", fontSize: 11, color: "#294880" },
   disabled: { opacity: 0.45 },
   job: { borderWidth: 1, borderColor: "#E5ECF5", borderRadius: 12, padding: 16, gap: 10, backgroundColor: "#FFFFFF" },
-  between: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  refreshButton: { backgroundColor: "#EEF2F8", borderRadius: 9, paddingHorizontal: 13, paddingVertical: 11, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 7, minHeight: 40 },
-  refreshText: { color: "#294880", fontFamily: "PoppinsMedium", fontSize: 12 },
+  between: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  iconButton: { width: 34, height: 34, borderRadius: 10, backgroundColor: "#F0F4FA", alignItems: "center", justifyContent: "center" },
   activeCard: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14, borderWidth: 1, borderColor: "#DCEEE3", backgroundColor: "#F4FAF6", borderRadius: 12 },
-  currentModel: { gap: 10 },
-  modelControls: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 },
   activeIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#E6F3EA", alignItems: "center", justifyContent: "center" },
   errorCard: { padding: 12, backgroundColor: "#FFF7F4", borderRadius: 10, gap: 8 },
   message: { fontFamily: "PoppinsMedium", fontSize: 12, color: "#506583", lineHeight: 19 },
@@ -214,4 +212,9 @@ const s = StyleSheet.create({
   stageReached: { backgroundColor: "#294880" },
   stageNumber: { fontSize: 10, color: "#8A9AB3", fontFamily: "PoppinsMedium" },
   stageLabel: { fontSize: 9, color: "#8A9AB3", fontFamily: "PoppinsMedium" },
+  scoreTable: { backgroundColor: "#F8FAFD", padding: 10, borderRadius: 9, gap: 8 },
+  scoreRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  language: { flex: 1, minWidth: 0 },
+  scoreHeading: { width: 48, textAlign: "right", fontSize: 10, color: "#8A9AB3" },
+  score: { width: 48, textAlign: "right", fontFamily: "PoppinsMedium", fontSize: 11, color: "#64748B" },
 });

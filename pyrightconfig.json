@@ -2,7 +2,6 @@
   "venvPath": ".",
   "venv": ".venv-data",
   "typeCheckingMode": "basic",
-  "extraPaths": ["datasets"],
   "reportMissingModuleSource": "none",
   "exclude": [
     "**/node_modules",

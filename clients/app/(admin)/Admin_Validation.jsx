@@ -487,6 +487,16 @@ function Admin_Validation() {
   const consumedOpenReport = useRef(null);
 
   useEffect(() => {
+    if (!openReportParam) return;
+    setSelectedStatus("All");
+    setSelectedCategory("All");
+    setSelectedIncidentType("All");
+    setSelectedBarangay("All");
+    setFromDate("");
+    setToDate("");
+  }, [openReportParam, openReportNonce]);
+
+  useEffect(() => {
     const target = Array.isArray(openReportParam)
       ? openReportParam[0]
       : openReportParam;
@@ -500,13 +510,19 @@ function Admin_Validation() {
     if (consumedOpenReport.current === consumeKey) return;
 
     const group = groupedReports.find((g) =>
-      g.reports.some((report) => report.id === target)
+      g.reports.some((report) => String(report.id) === String(target))
     );
 
     if (!group) return;
 
     consumedOpenReport.current = consumeKey;
-    setSelectedCompiledGroup(group);
+    setSelectedCompiledGroup({
+      ...group,
+      reports: [
+        ...group.reports.filter((report) => String(report.id) === String(target)),
+        ...group.reports.filter((report) => String(report.id) !== String(target)),
+      ],
+    });
     setViewVisible(true);
   }, [openReportParam, openReportNonce, groupedReports, loading]);
 

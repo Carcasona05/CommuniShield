@@ -33,7 +33,7 @@ export const manageSentimentTraining = async (req: AuthRequest, res: Response) =
   try {
     const { data, error } = await sentimentTrainingService.action(req.user.id, action, action === "activate" ? jobId : null, action === "queue" ? null : generation, mode, datasetIds, retryJobId);
     if (error) return res.status(error.code === "42501" ? 403 : error.code === "40001" ? 409 : error.code === "22023" ? 400 : 503).json({ error: ["22023", "40001"].includes(error.code || "") ? error.message : "Could not perform training action." });
-    return res.json({ ...data, message: "Retraining queued. Keep the Python worker running. Built-in models are unchanged." });
+    return res.json({ ...data, message: action === "queue" ? "Retraining queued. Keep the Python worker running." : action === "activate" ? "Candidate activated. Backend instances refresh their models within 30 seconds." : "Previous model restored. Instances refresh within 30 seconds." });
   } catch {
     return res.status(503).json({ error: "Could not validate model artifacts. The active model is unchanged." });
   }
