@@ -345,7 +345,7 @@ const User_NotificationInner = () => {
   const sliceItems = (items, expanded) =>
     expanded ? items : items.slice(0, LIMIT);
 
-  const loadNotifications = useCallback(async () => {
+  const loadNotifications = useCallback(async ({ force = false } = {}) => {
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
@@ -361,9 +361,11 @@ const User_NotificationInner = () => {
 
       const [notifRes, loginRes] = await Promise.all([
         apiClient.get("/notifications", {
+          ...(force ? { cacheMode: "network" } : {}),
           headers: { Authorization: `Bearer ${token}` },
         }),
         apiClient.get("/notifications/login-activity", {
+          ...(force ? { cacheMode: "network" } : {}),
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -389,7 +391,7 @@ const User_NotificationInner = () => {
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    loadNotifications();
+    loadNotifications({ force: true });
   }, [loadNotifications]);
 
   const unreadCount =

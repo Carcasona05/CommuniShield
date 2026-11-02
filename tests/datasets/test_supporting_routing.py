@@ -19,6 +19,23 @@ class SupportingRoutingTests(unittest.TestCase):
         result, used = routing.cascade(base, [(positive, RULE), (positive, RULE), (negative, RULE)])
         self.assertEqual(result.tolist(), [-1]); self.assertFalse(used.any())
 
+    def test_qualified_support_corrects_weak_neutral_primary(self):
+        base = np.array([[.295, .528, .177]])
+        newer = np.array([[.767, .153, .080]])
+        older = np.array([[.502, .374, .124]])
+        rule = dict(RULE, primary_confidence=.85, support_confidence=.5, support_margin=.05)
+        result, used = routing.cascade(base, [(newer, rule), (older, rule)])
+        self.assertEqual(result.tolist(), [0])
+        self.assertEqual(used.tolist(), [True])
+
+    def test_threshold_boundary_and_weak_support_abstention(self):
+        base = np.array([[.34, .33, .33]])
+        support = np.array([[.5, .375, .125]])
+        rule = dict(RULE, support_confidence=.5, support_margin=.125)
+        self.assertEqual(routing.cascade(base, [(support, rule)])[0].tolist(), [0])
+        stricter = dict(rule, support_margin=.126)
+        self.assertEqual(routing.cascade(base, [(support, stricter)])[0].tolist(), [-1])
+
     def test_unclear_is_penalized_in_recall_instead_of_hidden(self):
         y = np.array([0, 1, 2]); result = np.array([0, -1, 2])
         metrics = routing.describe(y, result)

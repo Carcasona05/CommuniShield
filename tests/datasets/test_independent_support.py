@@ -33,6 +33,14 @@ class IndependentAdmissionTests(unittest.TestCase):
         self.assertEqual(check['validation_acceptance']['precision'], 1)
         self.assertTrue(check['test_acceptance_evaluated'])
 
+    def test_progress_callbacks_do_not_change_quality_results_and_include_rejected_languages(self):
+        completed = []
+        with patch.object(admission, 'probabilities', side_effect=self.perfect):
+            expected = admission.evaluate(self.fixture(), Path('candidate'), {}, ['cebuano', 'english'], {'english': ['quality failed']})
+            actual = admission.evaluate(self.fixture(), Path('candidate'), {}, ['cebuano', 'english'], {'english': ['quality failed']}, on_language_complete=completed.append)
+        self.assertEqual(actual, expected)
+        self.assertEqual(completed, ['cebuano', 'english'])
+
     def test_one_row_per_class_is_not_enough_heldout_evidence(self):
         with patch.object(admission, 'probabilities', side_effect=self.perfect):
             result = admission.evaluate(self.fixture(1), Path('candidate'), {})

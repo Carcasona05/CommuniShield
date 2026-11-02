@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import apiClient from "../../services/apiClient";
+import { getCache, getCachedPage } from "../../services/dataStore";
 import { useToast } from "../Toast";
 import ConfirmModal from "../modals/ConfirmModal";
 import { Ionicons } from "@expo/vector-icons";
 import SentimentTrainingPanel from "./SentimentTrainingPanel";
 import { Disclosure, EmptyState, SectionTabs, StatusBadge } from "./SentimentUi";
+import SentimentActionButton from "./SentimentActionButton";
 
 const LANGUAGES = ["english", "filipino", "cebuano"];
 const LABELS = ["positive", "neutral", "negative"];
@@ -14,10 +16,8 @@ const errorText = (error) => error.response?.data?.error || error.message || "Re
 const dateText = (value) => new Date(value).toLocaleString();
 
 function Button({ title, onPress, disabled, secondary = false, icon, danger = false }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={title} disabled={disabled} onPress={onPress} style={[s.button, secondary && s.secondary, danger && s.dangerButton, disabled && s.disabled]}>
-    {icon ? <Ionicons name={icon} size={16} color={danger ? "#B93838" : secondary ? "#294880" : "#FFFFFF"} /> : null}
-    <Text style={[s.buttonText, secondary && s.secondaryText, danger && s.dangerText]}>{title}</Text>
-  </Pressable>;
+  return <SentimentActionButton title={title} onPress={onPress} disabled={disabled}
+    variant={danger ? "danger" : secondary ? "secondary" : "primary"} icon={icon} />;
 }
 function InlineDropdown({ options, selectedValue, placeholder, displayPlaceholder, disabled, open, onToggle, onClose, onChange }) {
   const container = useRef(null);
@@ -76,17 +76,21 @@ function Sheet({ title, children, onClose, busy, footer }) {
 
 export default function SentimentDatasetManager({ embedded = false }) {
   const toast = useToast();
+  const initialList = getCachedPage("/sentiment/datasets", { status: embedded ? "all" : "pending", page: 1 });
   const [sample, setSample] = useState(INITIAL_SAMPLE);
-  const [datasets, setDatasets] = useState([]);
-  const [total, setTotal] = useState(0);
+  const [datasets, setDatasets] = useState(() => initialList?.datasets || []);
+  const [total, setTotal] = useState(() => initialList?.total || 0);
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState(embedded ? "all" : "pending");
   const [activeTab, setActiveTab] = useState(embedded ? "add" : "datasets");
   const [filterOpen, setFilterOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("examples");
   const [fileName, setFileName] = useState("");
-  const [identity, setIdentity] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [identity, setIdentity] = useState(() => {
+    const profile = getCache("api:/profile");
+    return profile && initialList ? { ...profile, id: initialList.viewerId } : null;
+  });
+  const [loading, setLoading] = useState(() => !initialList);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -107,12 +111,14 @@ export default function SentimentDatasetManager({ embedded = false }) {
   const detailRequest = useRef(0);
   const isSuperAdmin = identity?.role === "super_admin";
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ force = false } = {}) => {
     const request = ++listRequest.current;
-    setLoading(true);
+    const cached = getCachedPage("/sentiment/datasets", { status, page });
+    setLoading(!cached);
+    if (cached) { setDatasets(cached.datasets || []); setTotal(cached.total || 0); }
     try {
       const [list, profile] = await Promise.all([
-        apiClient.get("/sentiment/datasets", { params: { status, page } }), apiClient.get("/profile"),
+        apiClient.get("/sentiment/datasets", { params: { status, page }, ...(force ? { cacheMode: "network" } : {}) }), apiClient.get("/profile"),
       ]);
       if (request !== listRequest.current) return;
       setDatasets(list.data.datasets || []); setTotal(list.data.total || 0);
@@ -230,7 +236,7 @@ export default function SentimentDatasetManager({ embedded = false }) {
     </View> : null}
     {activeTab === "datasets" ? <View style={s.stack}>
       <View style={s.guideCard}><View style={s.row}><Ionicons name="folder-open-outline" size={20} color="#294880" /><Text style={s.subtitle}>Your reviewed data library</Text></View><Text style={s.note}>Open a dataset to inspect labels and review history. Only approved examples enter training. The permanent built-in model is never replaced.</Text><View style={s.row}>{[{ n: "1", title: "Collect" }, { n: "2", title: "Review" }, { n: "3", title: "Train" }, { n: "4", title: "Enable manually" }].map((step) => <View key={step.n} style={s.flowStep}><Text style={s.flowNumber}>{step.n}</Text><Text style={s.note}>{step.title}</Text></View>)}</View></View>
-      <View style={s.between}><Text style={s.subtitle}>{total} dataset{total === 1 ? "" : "s"}</Text><Button title="Refresh" icon="refresh-outline" secondary onPress={load} disabled={loading || busy} /></View>
+      <View style={s.between}><Text style={s.subtitle}>{total} dataset{total === 1 ? "" : "s"}</Text><Button title="Refresh" icon="refresh-outline" secondary onPress={() => load({ force: true })} disabled={loading || busy} /></View>
       <InlineDropdown placeholder="Filter datasets" options={[{ value: "all", label: "All datasets" }, { value: "pending", label: "Pending review" }, { value: "approved", label: "Approved" }, { value: "rejected", label: "Rejected" }, { value: "archived", label: "Archived" }]} selectedValue={status} disabled={busy} open={filterOpen} onToggle={() => setFilterOpen(!filterOpen)} onClose={() => setFilterOpen(false)} onChange={(value) => { setStatus(value); setPage(1); }} />
       {loading ? <ActivityIndicator color="#294880" style={{ padding: 16 }} /> : null}
       {!loading && datasets.length === 0 ? <EmptyState title={status === "pending" ? "Nothing to review" : "No datasets here yet"} message={status === "pending" ? "New submissions will appear here." : "Add an example or import a CSV to get started."} /> : null}
@@ -322,8 +328,8 @@ const s = StyleSheet.create({
   card: { backgroundColor: "#FFFFFF", padding: 22, borderRadius: 14, borderWidth: 1, borderColor: "#D9E2F0", gap: 20 },
   embeddedCard: { borderWidth: 0, borderRadius: 0, padding: 16, gap: 16 },
   flex: { flex: 1, minWidth: 0 },
-  between: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  managerHeading: { flexDirection: "row", alignItems: "center", gap: 12 },
+  between: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  managerHeading: { flexDirection: "row", alignItems: "center", gap: 14, padding: 18, borderRadius: 14, backgroundColor: "#EDF3FC", borderWidth: 1, borderColor: "#C9D8ED" },
   headingIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#EDF2FC", alignItems: "center", justifyContent: "center" },
   datasetIcon: { width: 38, height: 38, borderRadius: 11, backgroundColor: "#EDF2F9", alignItems: "center", justifyContent: "center" },
   datasetRow: { flexDirection: "row", alignItems: "flex-start", backgroundColor: "#FAFBFE", padding: 14, gap: 12, borderWidth: 1, borderColor: "#E6ECF5", borderRadius: 12 },
@@ -334,11 +340,11 @@ const s = StyleSheet.create({
   uploadZone: { padding: 24, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: "#B4C5E0", backgroundColor: "#F7FAFF", alignItems: "center", gap: 8 },
   reviewNote: { backgroundColor: "#F6F8FC", padding: 12, borderRadius: 10, gap: 5 },
   timelineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#9AAED0" },
-  title: { fontFamily: "PoppinsSemiBold", fontSize: 16, color: "#294880", flexShrink: 1 },
-  subtitle: { fontFamily: "PoppinsSemiBold", fontSize: 13, color: "#294880" },
+  title: { fontFamily: "PoppinsSemiBold", fontSize: 20, color: "#203B66", flexShrink: 1 },
+  subtitle: { fontFamily: "PoppinsSemiBold", fontSize: 14, color: "#294880" },
   label: { fontFamily: "PoppinsMedium", fontSize: 12, color: "#334155" },
   body: { fontFamily: "PoppinsRegular", fontSize: 13, color: "#334155" },
-  note: { fontFamily: "PoppinsRegular", fontSize: 11, color: "#64748B", lineHeight: 18 },
+  note: { fontFamily: "PoppinsRegular", fontSize: 12, color: "#52647C", lineHeight: 19 },
   error: { color: "#B93838", fontSize: 12, lineHeight: 18 },
   success: { color: "#16794B", fontSize: 12 },
   row: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },

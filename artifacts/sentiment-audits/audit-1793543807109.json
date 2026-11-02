@@ -1,0 +1,284 @@
+{
+  "auditedAt": "2026-11-01T14:36:43.225Z",
+  "readOnly": true,
+  "configuration": {
+    "registryEnabled": true,
+    "supportingModelsEnabled": true,
+    "modelDirectory": "C:\\Users\\Administrator\\Desktop\\CommuniShield\\server\\models",
+    "files": {
+      "sentiment_english.onnx": true,
+      "sentiment_filipino.onnx": true,
+      "sentiment_cebuano.onnx": true,
+      "language_id.onnx": true
+    },
+    "settings": [
+      {
+        "key": "sentiment_cebuano_mode",
+        "value": "local"
+      },
+      {
+        "key": "sentiment_gemini_enabled",
+        "value": "false"
+      },
+      {
+        "key": "sentiment_local_model_enabled",
+        "value": "true"
+      }
+    ]
+  },
+  "training": {
+    "datasets": [
+      {
+        "id": "8ace59f8-51a8-4520-b7fd-d7a243bc1ea9",
+        "name": "Cebuano Sentiment Dataset",
+        "status": "approved",
+        "version": 2,
+        "activeSamples": 50
+      },
+      {
+        "id": "bc8688a8-46b0-4920-9136-5e3308ffa3c3",
+        "name": "Cebuano Sentiments",
+        "status": "approved",
+        "version": 2,
+        "activeSamples": 40
+      }
+    ],
+    "approvedActiveSamples": 90,
+    "approvedLabelCoverage": {
+      "cebuano:positive": 30,
+      "cebuano:neutral": 29,
+      "cebuano:negative": 31
+    },
+    "jobsError": null,
+    "recentJobs": [
+      {
+        "id": "2f3dec76-bfb7-4886-ad1a-d72effa59934",
+        "status": "ready",
+        "createdAt": "2026-10-26T07:12:48.368442+00:00",
+        "finishedAt": "2026-10-26T07:14:49.321715+00:00",
+        "error": null,
+        "passed": true,
+        "data": {
+          "accepted": 90,
+          "held_out": 0,
+          "conflicts": 0,
+          "duplicates": 0,
+          "baseline_hashes": {
+            "test": "f86cebab472d6788bfbe6350ecb49be93b8a19119b2434d2b7de487e6e0cbf64",
+            "train": "607b1e3a1f7e6a225ecc4b8b5b973cb821ab7ff2e6103cf5cfb72e9a69ba14cc",
+            "validation": "273592bbf42f694e486e7b51902143a6c3d3c793a57452f5ed863fbc48f6ff63"
+          },
+          "heldout_conflicting_keys": 3,
+          "baseline_train_holdout_excluded": 3
+        },
+        "datasets": [
+          {
+            "id": "8ace59f8-51a8-4520-b7fd-d7a243bc1ea9",
+            "version": 2
+          },
+          {
+            "id": "bc8688a8-46b0-4920-9136-5e3308ffa3c3",
+            "version": 2
+          }
+        ]
+      },
+      {
+        "id": "f545efd8-1933-47d5-bf85-b917bf3fad4f",
+        "status": "ready",
+        "createdAt": "2026-10-25T15:01:25.22684+00:00",
+        "finishedAt": "2026-10-25T15:03:02.231697+00:00",
+        "error": null,
+        "passed": true,
+        "data": {
+          "accepted": 50,
+          "held_out": 0,
+          "conflicts": 0,
+          "duplicates": 0,
+          "baseline_hashes": {
+            "test": "f86cebab472d6788bfbe6350ecb49be93b8a19119b2434d2b7de487e6e0cbf64",
+            "train": "607b1e3a1f7e6a225ecc4b8b5b973cb821ab7ff2e6103cf5cfb72e9a69ba14cc",
+            "validation": "273592bbf42f694e486e7b51902143a6c3d3c793a57452f5ed863fbc48f6ff63"
+          },
+          "heldout_conflicting_keys": 3,
+          "baseline_train_holdout_excluded": 3
+        },
+        "datasets": [
+          {
+            "id": "8ace59f8-51a8-4520-b7fd-d7a243bc1ea9",
+            "version": 2
+          }
+        ]
+      }
+    ]
+  },
+  "supportingPool": {
+    "error": null,
+    "models": [
+      {
+        "id": "2f3dec76-bfb7-4886-ad1a-d72effa59934",
+        "status": "enabled",
+        "independentlyQualified": true,
+        "qualifiedLanguages": [
+          "cebuano"
+        ],
+        "builtinHashesMatch": true
+      },
+      {
+        "id": "f545efd8-1933-47d5-bf85-b917bf3fad4f",
+        "status": "enabled",
+        "independentlyQualified": true,
+        "qualifiedLanguages": [
+          "cebuano"
+        ],
+        "builtinHashesMatch": true
+      }
+    ]
+  },
+  "storedResults": {
+    "reports": 764,
+    "comments": 3703,
+    "analyses": 4467,
+    "missingReportAnalyses": 0,
+    "missingNonArchivedReportAnalyses": 0,
+    "missingCommentAnalyses": 0,
+    "byTypeStatusLabel": {
+      "comment:succeeded:positive": 1457,
+      "comment:succeeded:negative": 1319,
+      "comment:succeeded:neutral": 714,
+      "report:succeeded:neutral": 505,
+      "report:succeeded:negative": 247,
+      "comment:succeeded:unclear": 192,
+      "comment:unavailable:unclear": 21,
+      "report:succeeded:positive": 10,
+      "report:succeeded:unclear": 2
+    },
+    "unclearByModel": {
+      "succeeded:cascade:unclear|primary_support_disagreement|builtin:bundled|support:f545efd8-1933-47d5-bf85-b917bf3fad4f": 136,
+      "unavailable:none": 21,
+      "succeeded:cascade:unclear|no_reliable_support|builtin:bundled|support:f545efd8-1933-47d5-bf85-b917bf3fad4f": 54,
+      "succeeded:assist:gemini_rescue|negative~unclear": 1,
+      "succeeded:cascade:unclear|primary_support_disagreement|builtin:bundled|support:2f3dec76-bfb7-4886-ad1a-d72effa59934,f545efd8-1933-47d5-bf85-b917bf3fad4f": 2,
+      "succeeded:assist:gemini_rescue|positive~unclear": 1
+    },
+    "unavailableByError": {
+      "language_uncertain": 21
+    },
+    "unavailableByLanguage": {
+      "comment:unknown:unavailable": 21
+    }
+  },
+  "liveReadOnlyProbes": [
+    {
+      "text": "Sige lag ulan unya baha dayon, way gibuhat ang gobyerno sa drainage",
+      "language": "cebuano",
+      "languageScores": {
+        "cebuano": 0.9153250455856323,
+        "english": 0.012585610151290894,
+        "filipino": 0.07208926230669022
+      },
+      "primary": {
+        "label": "neutral",
+        "score": 0.5279675126075745,
+        "margin": 0.2326875627040863
+      },
+      "supports": [
+        {
+          "id": "2f3dec76-bfb7-4886-ad1a-d72effa59934",
+          "prediction": {
+            "label": "negative",
+            "score": 0.7665692567825317,
+            "margin": 0.6132797300815582
+          },
+          "requiredConfidence": 0.5,
+          "requiredMargin": 0.05
+        },
+        {
+          "id": "f545efd8-1933-47d5-bf85-b917bf3fad4f",
+          "prediction": {
+            "label": "negative",
+            "score": 0.5017945766448975,
+            "margin": 0.12762197852134705
+          },
+          "requiredConfidence": 0.5,
+          "requiredMargin": 0.05
+        }
+      ],
+      "routed": {
+        "label": "unclear",
+        "confidence": 0,
+        "origin": "unclear",
+        "reason": "primary_support_disagreement",
+        "ids": [
+          "2f3dec76-bfb7-4886-ad1a-d72effa59934",
+          "f545efd8-1933-47d5-bf85-b917bf3fad4f"
+        ]
+      }
+    },
+    {
+      "text": "Maayo nga wala ka nagpataka og pasangil.",
+      "language": "cebuano",
+      "languageScores": {
+        "cebuano": 0.9941889047622681,
+        "english": 0.0002764291421044618,
+        "filipino": 0.005534640047699213
+      },
+      "primary": {
+        "label": "positive",
+        "score": 0.9745656251907349,
+        "margin": 0.95955547131598
+      },
+      "supports": [],
+      "routed": {
+        "label": "positive",
+        "confidence": 0.9745656251907349,
+        "origin": "builtin",
+        "reason": "builtin_retained",
+        "ids": []
+      }
+    },
+    {
+      "text": "Salamat sa update!",
+      "language": "unknown",
+      "languageScores": {
+        "cebuano": 0.47110530734062195,
+        "english": 0.04371480271220207,
+        "filipino": 0.4851798713207245
+      },
+      "status": "unavailable",
+      "reason": "language_uncertain"
+    },
+    {
+      "text": "Bilib",
+      "language": "unknown",
+      "languageScores": {
+        "cebuano": 0.41674989461898804,
+        "english": 0.16995026171207428,
+        "filipino": 0.41329988837242126
+      },
+      "status": "unavailable",
+      "reason": "language_uncertain"
+    },
+    {
+      "text": "kaila man ko ani niya oh",
+      "language": "cebuano",
+      "languageScores": {
+        "cebuano": 0.9738413095474243,
+        "english": 0.007953849621117115,
+        "filipino": 0.018204892054200172
+      },
+      "primary": {
+        "label": "neutral",
+        "score": 0.9046326875686646,
+        "margin": 0.8562963642179966
+      },
+      "supports": [],
+      "routed": {
+        "label": "neutral",
+        "confidence": 0.9046326875686646,
+        "origin": "builtin",
+        "reason": "builtin_retained",
+        "ids": []
+      }
+    }
+  ]
+}

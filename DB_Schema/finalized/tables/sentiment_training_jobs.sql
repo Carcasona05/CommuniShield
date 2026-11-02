@@ -19,7 +19,9 @@ create table public."sentiment_training_jobs" (
   "artifact_manifest" jsonb,
   "error" text,
   "training_mode" text default 'continue'::text not null,
-  "training_languages" text[]
+  "training_languages" text[],
+  "progress" jsonb,
+  "progress_lease_token" uuid
 );
 
 alter table public."sentiment_training_jobs" add constraint "sentiment_training_jobs_available_at_not_null" NOT NULL available_at;

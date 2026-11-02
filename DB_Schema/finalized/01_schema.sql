@@ -1777,7 +1777,9 @@ create table public."sentiment_training_jobs" (
   "artifact_manifest" jsonb,
   "error" text,
   "training_mode" text default 'continue'::text not null,
-  "training_languages" text[]
+  "training_languages" text[],
+  "progress" jsonb,
+  "progress_lease_token" uuid
 );
 
 alter table public."sentiment_training_jobs" add constraint "sentiment_training_jobs_available_at_not_null" NOT NULL available_at;
@@ -2200,6 +2202,21 @@ begin
   return result;
 end $function$;
 
+CREATE OR REPLACE FUNCTION public.get_sentiment_training_progress(p_jobs uuid[])
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if p_jobs is null or cardinality(p_jobs) > 10 then
+    raise exception 'At most ten training jobs may be read' using errcode='22023';
+  end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('id',id,'progress',
+    case when progress_lease_token = lease_token then progress else null end))
+    from public.sentiment_training_jobs where id=any(p_jobs)), '[]'::jsonb);
+end $function$;
+
 CREATE OR REPLACE FUNCTION public.handle_new_credibility()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -2432,6 +2449,64 @@ CREATE OR REPLACE FUNCTION public.manage_sentiment_training(p_actor uuid, p_acti
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
+declare actor public.profiles%rowtype; eligible uuid[]; selected uuid[]; retry public.sentiment_training_jobs%rowtype;
+  request jsonb := p_payload; result jsonb;
+begin
+  select * into actor from public.profiles where id=p_actor;
+  if actor.id is null or actor.role is distinct from 'super_admin' or actor.status is distinct from 'Active' then
+    raise exception 'Super admin access required' using errcode='42501'; end if;
+  if p_action <> 'queue' then raise exception 'Built-in models are permanent.' using errcode='22023'; end if;
+  perform pg_advisory_xact_lock(72846102);
+  if exists(select 1 from public.sentiment_training_jobs where status='queued' or
+    (status in ('training','evaluating') and lease_until>now())) then
+    raise exception 'A training run is already queued or running.' using errcode='40001'; end if;
+
+  if p_payload ? 'retry_job_id' then
+    select * into retry from public.sentiment_training_jobs where id=(p_payload->>'retry_job_id')::uuid;
+    if retry.id is null or not (retry.status='failed' or
+      (retry.status in ('training','evaluating') and retry.lease_until<=now()))
+      or retry.snapshot is null or retry.data_revision is distinct from (select data_revision from public.sentiment_model_state where id=1)
+      or retry.id is distinct from (select id from public.sentiment_training_jobs order by created_at desc,id desc limit 1) then
+      raise exception 'This run cannot be retried. Refresh and queue newly approved data instead.' using errcode='22023'; end if;
+    select array_agg((d->>'id')::uuid) into selected from jsonb_array_elements(retry.snapshot->'datasets') d
+      where exists(select 1 from public.sentiment_datasets current where current.id=(d->>'id')::uuid
+        and current.status='approved' and current.version=(d->>'version')::integer);
+    if selected is null or cardinality(selected) <> jsonb_array_length(retry.snapshot->'datasets') then
+      raise exception 'Retry requires the original approved dataset versions.' using errcode='22023'; end if;
+    request := jsonb_build_object('mode',retry.training_mode,'dataset_ids',to_jsonb(selected));
+  else
+    select array_agg(distinct d.id) into eligible from public.sentiment_datasets d
+      join public.sentiment_training_samples s on s.dataset_id=d.id and s.active
+      where d.status='approved' and not exists(select 1 from public.sentiment_training_jobs j
+        where (j.status='ready' or (j.status in ('training','evaluating') and j.lease_until>now())
+          or (j.status='failed' and jsonb_typeof(j.metrics->'training')='object'))
+        and j.snapshot->'datasets' @> jsonb_build_array(jsonb_build_object('id',d.id,'version',d.version)));
+    if eligible is null then
+      raise exception 'No approved, untrained datasets are ready to queue.' using errcode='22023'; end if;
+    if p_payload ? 'dataset_ids' then
+      if jsonb_typeof(p_payload->'dataset_ids') is distinct from 'array' or jsonb_array_length(p_payload->'dataset_ids')=0 then
+        raise exception 'Select approved datasets ready to train.' using errcode='22023'; end if;
+      select array_agg(value::uuid) into selected from jsonb_array_elements_text(p_payload->'dataset_ids');
+      if not selected <@ eligible then raise exception 'Selected datasets are not approved and ready to train.' using errcode='22023'; end if;
+      request := p_payload || jsonb_build_object('dataset_ids',to_jsonb(selected));
+    end if;
+    -- With no explicit selection, preserve the language-scope protocol's choice
+    -- of newly approved datasets rather than broadening to older failed uploads.
+  end if;
+  result := public.manage_sentiment_training_eligibility_legacy(p_actor,p_action,p_job,p_generation,request);
+  if p_payload ? 'retry_job_id' then
+    update public.sentiment_training_jobs set training_languages=retry.training_languages where id=(result->>'job_id')::uuid;
+    result := result || jsonb_build_object('requested_languages',retry.training_languages);
+  end if;
+  return result;
+end $function$;
+
+CREATE OR REPLACE FUNCTION public.manage_sentiment_training_eligibility_legacy(p_actor uuid, p_action text, p_job uuid DEFAULT NULL::uuid, p_generation bigint DEFAULT NULL::bigint, p_payload jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 declare actor public.profiles%rowtype; target uuid; selected text[]; ids uuid[];
 begin
   select * into actor from public.profiles where id=p_actor;
@@ -2485,6 +2560,37 @@ AS $function$
   update public.sentiment_supporting_models set use_count=use_count+1,last_used_at=now()
   where id=any(p_ids) and status <> 'deleted';
 $function$;
+
+CREATE OR REPLACE FUNCTION public.report_sentiment_training_progress(p_job uuid, p_lease uuid, p_sequence bigint, p_completed numeric, p_total integer, p_stage text, p_language text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare job public.sentiment_training_jobs%rowtype; result jsonb;
+begin
+  select * into job from public.sentiment_training_jobs where id=p_job for update;
+  if job.id is null or job.status not in ('training','evaluating') or p_lease is null
+    or job.lease_token is distinct from p_lease or job.lease_until is null or job.lease_until <= now() then
+    raise exception 'Training lease is stale or invalid' using errcode='40001';
+  end if;
+  if p_sequence is null or p_sequence < 1 or p_total is null or p_total not between 1 and 100
+    or p_completed is null or p_completed::text in ('NaN','Infinity','-Infinity')
+    or p_completed < 0 or p_completed >= p_total
+    or p_stage is null or p_stage not in ('preparing','fitting','checking','uploading','registering')
+    or (p_language is not null and p_language not in ('english','filipino','cebuano')) then
+    raise exception 'Invalid training progress' using errcode='22023';
+  end if;
+  if job.progress_lease_token = p_lease and job.progress is not null and
+    (p_sequence <= (job.progress->>'sequence')::bigint or p_total <> (job.progress->>'total')::integer
+      or p_completed < (job.progress->>'completed')::numeric) then
+    raise exception 'Training progress cannot move backwards' using errcode='22023';
+  end if;
+  result := jsonb_build_object('version',1,'sequence',p_sequence,'completed',p_completed,
+    'total',p_total,'stage',p_stage,'language',p_language,'updatedAt',now());
+  update public.sentiment_training_jobs set progress=result, progress_lease_token=p_lease where id=p_job;
+  return result;
+end $function$;
 
 CREATE OR REPLACE FUNCTION public.sentiment_training_capabilities()
  RETURNS jsonb
@@ -2993,6 +3099,8 @@ revoke all on function public."current_user_role"() from public, anon, authentic
 
 revoke all on function public."enqueue_sentiment_training"(p_mode text) from public, anon, authenticated, service_role;
 
+revoke all on function public."get_sentiment_training_progress"(p_jobs uuid[]) from public, anon, authenticated, service_role;
+
 revoke all on function public."handle_new_credibility"() from public, anon, authenticated, service_role;
 
 revoke all on function public."handle_new_user"() from public, anon, authenticated, service_role;
@@ -3005,9 +3113,13 @@ revoke all on function public."manage_sentiment_supporting_model_independent_leg
 
 revoke all on function public."manage_sentiment_training"(p_actor uuid, p_action text, p_job uuid, p_generation bigint, p_payload jsonb) from public, anon, authenticated, service_role;
 
+revoke all on function public."manage_sentiment_training_eligibility_legacy"(p_actor uuid, p_action text, p_job uuid, p_generation bigint, p_payload jsonb) from public, anon, authenticated, service_role;
+
 revoke all on function public."queue_approved_sentiment_training"() from public, anon, authenticated, service_role;
 
 revoke all on function public."record_sentiment_support_usage"(p_ids uuid[]) from public, anon, authenticated, service_role;
+
+revoke all on function public."report_sentiment_training_progress"(p_job uuid, p_lease uuid, p_sequence bigint, p_completed numeric, p_total integer, p_stage text, p_language text) from public, anon, authenticated, service_role;
 
 revoke all on function public."sentiment_training_capabilities"() from public, anon, authenticated, service_role;
 
@@ -3043,6 +3155,8 @@ grant EXECUTE on function public."current_user_role"() to public;
 
 grant EXECUTE on function public."enqueue_sentiment_training"(p_mode text) to "service_role";
 
+grant EXECUTE on function public."get_sentiment_training_progress"(p_jobs uuid[]) to "service_role";
+
 grant EXECUTE on function public."handle_new_credibility"() to public;
 
 grant EXECUTE on function public."handle_new_user"() to public;
@@ -3056,6 +3170,8 @@ grant EXECUTE on function public."manage_sentiment_training"(p_actor uuid, p_act
 grant EXECUTE on function public."queue_approved_sentiment_training"() to "service_role";
 
 grant EXECUTE on function public."record_sentiment_support_usage"(p_ids uuid[]) to "service_role";
+
+grant EXECUTE on function public."report_sentiment_training_progress"(p_job uuid, p_lease uuid, p_sequence bigint, p_completed numeric, p_total integer, p_stage text, p_language text) to "service_role";
 
 grant EXECUTE on function public."sentiment_training_capabilities"() to "service_role";
 

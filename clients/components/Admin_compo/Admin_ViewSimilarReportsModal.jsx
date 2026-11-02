@@ -33,7 +33,7 @@ export default function Admin_ViewSimilarReportsModal({
 
   // Fetch fresh comments with sentiment for each report in the group
   useEffect(() => {
-    if (!visible || !compiledGroup) return;
+    if (!visible || !compiledGroup || reanalyzing) return;
     let active = true;
 
     const loadComments = async () => {
@@ -48,7 +48,9 @@ export default function Admin_ViewSimilarReportsModal({
             });
             return { reportId: report.id, comments: response.data?.comments || [] };
           } catch {
-            return { reportId: report.id, comments: [] };
+            // A failed refresh is not evidence that this report has no comments.
+            // Fall back to the dashboard snapshot so unresolved IDs remain retryable.
+            return { reportId: report.id, comments: null };
           }
         });
 
@@ -56,7 +58,7 @@ export default function Admin_ViewSimilarReportsModal({
         if (active) {
           const commentsMap = {};
           results.forEach(({ reportId, comments }) => {
-            commentsMap[reportId] = comments;
+            if (Array.isArray(comments)) commentsMap[reportId] = comments;
           });
           setFreshComments(commentsMap);
         }
@@ -65,7 +67,7 @@ export default function Admin_ViewSimilarReportsModal({
 
     loadComments();
     return () => { active = false; };
-  }, [visible, compiledGroup]);
+  }, [visible, compiledGroup, reanalyzing]);
 
   if (!compiledGroup) return null;
 
@@ -821,7 +823,7 @@ export default function Admin_ViewSimilarReportsModal({
           <View style={styles.footerActions}>
             <TouchableOpacity
               style={[styles.reanalyzeButton, reanalyzing && styles.buttonDisabled]}
-              onPress={() => onReanalyze?.(compiledGroup)}
+              onPress={() => onReanalyze?.({ ...compiledGroup, reports: reportsWithFreshComments })}
               activeOpacity={0.85}
               disabled={reanalyzing || !onReanalyze}
             >

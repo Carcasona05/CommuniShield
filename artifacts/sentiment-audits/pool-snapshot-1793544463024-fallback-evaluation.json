@@ -1,0 +1,208 @@
+{
+  "snapshot": "artifacts\\sentiment-audits\\pool-snapshot-1793544463024.json",
+  "scope": [
+    "cebuano"
+  ],
+  "trained": false,
+  "thresholds_changed": false,
+  "note": "Existing benchmark reused for regression evaluation, not a new independent domain benchmark.",
+  "languages": {
+    "cebuano": {
+      "validation": {
+        "samples": 2896,
+        "builtin": {
+          "macro_f1": 0.7291730886691298,
+          "per_class": {
+            "negative": {
+              "support": 568,
+              "precision": 0.48970747562296857,
+              "recall": 0.795774647887324,
+              "f1": 0.6063044936284373
+            },
+            "neutral": {
+              "support": 1829,
+              "precision": 0.9089767733835531,
+              "recall": 0.7916894477856752,
+              "f1": 0.8462887200467563
+            },
+            "positive": {
+              "support": 499,
+              "precision": 0.85,
+              "recall": 0.6472945891783567,
+              "f1": 0.7349260523321957
+            }
+          },
+          "accuracy": 0.767610497237569,
+          "coverage": 1.0,
+          "unclear": 0
+        },
+        "previous": {
+          "macro_f1": 0.7163100429189065,
+          "per_class": {
+            "negative": {
+              "support": 568,
+              "precision": 0.5777777777777777,
+              "recall": 0.5492957746478874,
+              "f1": 0.5631768953068592
+            },
+            "neutral": {
+              "support": 1829,
+              "precision": 0.923784494086728,
+              "recall": 0.768726079825041,
+              "f1": 0.8391524917934945
+            },
+            "positive": {
+              "support": 499,
+              "precision": 0.9741935483870968,
+              "recall": 0.6052104208416834,
+              "f1": 0.7466007416563659
+            }
+          },
+          "accuracy": 0.6975138121546961,
+          "coverage": 0.819060773480663,
+          "unclear": 524
+        },
+        "corrected": {
+          "macro_f1": 0.7178413839748489,
+          "per_class": {
+            "negative": {
+              "support": 568,
+              "precision": 0.5777777777777777,
+              "recall": 0.5492957746478874,
+              "f1": 0.5631768953068592
+            },
+            "neutral": {
+              "support": 1829,
+              "precision": 0.9225260416666666,
+              "recall": 0.7747402952433023,
+              "f1": 0.8421991084695394
+            },
+            "positive": {
+              "support": 499,
+              "precision": 0.9742765273311897,
+              "recall": 0.6072144288577155,
+              "f1": 0.7481481481481481
+            }
+          },
+          "accuracy": 0.7016574585635359,
+          "coverage": 0.8242403314917127,
+          "unclear": 509
+        },
+        "recovered_from_unclear": 15,
+        "recovered_precision": 0.8,
+        "fallback_count": 1103,
+        "fallback_precision": 0.6844968268359021,
+        "gates": {
+          "strong_primaries_preserved": true,
+          "changes_only_replace_abstentions": true,
+          "macro_f1_not_worse_than_previous": true,
+          "macro_f1_not_worse_than_builtin": false,
+          "accuracy_not_worse_than_previous": true,
+          "coverage_not_worse_than_previous": true,
+          "accepted_fallback_precision": false
+        },
+        "passed": false
+      },
+      "test": {
+        "samples": 2861,
+        "builtin": {
+          "macro_f1": 0.7248637654750539,
+          "per_class": {
+            "negative": {
+              "support": 547,
+              "precision": 0.48954895489548955,
+              "recall": 0.8135283363802559,
+              "f1": 0.6112637362637363
+            },
+            "neutral": {
+              "support": 1807,
+              "precision": 0.9195183776932826,
+              "recall": 0.8029883785279469,
+              "f1": 0.8573116691285081
+            },
+            "positive": {
+              "support": 507,
+              "precision": 0.8315508021390374,
+              "recall": 0.6134122287968442,
+              "f1": 0.7060158910329172
+            }
+          },
+          "accuracy": 0.7714085983921706,
+          "coverage": 1.0,
+          "unclear": 0
+        },
+        "previous": {
+          "macro_f1": 0.7061926339034837,
+          "per_class": {
+            "negative": {
+              "support": 547,
+              "precision": 0.5499092558983666,
+              "recall": 0.5539305301645339,
+              "f1": 0.5519125683060109
+            },
+            "neutral": {
+              "support": 1807,
+              "precision": 0.9400798934753661,
+              "recall": 0.7814056447149972,
+              "f1": 0.8534300392867936
+            },
+            "positive": {
+              "support": 507,
+              "precision": 0.941747572815534,
+              "recall": 0.5739644970414202,
+              "f1": 0.7132352941176471
+            }
+          },
+          "accuracy": 0.7011534428521496,
+          "coverage": 0.8255854596295001,
+          "unclear": 499
+        },
+        "corrected": {
+          "macro_f1": 0.7062641616657576,
+          "per_class": {
+            "negative": {
+              "support": 547,
+              "precision": 0.5489130434782609,
+              "recall": 0.5539305301645339,
+              "f1": 0.551410373066424
+            },
+            "neutral": {
+              "support": 1807,
+              "precision": 0.9353562005277045,
+              "recall": 0.7847260653016048,
+              "f1": 0.8534456816130003
+            },
+            "positive": {
+              "support": 507,
+              "precision": 0.9389067524115756,
+              "recall": 0.5759368836291914,
+              "f1": 0.7139364303178484
+            }
+          },
+          "accuracy": 0.7036001398112548,
+          "coverage": 0.8315274379587557,
+          "unclear": 482
+        },
+        "recovered_from_unclear": 17,
+        "recovered_precision": 0.4117647058823529,
+        "fallback_count": 1140,
+        "fallback_precision": 0.6833333333333333,
+        "gates": {
+          "strong_primaries_preserved": true,
+          "changes_only_replace_abstentions": true,
+          "macro_f1_not_worse_than_previous": true,
+          "macro_f1_not_worse_than_builtin": false,
+          "accuracy_not_worse_than_previous": true,
+          "coverage_not_worse_than_previous": true,
+          "accepted_fallback_precision": false
+        },
+        "passed": false
+      }
+    }
+  },
+  "holdout_sha256": {
+    "validation": "273592bbf42f694e486e7b51902143a6c3d3c793a57452f5ed863fbc48f6ff63",
+    "test": "f86cebab472d6788bfbe6350ecb49be93b8a19119b2434d2b7de487e6e0cbf64"
+  },
+  "passed": false
+}

@@ -10,8 +10,29 @@ const PAGE_PATHS = new Set([
   "/admin/clusters", "/admin/risk-outlook", "/sentiment/datasets",
   "/sentiment/training", "/sentiment/supporting-models",
 ]);
-export const PAGE_FRESH_MS = 8000;
+export const PAGE_FRESH_MS = 2 * 60 * 1000;
+// Account-state checks use /session, so profile display data need not poll every
+// minute. Logout, account switches, explicit refresh and profile edits invalidate it.
+export const PROFILE_FRESH_MS = 5 * 60 * 1000;
 export const PAGE_RETAIN_MS = 5 * 60 * 1000;
+
+// Invalidate data dependencies, not every page, after a known write. Unknown
+// mutations deliberately retain the conservative full-invalidation fallback.
+export function mutationInvalidationPaths(path) {
+  if (path === "/sentiment/datasets/preview") return [];
+  if (/^\/sentiment(?:\/|$)/.test(path)) return ["/sentiment/datasets", "/sentiment/training", "/sentiment/supporting-models"];
+  if (/^\/profile(?:\/|$)/.test(path)) return ["/profile", "/profile/notification-preferences"];
+  if (/^\/terms(?:\/|$)/.test(path)) return ["/terms/status"];
+  if (/^\/notifications(?:\/|$)/.test(path)) return ["/notifications", "/notifications/login-activity"];
+  if (/^\/admin\/notifications(?:\/|$)/.test(path)) return ["/admin/notifications"];
+  if (/^\/admin\/accounts(?:\/|$)/.test(path)) return ["/admin/accounts", "/admin/overview", "/admin/logs"];
+  if (/^\/(?:reports|admin\/(?:reports|posts|announcements)|ai)(?:\/|$)/.test(path)) return [
+    "/reports", "/reports/mine", "/admin/posts", "/admin/dashboard", "/admin/overview", "/admin/logs",
+    "/admin/analytics", "/admin/announcements", "/admin/clusters", "/admin/risk-outlook",
+    "/notifications", "/admin/notifications",
+  ];
+  return null;
+}
 
 export function requestPath(url = "") {
   return url.split("?")[0].replace(/\/$/, "") || "/";
@@ -43,6 +64,8 @@ export function createSessionData({ now = () => Date.now() } = {}) {
   let epoch = 0;
   let revision = 0;
   let transitions = 0;
+  let foregroundRequests = 0;
+  const pathRevisions = new Map();
   const values = new Map();
   const responses = new Map();
   const pending = new Map();
@@ -53,7 +76,17 @@ export function createSessionData({ now = () => Date.now() } = {}) {
   const expired = (entry) => !entry || now() < entry.at || now() - entry.at >= PAGE_RETAIN_MS;
   const set = (key, data, at = now()) => {
     if (!session) return;
-    if (data === undefined) values.delete(key);
+    if (data === undefined) {
+      values.delete(key);
+      if (key === "api:/profile") {
+        values.delete(querySnapshotKey("/profile"));
+        for (const requestKey of responses.keys()) if (requestKey.startsWith("/profile:")) responses.delete(requestKey);
+        for (const [requestKey, item] of pending) if (requestKey.startsWith("/profile:")) {
+          item.controller.abort();
+          pending.delete(requestKey);
+        }
+      }
+    }
     else {
       if (!values.has(key) && values.size >= 160) values.delete(values.keys().next().value);
       values.set(key, { data, at });
@@ -68,7 +101,8 @@ export function createSessionData({ now = () => Date.now() } = {}) {
   const reset = (reason = "logout") => {
     const hadSession = Boolean(session);
     epoch++; revision++; session = null;
-    cancel(); values.clear(); responses.clear();
+    foregroundRequests = 0;
+    cancel(); values.clear(); responses.clear(); pathRevisions.clear();
     notify({ type: "session", reason, hadSession });
   };
   const begin = (token, role) => {
@@ -77,8 +111,25 @@ export function createSessionData({ now = () => Date.now() } = {}) {
     if (token && ["user", "admin", "super_admin"].includes(role)) session = { token, role };
     return epoch;
   };
-  const invalidate = () => {
+  const invalidate = ({ preserveProfile = false, paths = null } = {}) => {
+    if (paths) {
+      if (paths.length === 0) return;
+      const affected = new Set(paths);
+      for (const path of affected) pathRevisions.set(path, (pathRevisions.get(path) || 0) + 1);
+      for (const [key, item] of pending) if (affected.has(item.path)) {
+        item.controller.abort(); pending.delete(key);
+      }
+      for (const key of responses.keys()) if (paths.some(path => key.startsWith(`${path}:`))) responses.delete(key);
+      for (const key of values.keys()) if (paths.some(path => key === `api:${path}` || key === `preview:${path}` || key.startsWith(`query-snapshot:${path}:`))) values.delete(key);
+      notify({ type: "invalidate", paths: [...affected] });
+      return;
+    }
+    const profileKeys = ["api:/profile", querySnapshotKey("/profile")];
+    const profileValues = preserveProfile ? profileKeys.map(key => [key, values.get(key)]) : [];
+    const profileResponses = preserveProfile ? [...responses].filter(([key]) => key.startsWith("/profile:")) : [];
     revision++; cancel(); responses.clear(); values.clear();
+    for (const [key, entry] of profileValues) if (entry) values.set(key, entry);
+    for (const [key, entry] of profileResponses) responses.set(key, entry);
     notify({ type: "invalidate" });
   };
   const denied = (path) => {
@@ -101,8 +152,15 @@ export function createSessionData({ now = () => Date.now() } = {}) {
       values.delete(`preview:${path}`);
       notify({ type: "page", path, data, checkedAt: now() });
     }
+    return data;
   };
   const sessionError = () => Object.assign(new Error("The signed-in session changed."), { code: "ERR_CANCELED", __CANCEL__: true });
+  const fresh = (config, maxAge = requestPath(config.url) === "/profile" ? PROFILE_FRESH_MS : PAGE_FRESH_MS) => {
+    if (!session) return false;
+    const cached = responses.get(pageRequestKey(config));
+    return Boolean(cached && now() >= cached.at && now() - cached.at < maxAge &&
+      new Date(cached.at).toISOString().slice(0, 10) === new Date(now()).toISOString().slice(0, 10));
+  };
   const run = async (config, transport) => {
     const ticket = config.sessionEpoch;
     const authenticated = Boolean(config.sessionToken);
@@ -116,42 +174,60 @@ export function createSessionData({ now = () => Date.now() } = {}) {
     const method = (config.method || "get").toLowerCase();
     const cacheable = authenticated && method === "get" && PAGE_PATHS.has(path) && !config.url.includes("?") &&
       !config.responseType && !config.signal && !config.cancelToken;
+    // Share simultaneous security probes, but never return a cached /session
+    // response: disabled-account detection must always reach the backend.
+    const shareable = cacheable || (authenticated && method === "get" && path === "/session" &&
+      !config.url.includes("?") && !config.responseType && !config.signal && !config.cancelToken);
     const version = revision;
+    const pathVersion = pathRevisions.get(path) || 0;
+    const stale = () => !current(ticket) || session?.token !== config.sessionToken ||
+      (method === "get" && (version !== revision || pathVersion !== (pathRevisions.get(path) || 0)));
     const key = pageRequestKey(config);
-    if (cacheable) {
+    if (shareable) {
       const cached = responses.get(key);
-      if (config.cacheMode !== "network" && cached && now() >= cached.at && now() - cached.at < PAGE_FRESH_MS &&
-        new Date(cached.at).toISOString().slice(0, 10) === new Date(now()).toISOString().slice(0, 10)) {
+      if (cacheable && config.cacheMode !== "network" && fresh(config)) {
         return { ...cached.response, config };
       }
       if (pending.has(key)) return pending.get(key).promise.then(response => ({ ...response, config }));
     }
     const controller = new AbortController();
-    const liveConfig = cacheable ? { ...config, signal: controller.signal } : config;
+    const liveConfig = shareable ? { ...config, signal: controller.signal } : config;
+    const foreground = authenticated && !config.background;
+    if (foreground) foregroundRequests++;
     const promise = Promise.resolve().then(async () => {
       try {
+        if (authenticated && stale()) throw sessionError();
         const response = await transport(liveConfig);
-        if (authenticated && (!current(ticket) || session?.token !== config.sessionToken || (method === "get" && version !== revision))) throw sessionError();
-        if (authenticated && method !== "get" && method !== "head" && method !== "options") invalidate();
+        if (authenticated && (stale() || controller.signal.aborted)) throw sessionError();
+        if (authenticated && method !== "get" && method !== "head" && method !== "options") {
+          invalidate({ paths: mutationInvalidationPaths(path), preserveProfile: !/^\/profile(?:\/|$)/.test(path) });
+        }
+        let result = response;
         if (cacheable) {
           // Bound memory when filters change frequently. Sensitive data stays in RAM.
           if (responses.size >= 64) responses.delete(responses.keys().next().value);
-          responses.set(key, { response, at: now() });
-          publish(config, response);
+          // Decode JSON once. Reusing the raw response string made every cached
+          // navigation parse the same large payload again inside Axios.
+          const payload = publish(config, response);
+          if (payload) result = { ...response, data: payload };
+          result = { ...result, cacheCheckedAt: now() };
+          responses.set(key, { response: result, at: now() });
         }
-        return { ...response, config };
+        return { ...result, config };
       } catch (error) {
-        if (authenticated && (!current(ticket) || (method === "get" && version !== revision))) throw sessionError();
+        if (authenticated && stale()) throw sessionError();
         if ([401, 403].includes(error.response?.status)) denied(path);
         throw error;
       } finally {
+        if (foreground && current(ticket)) foregroundRequests--;
         if (pending.get(key)?.promise === promise) pending.delete(key);
       }
     });
-    if (cacheable) pending.set(key, { promise, controller });
+    if (shareable) pending.set(key, { promise, controller, path });
     return promise;
   };
-  return { begin, reset, invalidate, current, get, set, run,
+  return { begin, reset, invalidate, current, get, set, run, fresh,
+    foregroundBusy: () => foregroundRequests > 0,
     changing: () => transitions > 0,
     pause() { transitions++; return () => { transitions--; }; },
     epoch: () => epoch, session: () => session,

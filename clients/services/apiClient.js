@@ -1,11 +1,12 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
+import { sessionData } from "./sessionData";
 
 const BASE_URL =  
   Platform.OS === "web"
     ? process.env.EXPO_PUBLIC_API_URL
-    : "https://communishield-server-iota.vercel.app/api";
+    : "https://communishield-server.vercel.app/api";
 
 const DISABLED_KEY = "disabled_reason";
 const MAX_RETRIES = 3;
@@ -27,14 +28,23 @@ export const clearDisabledReason = async () => {
 
 const apiClient = axios.create({
   // baseURL: BASE_URL,
-  baseURL: "http://192.168.70.177:3000/api",
+  baseURL: "http://192.168.1.37:3000/api",
   timeout: 180000,
   headers: {
     "Content-Type": "application/json",
   },
 });
 
+// Reuse the session-scoped transport for deduplication, freshness and logout
+// fencing. Keep the configured adapter and backend URL unchanged.
+const transport = axios.getAdapter(apiClient.defaults.adapter);
+apiClient.defaults.adapter = (config) => sessionData.run(config, transport);
+
 apiClient.interceptors.request.use(async (config) => {
+  const initialSession = sessionData.session();
+  const initialEpoch = sessionData.epoch();
+  const cancelled = () => new axios.CanceledError("The signed-in session changed.");
+  if (sessionData.changing()) throw cancelled();
   if (!config.headers.Authorization) {
     try {
       const token = await AsyncStorage.getItem("access_token");
@@ -42,6 +52,23 @@ apiClient.interceptors.request.use(async (config) => {
         config.headers.Authorization = `Bearer ${token}`;
       }
     } catch {}
+  }
+  const authorization = config.headers.Authorization;
+  if (typeof authorization === "string" && authorization.startsWith("Bearer ")) {
+    const token = authorization.slice(7);
+    const role = initialSession?.token === token ? initialSession.role : await AsyncStorage.getItem("user_role");
+    if (sessionData.changing()) throw cancelled();
+    const current = sessionData.session();
+    // Concurrent initial reads may adopt the same newly restored session, but
+    // requests from an old account/role may never attach to a replacement session.
+    if (initialEpoch !== sessionData.epoch() && (initialSession || current?.token !== token || current?.role !== role)) throw cancelled();
+    if (!current && ["user", "admin", "super_admin"].includes(role)) sessionData.begin(token, role);
+    const session = sessionData.session();
+    if (session && session.token !== token) throw cancelled();
+    if (session?.token === token) {
+      config.sessionToken = token;
+      config.sessionEpoch = sessionData.epoch();
+    }
   }
   return config;
 });
@@ -53,6 +80,9 @@ apiClient.interceptors.response.use(
     const message = error.response?.data?.error || "";
 
     if (status === 403 && /disabled/i.test(message)) {
+      if (error.config?.sessionToken && error.config.sessionToken === sessionData.session()?.token && sessionData.current(error.config.sessionEpoch)) {
+        sessionData.reset("disabled");
+      }
       try {
         await AsyncStorage.setItem(DISABLED_KEY, message);
       } catch {}
@@ -83,6 +113,7 @@ export const apiRequest = async (config, retries = MAX_RETRIES) => {
       return await apiClient(config);
     } catch (error) {
       lastError = error;
+      if (axios.isCancel(error)) break;
       const status = error.response?.status;
       const isRetryable =
         !status ||

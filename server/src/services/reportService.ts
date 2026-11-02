@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import { sentimentCoverage } from "./sentimentCoverage.js";
 import { reverseGeocode } from "../utils/geocode.js";
 import { deriveBarangay, hasReportCoordinates } from "../utils/argaoLocation.js";
 import {
@@ -1505,6 +1506,10 @@ export const reportService = {
           sentimentAnalyzed: successfulLabels.length,
           sentimentTotal: totalSubjects,
           sentimentDistribution: distribution,
+          sentimentCoverage: sentimentCoverage([
+            ...list.map(report => sentimentMap.get(report.id)),
+            ...(commentRows || []).map(comment => commentSentimentMap.get(comment.id)),
+          ]),
           credibilityRate,
         },
         sentimentTrend,

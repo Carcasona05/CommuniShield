@@ -12,9 +12,17 @@ export const sentimentTrainingService = {
     const state = await supabaseAdmin.from("sentiment_model_state").select("generation, data_revision, active_job_id, previous_job_id, updated_at").eq("id", 1).single();
     const jobs = await supabaseAdmin.from("sentiment_training_jobs").select(`id, status, created_at, available_at, started_at, finished_at, lease_until, data_revision, base_generation, base_job_id, metrics, error, datasets:snapshot->datasets${freshCandidates ? ", training_mode" : ""}${capabilities.data?.language_scoped_training === true ? ', training_languages' : ''}`).order("created_at", { ascending: false }).limit(10);
     if (state.error || jobs.error) return { data: null, error: state.error || jobs.error };
+    // Supabase's type parser cannot infer the optional-column select string.
+    const jobRows = (jobs.data || []) as unknown as Array<{ id: string; [key: string]: unknown }>;
+    // Separate read-only RPC keeps status compatible with deployments that have
+    // not installed the additive progress migration yet. Never probe worker RPCs.
+    const progress = await supabaseAdmin.rpc("get_sentiment_training_progress", { p_jobs: jobRows.map(job => job.id) });
+    const progressRows = !progress.error && Array.isArray(progress.data) ? progress.data : [];
+    const progressByJob = new Map(progressRows.map((row: { id: string; progress: unknown }) => [row.id, row.progress]));
     const summary = independentAdmission ? await supabaseAdmin.rpc("sentiment_training_pool_summary", {}) : null;
     if (summary?.error) return { data: null, error: summary.error };
-    return { data: { state: state.data, jobs: jobs.data, registryEnabled: modelRegistryEnabled(),
+    return { data: { state: state.data, jobs: jobRows.map(job => ({ ...job, progress: progressByJob.get(job.id) || null })),
+      progressSupported: !progress.error && Array.isArray(progress.data), registryEnabled: modelRegistryEnabled(),
       automaticUpdates: false,
       supportingServingEnabled: supportingModelsEnabled(),
       supportingPool: capabilities.data?.supporting_pool === true && !capabilities.error,
@@ -26,7 +34,7 @@ export const sentimentTrainingService = {
       poolSummary: summary?.data || null,
       continuedTraining: capabilities.data?.continued_training === true && !capabilities.error }, error: null };
   },
-  async action(actor: string, action: string, jobId: string | null, generation: number | null, mode = "continue", datasetIds?: string[]) {
+  async action(actor: string, action: string, jobId: string | null, generation: number | null, mode = "continue", datasetIds?: string[], retryJobId?: string) {
     if (action !== "queue") return { data: null, error: { code: "22023", message: "Built-in models are permanent. Manage supporting models instead." } };
     if (mode !== "continue" && mode !== "fresh") return { data: null, error: { code: "22023", message: 'Training mode must be "continue" or "fresh".' } };
     const capabilities = await supabaseAdmin.rpc("sentiment_training_capabilities", {});
@@ -39,7 +47,7 @@ export const sentimentTrainingService = {
     const args: Record<string, unknown> = { p_actor: actor, p_action: action, p_job: jobId, p_generation: generation };
     // Pre-migration deployments expose the four-argument function; only send the
     // mode payload where the fresh-candidates migration advertises support.
-    if (freshSupported) args.p_payload = { mode, ...(datasetIds ? {dataset_ids:datasetIds} : {}) };
+    if (freshSupported) args.p_payload = { mode, ...(datasetIds ? {dataset_ids:datasetIds} : {}), ...(retryJobId ? { retry_job_id: retryJobId } : {}) };
     return await supabaseAdmin.rpc("manage_sentiment_training", args);
   },
 };

@@ -286,16 +286,6 @@ const UserProfileSettings = () => {
 
   const [refreshing, setRefreshing] = useState(false);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await clearProfileCache();
-      await loadProfile();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [loadProfile]);
-
   const [termsStatus, setTermsStatus] = useState({
     hasAcceptedLatest: true,
     acceptedVersion: null,
@@ -353,9 +343,6 @@ const UserProfileSettings = () => {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      // Clear cached profile to force fresh fetch
-      clearProfileCache();
-
       const res = await apiClient.get("/profile", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -380,6 +367,16 @@ const UserProfileSettings = () => {
       setLoading(false);
     }
   }, [applyProfile]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await clearProfileCache();
+      await loadProfile();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadProfile]);
 
   useFocusEffect(
     useCallback(() => {

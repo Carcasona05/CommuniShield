@@ -37,14 +37,58 @@ test("weak supporting scores abstain and agreeing supports do not average confid
   const r = routeSupportingModels(weak, [proposal("a", positive), proposal("b", { negative: 0.1, neutral: 0.1, positive: 0.8 })]);
   assert.equal(r.confidence, 0.9); assert.equal(r.label, "positive");
 });
-test("independent support must agree with the uncertain primary, never override it or vote", () => {
-  const conflict = routeSupportingModels(weak, [{ ...proposal("a", positive), independent: true }, { ...proposal("b", positive), independent: true }]);
-  assert.equal(conflict.label, "unclear");
-  assert.equal(conflict.reason, "primary_support_disagreement");
+test("qualified independent support can correct an uncertain primary without replacing the built-in", () => {
+  const correction = routeSupportingModels(weak, [{ ...proposal("a", positive), independent: true }, { ...proposal("b", positive), independent: true }]);
+  assert.equal(correction.label, "positive");
+  assert.equal(correction.origin, "supporting");
+  assert.equal(correction.reason, "validated_support");
   const agreement = routeSupportingModels(weak, [{ ...proposal("a", negative), independent: true }]);
   assert.equal(agreement.label, "negative");
   assert.equal(agreement.origin, "supporting");
   assert.equal(routeSupportingModels(positive, [{ ...proposal("a", negative), independent: true }]).origin, "builtin");
+});
+test("reported drainage complaint uses qualified negative support despite weak neutral primary", () => {
+  const currentRule = { ...rule, primary_confidence: .85, primary_margin: .2, support_confidence: .5, support_margin: .05 };
+  const primary = { negative: .295, neutral: .528, positive: .177 };
+  const result = routeSupportingModels(primary, [
+    { ...proposal("new", { negative: .767, neutral: .153, positive: .080 }), rule: currentRule, independent: true },
+    { ...proposal("old", { negative: .502, neutral: .374, positive: .124 }), rule: currentRule, independent: true },
+  ]);
+  assert.equal(result.label, "negative");
+  assert.equal(result.origin, "supporting");
+});
+test("independent correction still abstains on weak supports and support disagreement", () => {
+  const independent = (id: string, scores: Scores) => ({ ...proposal(id, scores), independent: true });
+  assert.equal(routeSupportingModels(weak, [independent("a", weak)]).reason, "no_reliable_support");
+  const conflict = routeSupportingModels(weak, [independent("a", positive), independent("b", positive), independent("c", negative)]);
+  assert.equal(conflict.reason, "support_disagreement");
+  assert.equal(conflict.label, "unclear");
+});
+test("an unqualified high-confidence support cannot defeat a qualified fallback", () => {
+  const result = routeSupportingModels(weak, [
+    { ...proposal("invalid", negative), rule: { ...rule, validation_precision: .74 }, independent: true },
+    { ...proposal("valid", positive), independent: true },
+  ]);
+  assert.equal(result.label, "positive");
+  assert.deepEqual(result.ids, ["valid"]);
+});
+test("confidence and margin thresholds retain their inclusive boundaries", () => {
+  const thresholdRule = { ...rule, primary_confidence: .85, primary_margin: .2, support_confidence: .5, support_margin: .125 };
+  const boundary = { ...proposal("a", { negative: .5, neutral: .375, positive: .125 }), rule: thresholdRule, independent: true };
+  assert.equal(routeSupportingModels(weak, [boundary]).label, "negative");
+  const belowConfidence = { ...boundary, scores: { negative: .499, neutral: .375, positive: .126 } };
+  assert.equal(routeSupportingModels(weak, [belowConfidence]).reason, "no_reliable_support");
+  const belowMargin = { ...boundary, rule: { ...thresholdRule, support_margin: .126 } };
+  assert.equal(routeSupportingModels(weak, [belowMargin]).reason, "no_reliable_support");
+  assert.equal(routeSupportingModels({ negative: .1, neutral: .05, positive: .85 }, [boundary]).origin, "builtin");
+});
+test("disagreement corrections use validation precision, not confidence or model count", () => {
+  const first = { ...proposal("first", { negative: .2, neutral: .1, positive: .7 }), independent: true,
+    rule: { ...rule, validation_precision: .9 } };
+  const second = { ...proposal("second", positive), independent: true, rule: { ...rule, validation_precision: .8 } };
+  assert.equal(routeSupportingModels(weak, [second, first]).confidence, .7);
+  assert.equal(routeSupportingModels(weak, [first, second]).confidence, .7);
+  assert.equal(routeSupportingModels(weak, []).origin, "builtin");
 });
 test("independent policies require absolute validation and test evidence, not a baseline score", () => {
   const metric = () => ({ macro_f1: .7, per_class: Object.fromEntries(["negative", "neutral", "positive"].map(l => [l, { support: 40, precision: .7, recall: .7 }])) });

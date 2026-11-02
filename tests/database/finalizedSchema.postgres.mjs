@@ -18,7 +18,7 @@ after(async()=>{await source?.close();await fresh?.close();});
 test('final fresh-install schema matches the complete migration chain, including permissions',async()=>{
   assert.deepEqual(await catalog(fresh),expected);
   assert.equal(expected.tables.length,32);
-  assert.equal(expected.functions.length,25);
+  assert.equal(expected.functions.length,28);
 });
 test('generated SQL and provenance manifest are reproducible and current',async()=>{
   await build({check:true});

@@ -129,19 +129,47 @@ Old policies cannot bypass the independent gate by clicking Enable.
 The built-in language router and primary sentiment model always run first.
 Independent supports are consulted only when primary confidence is below 0.85
 **or** its top-two margin is below 0.20. Supports must meet their validation-selected
-confidence and margin thresholds. A qualified disagreement with the primary or
-between supports returns `unclear`, regardless of majority size. No qualified
-support in an eligible region also returns `unclear`; confident primary results
-are retained. Missing/unavailable supporting artifacts fall back safely as before.
+confidence and margin thresholds. Qualified supporting predictions may correct
+the uncertain primary even when their label differs from its weak prediction.
+Qualified supports must agree with **each other**; disagreement between supports
+returns `unclear`, regardless of majority size. No qualified support in an eligible
+region also returns `unclear`; confident primary results are retained. Agreeing
+supports are ranked by validation precision, not raw confidence or votes.
+Missing/unavailable supporting artifacts fall back safely as before.
 
 Independent quality does **not** prove the combined system improves. Because
-qualified disagreement abstains, coverage may decrease. The new policy does not
+weak or conflicting supporting predictions abstain, coverage may decrease. The new policy does not
 claim that the old full-pool improvement/coverage guarantees still hold. If that
 tradeoff is unacceptable, keep supporting inference off and review independently.
 
 `SENTIMENT_MODEL_REGISTRY_ENABLED=true` permits registration; backend
 `SENTIMENT_SUPPORT_ENABLED=true` separately opts in to supporting inference.
 Neither is changed by this feature. Existing reports/analyses are untouched.
+
+### Correction-region quality limitation
+
+Removing the old primary/support agreement veto changes the decision behavior,
+not the fitted weights or their independent admission evidence. On the existing
+enabled-pool snapshot, the correction resolves the reported drainage complaint as
+negative, but broad correction quality is **not established**: only 7 of 17 newly
+resolved Cebuano test predictions match their existing test labels. Combined
+macro-F1 changes only marginally, and the stricter fallback-quality evaluation
+does not pass. Do not describe this as a generally accurate correction model or
+automatically bulk-relabel historical unclear results on that basis. Thresholds
+were not loosened and no training/test labels were changed to pass the check.
+
+Reproduce the read-only audit and frozen-pool evaluation from the repository:
+
+```powershell
+cd server
+node --import tsx scripts/diagnostics/auditSentiment.ts --probe --export-pool
+cd ..
+python datasets/evaluate_supporting_fallback.py --snapshot <printed-pool-snapshot.json>
+```
+
+These checks reuse the existing benchmark and are not a new independent domain
+evaluation. More reviewed domain evidence is needed before making broader
+accuracy claims. Language-uncertain inputs are a separate routing issue.
 
 ## Progress and verification
 

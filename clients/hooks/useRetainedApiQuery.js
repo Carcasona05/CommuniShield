@@ -33,7 +33,7 @@ export default function useRetainedApiQuery({ endpoint, params, validate, interv
     return () => { mounted.current = false; sequence.current++; };
   }, []);
 
-  const load = useCallback(() => {
+  const load = useCallback(({ force = false } = {}) => {
     if (inFlight.current?.key === key && inFlight.current.version === sequence.current) return inFlight.current.promise;
     const version = ++sequence.current;
     const sessionEpoch = sessionData.epoch();
@@ -49,11 +49,13 @@ export default function useRetainedApiQuery({ endpoint, params, validate, interv
           throw error;
         }
         const response = await apiClient.get(endpoint, {
-          params: JSON.parse(serializedParams), headers: { Authorization: `Bearer ${token}` }, cacheMode: "network",
+          params: JSON.parse(serializedParams), headers: { Authorization: `Bearer ${token}` },
+          ...(force ? { cacheMode: "network" } : {}),
         });
         if (!current()) return;
         if (!validator.current(response.data)) throw new Error("The server returned incomplete page data.");
-        const snapshot = { data: retainUnchangedQueryData(previous?.data, response.data), checkedAt: Date.now() };
+        const snapshot = { data: retainUnchangedQueryData(previous?.data, response.data),
+          checkedAt: Number.isFinite(response.cacheCheckedAt) ? response.cacheCheckedAt : Date.now() };
         setCache(key, snapshot);
         setState({ key, snapshot, error: "", fetching: false });
       } catch (error) {
@@ -87,6 +89,6 @@ export default function useRetainedApiQuery({ endpoint, params, validate, interv
     refreshing: Boolean(snapshot && scoped.fetching),
     checkedAt: snapshot?.checkedAt || null,
     errorMessage: scoped.error,
-    reload: load,
+    reload: () => load({ force: true }),
   };
 }

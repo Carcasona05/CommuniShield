@@ -1,12 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import apiClient from "../../services/apiClient";
+import { getCachedPage } from "../../services/dataStore";
+import useAutoRefresh from "../../hooks/useAutoRefresh";
 import ConfirmModal from "../modals/ConfirmModal";
 import { Disclosure, StatusBadge } from "./SentimentUi";
+import SentimentActionButton from "./SentimentActionButton";
 
 const f1 = (value) => Number.isFinite(Number(value)) && value != null ? Number(value).toFixed(3) : "—";
 export default function SupportingModelsPanel({ isSuperAdmin, servingEnabled, refreshKey = 0 }) {
-  const [pool, setPool] = useState(null);
+  const [pool, setPool] = useState(() => getCachedPage("/sentiment/supporting-models", { page: 1 }) || null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(null);
@@ -14,17 +17,32 @@ export default function SupportingModelsPanel({ isSuperAdmin, servingEnabled, re
   const pages = useRef(1);
   const sequence = useRef(0);
   const mounted = useRef(true);
-  const refresh = useCallback(async () => {
+  const previousRefreshKey = useRef(refreshKey);
+  const refresh = useCallback(async ({ force = false } = {}) => {
     const request = ++sequence.current;
     try {
-      const responses = await Promise.all(Array.from({ length: pages.current }, (_, i) => apiClient.get(`/sentiment/supporting-models?page=${i + 1}`)));
+      const responses = [];
+      for (let page = 1; page <= pages.current; page++) {
+        responses.push(await apiClient.get("/sentiment/supporting-models", { params: { page }, ...(force ? { cacheMode: "network" } : {}) }));
+        if (!mounted.current || request !== sequence.current) return;
+      }
       if (!mounted.current || request !== sequence.current) return;
       const first = responses[0].data;
-      if (responses.some(({ data }) => data.generation !== first.generation)) return;
+      if (responses.some(({ data }) => data.generation !== first.generation)) {
+        if (!force) await refresh({ force: true });
+        return;
+      }
       setPool({ ...first, models: responses.flatMap(({ data }) => data.models) }); setError("");
     } catch (e) { if (mounted.current && request === sequence.current) setError(e.response?.data?.error || "Could not refresh supporting models."); }
   }, []);
-  useEffect(() => { mounted.current = true; refresh(); const timer = setInterval(refresh, 10000); return () => { mounted.current = false; sequence.current++; clearInterval(timer); }; }, [refresh, refreshKey]);
+  useEffect(() => {
+    mounted.current = true;
+    const force = previousRefreshKey.current !== refreshKey;
+    previousRefreshKey.current = refreshKey;
+    refresh({ force });
+    return () => { mounted.current = false; sequence.current++; };
+  }, [refresh, refreshKey]);
+  useAutoRefresh(refresh, 60000);
   const action = (kind, modelId = null, limit) => setConfirm({ action: kind, modelId, limit, generation: pool.generation });
   const execute = async () => {
     setBusy(true);
@@ -36,18 +54,19 @@ export default function SupportingModelsPanel({ isSuperAdmin, servingEnabled, re
     const request = ++sequence.current;
     setBusy(true);
     try {
-      const { data } = await apiClient.get(`/sentiment/supporting-models?page=${page + 1}`);
+      const { data } = await apiClient.get("/sentiment/supporting-models", { params: { page: page + 1 } });
       if (!mounted.current || request !== sequence.current) return;
-      if (data.generation !== pool.generation) { await refresh(); return; }
+      if (data.generation !== pool.generation) { await refresh({ force: true }); return; }
       setPool((prior) => ({ ...data, models: [...prior.models, ...data.models.filter((m) => !prior.models.some((p) => p.id === m.id))] }));
       pages.current = page + 1;
       setPage((value) => value + 1);
     } catch (e) { setError(e.response?.data?.error || "Could not load more models."); }
     finally { setBusy(false); }
   };
-  const button = (label, onPress, disabled = false) => <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={busy || disabled} onPress={onPress} style={[s.button, (busy || disabled) && s.disabled]}><Text style={s.buttonText}>{label}</Text></Pressable>;
+  const button = (label, onPress, disabled = false) => <SentimentActionButton title={label} disabled={busy || disabled} onPress={onPress}
+    variant={label === "Delete" ? "danger" : label === "Enable" ? "primary" : "secondary"} />;
   const descriptions = {
-    enable: "Enable only the qualified languages shown on this candidate? Failed or unincluded languages will not use it. Built-in-first routing remains; qualified disagreement returns unclear. This does not prove combined-system improvement.",
+    enable: "Enable only the qualified languages shown on this candidate? Failed or unincluded languages will not use it. Strong built-in predictions stay protected; qualified support may correct uncertain predictions. Weak or conflicting supporting predictions return unclear. Independent qualification alone does not prove combined-system improvement.",
     disable: "Disable this supporting model? It will no longer participate in new predictions after the registry refreshes. The built-in remains available.",
     archive: "Archive this disabled model? It will not be used for predictions.",
     restore: "Restore this archived model to disabled? Enabling it still requires a valid evaluated combination.",
@@ -56,7 +75,7 @@ export default function SupportingModelsPanel({ isSuperAdmin, servingEnabled, re
   };
   return <View style={s.panel} testID="supporting-model-pool">
     <View style={s.between}><Text style={s.title}>Supporting models</Text><Text style={s.reviewPill}>Manual activation</Text></View>
-    <Text style={s.note}>Review independent held-out results before enabling. Passing training never turns serving on automatically. Built-ins stay permanent; qualified disagreement returns unclear, without voting.</Text>
+    <Text style={s.note}>Review independent held-out results before enabling. Passing training never turns serving on automatically. Built-ins stay permanent; qualified support may correct an uncertain built-in result. Weak or conflicting supports return unclear, without voting.</Text>
     {!servingEnabled ? <Text style={s.warning}>Supporting inference is off. Enable SENTIMENT_SUPPORT_ENABLED=true on the backend only after setup and review.</Text> : null}
     {error ? <Text accessibilityRole="alert" style={s.warning}>{error}</Text> : null}
     {pool ? <>

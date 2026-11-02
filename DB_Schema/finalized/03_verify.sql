@@ -30,7 +30,9 @@ begin
   end if;
   foreach role_name in array array['anon','authenticated'] loop
     if has_table_privilege(role_name,'public.sentiment_training_samples','SELECT')
-      or has_function_privilege(role_name,'public.sentiment_training_worker(text,uuid,uuid,jsonb)','EXECUTE') then
+      or has_function_privilege(role_name,'public.sentiment_training_worker(text,uuid,uuid,jsonb)','EXECUTE')
+      or has_function_privilege(role_name,'public.report_sentiment_training_progress(uuid,uuid,bigint,numeric,integer,text,text)','EXECUTE')
+      or has_function_privilege(role_name,'public.get_sentiment_training_progress(uuid[])','EXECUTE') then
       raise exception 'Training data/protocol must not be directly accessible to role %',role_name;
     end if;
   end loop;

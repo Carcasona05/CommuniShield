@@ -14,7 +14,11 @@ export const getSentimentTraining = async (req: AuthRequest, res: Response) => {
 
 export const manageSentimentTraining = async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
-  const { action, jobId = null, generation = null, mode = "continue", datasetIds } = req.body || {};
+  const { action, jobId = null, generation = null, mode = "continue", datasetIds, retryJobId } = req.body || {};
+  if (retryJobId !== undefined && (action !== "queue" || typeof retryJobId !== "string" ||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(retryJobId) || datasetIds !== undefined)) {
+    return res.status(400).json({ error: "Provide a valid failed run ID for retry, without dataset selections." });
+  }
   if (!["queue", "activate", "rollback"].includes(action) || (action !== "queue" && (!Number.isSafeInteger(generation) || generation < 0)) ||
     (action === "activate" && (typeof jobId !== "string" || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(jobId)))) {
     return res.status(400).json({ error: "Provide a valid training action, candidate ID, and current model generation." });
@@ -27,7 +31,7 @@ export const manageSentimentTraining = async (req: AuthRequest, res: Response) =
     return res.status(400).json({error:'Select valid approved dataset IDs.'});
   }
   try {
-    const { data, error } = await sentimentTrainingService.action(req.user.id, action, action === "activate" ? jobId : null, action === "queue" ? null : generation, mode, datasetIds);
+    const { data, error } = await sentimentTrainingService.action(req.user.id, action, action === "activate" ? jobId : null, action === "queue" ? null : generation, mode, datasetIds, retryJobId);
     if (error) return res.status(error.code === "42501" ? 403 : error.code === "40001" ? 409 : error.code === "22023" ? 400 : 503).json({ error: ["22023", "40001"].includes(error.code || "") ? error.message : "Could not perform training action." });
     return res.json({ ...data, message: "Retraining queued. Keep the Python worker running. Built-in models are unchanged." });
   } catch {

@@ -81,11 +81,12 @@ export const DEFAULT_FACILITY_ANCHOR = { lat: 9.8816, lng: 123.5953 };
 
 let prefetch = null;
 let stopRefresh = null;
+const active = () => AppState.currentState !== "background" && AppState.currentState !== "inactive" &&
+  (typeof document === "undefined" || document.visibilityState !== "hidden");
+const yieldToPage = () => new Promise(resolve => setTimeout(resolve, 750));
 
 const startBackgroundRefresh = () => {
   if (stopRefresh) return;
-  const active = () => AppState.currentState !== "background" && AppState.currentState !== "inactive" &&
-    (typeof document === "undefined" || document.visibilityState !== "hidden");
   const refresh = () => { if (sessionData.session() && active()) void prefetchAllData(); };
   const timer = setInterval(refresh, 60000);
   const sub = AppState.addEventListener("change", state => { if (state === "active") refresh(); });
@@ -99,15 +100,8 @@ const startBackgroundRefresh = () => {
 
 sessionData.subscribe(event => {
   if (event.type === "session") stopRefresh?.();
-  if (event.type === "invalidate") {
-    const epoch = sessionData.epoch();
-    // Let explicit page mutation reloads win; they share the same GET transport.
-    setTimeout(() => {
-      if (!sessionData.current(epoch) || !stopRefresh) return;
-      const previous = prefetch?.promise || Promise.resolve();
-      void previous.finally(() => { if (sessionData.current(epoch) && stopRefresh) void prefetchAllData(); });
-    }, 300);
-  }
+  // Do not launch another full wave after each write/realtime notification.
+  // The active page reloads affected data; the next idle sweep warms the rest.
 });
 
 export const prefetchAllData = () => {
@@ -121,29 +115,38 @@ export const prefetchAllData = () => {
     // Match the default filter-specific snapshots consumed by these pages.
     for (const request of plan) {
       if (request.url === "/admin/clusters") request.params = { period: "30d" };
+      if (request.url === "/sentiment/datasets") request.params = { status: "all", page: 1 };
+      if (request.url === "/sentiment/supporting-models") request.params = { page: 1 };
     }
     if (session.role !== "user") plan.push(
       { url: "/admin/dashboard", params: { source: "Admin" } },
       { url: "/admin/announcements", params: { source: "Admin" } },
     );
+    if (session.role === "super_admin") plan.push({ url: "/sentiment/datasets", params: { status: "pending", page: 1 } });
     if (session.role === "user") plan.push({ url: "/facilities/nearby", params: {
       lat: DEFAULT_FACILITY_ANCHOR.lat, lng: DEFAULT_FACILITY_ANCHOR.lng, radius: 8000,
     } });
     let cursor = 0;
-    // Three independent consumers keep the landing page first without a slow
-    // analytics request blocking every subsequent preload batch.
-    await Promise.all(Array.from({ length: 3 }, async () => {
-      while (sessionData.current(epoch) && cursor < plan.length) {
-        const request = plan[cursor++];
-        try {
-          await apiRequest({ ...request, method: "GET", timeout: request.url === "/admin/overview" ? 10000 : 20000,
-            headers: { Authorization: `Bearer ${session.token}` } }, 0);
-        } catch (error) {
-          if (!sessionData.current(epoch) || [401, 403].includes(error.response?.status)) return;
-          // One failed optional preload must not block navigation or other pages.
-        }
+    // One optional request at a time, with breathing room for rendering and
+    // visible-page loads. Navigation can join an identical in-flight request.
+    while (sessionData.current(epoch) && cursor < plan.length) {
+      const request = plan[cursor];
+      if (sessionData.fresh(request)) { cursor++; continue; }
+      await yieldToPage();
+      if (!sessionData.current(epoch) || !active()) return;
+      if (sessionData.foregroundBusy() || sessionData.changing()) continue;
+      cursor++;
+      // A page may have loaded this request while the worker was yielding.
+      if (sessionData.fresh(request)) continue;
+      try {
+        await apiRequest({ ...request, method: "GET", timeout: request.url === "/admin/overview" ? 10000 : 20000,
+          background: true,
+          headers: { Authorization: `Bearer ${session.token}` } }, 0);
+      } catch (error) {
+        if (!sessionData.current(epoch) || [401, 403].includes(error.response?.status)) return;
+        // One failed optional preload must not block navigation or other pages.
       }
-    }));
+    }
   })().finally(() => { if (prefetch?.epoch === epoch) prefetch = null; });
   prefetch = { epoch, promise };
   return promise;

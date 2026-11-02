@@ -4,6 +4,7 @@ import type { User } from "@supabase/supabase-js";
 import { profileService } from "../services/authService.js";
 import { reportService } from "../services/reportService.js";
 import { isValidEmail, isValidPhone } from "../services/validation.js";
+import { accountStatusSignal } from "../services/accountStatusSignal.js";
 
 type AuthRequest = import("express").Request & { user?: User; token?: string };
 
@@ -86,6 +87,7 @@ export const updateAccount = async (req: AuthRequest, res: Response) => {
         .eq("id", id);
 
       if (updateError) return res.status(500).json({ error: updateError.message });
+      if (status !== undefined) await accountStatusSignal.publish();
     }
 
     if (email !== undefined) {
@@ -170,6 +172,8 @@ export const toggleStatus = async (req: AuthRequest, res: Response) => {
       .eq("id", id);
 
     if (error) return res.status(500).json({ error: error.message });
+
+    await accountStatusSignal.publish();
 
     const { data: actorProfile } = await profileService.getProfile(user.id);
 

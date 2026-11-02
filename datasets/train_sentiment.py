@@ -344,6 +344,7 @@ def train_language(
     independent_quality: bool = False,
     evaluate_test: bool = True,
 ) -> dict[str, object]:
+    from training_progress import write_fit_progress
     if independent_quality and baseline_model_dir is not None:
         raise ValueError('Independent training cannot use built-in selection metrics')
     train_frame: pd.DataFrame = train.loc[train["language"].eq(language)].reset_index(drop=True)
@@ -364,9 +365,12 @@ def train_language(
         f"\n{language}: {len(train_frame):,} train / {len(validation_frame):,} validation / "
         f"{f'{len(test_frame):,} test' if test_frame is not None else 'test deferred (validation-only)'}"
     )
+    configurations = [(c, weight) for c in CANDIDATES for weight in (('balanced', None) if independent_quality else ('balanced',))]
+    write_fit_progress(0, len(configurations) + 2)
     vectorizer = build_vectorizer() if word_max_ngram == 2 else build_vectorizer(word_max_ngram)
     train_features = vectorizer.fit_transform(train_frame["text"])
     validation_features = vectorizer.transform(validation_frame["text"])
+    write_fit_progress(1, len(configurations) + 2)
 
     reference = baseline_validation_metrics(baseline_model_dir / f"sentiment_{language}.onnx", validation_frame) if baseline_model_dir else None
     best_candidate = CANDIDATES[0]
@@ -375,13 +379,13 @@ def train_language(
     best_selection = None
     best_class_weight = 'balanced'
     validation_labels = cast(pd.Series, validation_frame["label"])
-    configurations = [(c, weight) for c in CANDIDATES for weight in (('balanced', None) if independent_quality else ('balanced',))]
-    for candidate, class_weight in configurations:
+    for configuration_index, (candidate, class_weight) in enumerate(configurations):
         classifier = build_classifier(candidate)
         classifier.set_params(estimator__class_weight=class_weight)
         classifier.fit(train_features, train_frame["label"])
         selection = select_validation_offsets(classifier.decision_function(validation_features),
                                                classifier.classes_, validation_labels, reference, independent_quality)
+        write_fit_progress(configuration_index + 2, len(configurations) + 2)
         if selection is None:
             print(f"  C={candidate:g}, weight={class_weight}: no validation setting meets the required class-quality floors", flush=True)
             continue
@@ -439,6 +443,7 @@ def train_language(
     artifact_path = output_dir / f"sentiment_{language}.joblib"
     joblib.dump({"pipeline": pipeline, "metadata": metadata}, artifact_path, compress=3)
     onnx_metadata = export_onnx(pipeline, artifact_path)
+    write_fit_progress(len(configurations) + 2, len(configurations) + 2)
     metadata["artifact_path"] = str(artifact_path)
     metadata["onnx_artifact"] = onnx_metadata
     if test_metrics is not None:

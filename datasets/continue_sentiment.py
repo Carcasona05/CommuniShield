@@ -57,6 +57,9 @@ def replay_rows(train: pd.DataFrame, additions: pd.DataFrame) -> pd.DataFrame:
 
 def continue_pipeline(active, replay: pd.DataFrame, additions: pd.DataFrame,
                       validation: pd.DataFrame, reference: dict | None):
+    from training_progress import write_fit_progress
+    progress_total = len(LABELS) + len(UPDATE_STRENGTHS) + 1
+    write_fit_progress(0, progress_total)
     # Never call active.features.fit() or OneVsRestClassifier.fit(), which
     # would reinitialize its binary estimators instead of retaining weights.
     features = active.named_steps["features"]
@@ -69,6 +72,7 @@ def continue_pipeline(active, replay: pd.DataFrame, additions: pd.DataFrame,
         estimator = classifier.estimators_[index]
         estimator.set_params(solver="lbfgs", warm_start=True, max_iter=200)
         estimator.fit(x_replay, replay["label"].eq(label).astype(int))
+        write_fit_progress(index + 1, progress_total)
     old = active.named_steps["classifier"]
     x_validation = features.transform(validation["text"])
     x_new = features.transform(additions["text"])
@@ -78,13 +82,14 @@ def continue_pipeline(active, replay: pd.DataFrame, additions: pd.DataFrame,
     old_new_loss = log_loss(additions["label"], old.predict_proba(x_new), labels=list(LABELS))
     floors = {label: max(0.0, reference["per_label"][label]["recall"] - 0.02) if reference else 0.5 for label in LABELS}
     best = None
-    for strength in UPDATE_STRENGTHS:
+    for strength_index, strength in enumerate(UPDATE_STRENGTHS):
         candidate = copy.deepcopy(classifier)
         for before, after, target in zip(old.estimators_, classifier.estimators_, candidate.estimators_):
             target.coef_ = before.coef_ + strength * (after.coef_ - before.coef_)
             target.intercept_ = before.intercept_ + strength * (after.intercept_ - before.intercept_)
         metrics = evaluate(validation["label"], pd.Series(candidate.predict(x_validation)))
         loss = log_loss(additions["label"], candidate.predict_proba(x_new), labels=list(LABELS))
+        write_fit_progress(len(LABELS) + strength_index + 1, progress_total)
         eligible = metrics["macro_f1"] >= (max(0.6, reference["macro_f1"] - 0.01) if reference else 0.6) and all(
             metrics["per_label"][label]["recall"] >= floor for label, floor in floors.items())
         if reference is None:

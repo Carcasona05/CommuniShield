@@ -1,4 +1,4 @@
-"""Durable continued-training worker. Passing, current updates activate atomically.
+"""Durable supporting-model worker. Candidates never auto-activate.
 
 Load private server credentials in the environment and run with the project's
 Python training environment. See server/SENTIMENT_AUTOTRAIN.md for deployment.
@@ -12,6 +12,7 @@ import json
 import math
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -26,6 +27,7 @@ from import_approved_sentiment import COLUMNS, LABELS, LANGUAGES, select_example
 from builtin_sentiment_examples import REPORTED_CASES
 from supporting_routing import evaluate_pool
 from independent_support import evaluate as evaluate_independent
+from training_progress import TrainingProgress
 
 BASE = Path(__file__).resolve().parent
 FILES = ["sentiment_english.onnx", "sentiment_filipino.onnx", "sentiment_cebuano.onnx", "language_id.onnx"]
@@ -112,6 +114,18 @@ class Cloud:
         # legacy worker function, which interprets it as a bad lease.
         return json.loads(self.request("/rest/v1/rpc/sentiment_training_capabilities"))
 
+    def progress_available(self):
+        try:
+            self.request("/rest/v1/rpc/get_sentiment_training_progress", "POST", b'{"p_jobs":[]}')
+            return True
+        except (CloudRequestError, urllib.error.URLError, TimeoutError):
+            return False
+
+    def report_progress(self, job, sequence, completed, total, stage, language):
+        payload = {"p_job": job["id"], "p_lease": job["lease_token"], "p_sequence": sequence,
+                   "p_completed": completed, "p_total": total, "p_stage": stage, "p_language": language}
+        self.request("/rest/v1/rpc/report_sentiment_training_progress", "POST", json.dumps(payload).encode())
+
     def download_bundle(self, job_id: str, destination: Path) -> None:
         UUID(job_id)
         rows = json.loads(self.request(f"/rest/v1/sentiment_training_jobs?id=eq.{job_id}&select=artifact_manifest,status,metrics,snapshot&limit=1"))
@@ -144,6 +158,35 @@ class Cloud:
         self.request("/storage/v1/object/sentiment-models/" + path, "POST", file.read_bytes(), "application/octet-stream")
 
 
+def record_worker_shutdown(cloud, job):
+    """Use the existing lease-fenced failure path; never overwrite a ready job."""
+    if not job:
+        return False
+    if job.get("_shutdown_reported"):
+        return True
+    try:
+        cloud.rpc("fail", job, {
+            "error": "Worker stopped by operator. Queue a retry if needed. Built-in models are unchanged.",
+            "metrics": {"failure_stage": "worker_shutdown", "interrupted": True},
+        })
+        job["_shutdown_reported"] = True
+        return True
+    except Exception:
+        return False  # Offline/expired/already-completed jobs still obey their lease.
+
+
+def worker_stop_signal(_signum, _frame):
+    raise KeyboardInterrupt
+
+
+def install_stop_handlers():
+    # SIGINT already raises KeyboardInterrupt. Handle service shutdowns and
+    # Windows Ctrl+Break too. Force-kill/power loss cannot run Python cleanup.
+    for name in ("SIGTERM", "SIGBREAK"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), worker_stop_signal)
+
+
 class Lease:
     def __init__(self, cloud: Cloud, job: dict) -> None:
         self.cloud, self.job = cloud, job
@@ -171,9 +214,15 @@ class Lease:
         self.thread.start()
         return self
 
-    def __exit__(self, *_):
+    def __exit__(self, exc_type, *_):
         self.stop.set()
-        self.thread.join(timeout=65)
+        interrupted = exc_type is not None and issubclass(exc_type, KeyboardInterrupt)
+        if interrupted:
+            self.lost.set()
+            # Report before joining a possibly blocked heartbeat HTTP request.
+            # Its late renewal cannot resurrect a terminal job (DB lease checks).
+            record_worker_shutdown(self.cloud, self.job)
+        self.thread.join(timeout=2 if interrupted else 65)
 
 
 def read_splits(directory: Path, allow_training_overlap: bool = False) -> dict[str, list[dict[str, str]]]:
@@ -320,7 +369,7 @@ def training_quality_failure(candidate: Path):
     return marker['language'], ['No fitted candidate meets validation macro-F1 and per-class precision/recall requirements. Review training labels and class coverage.'], completed
 
 
-def run_scoped_training(command, candidate, requested, directory, lease):
+def run_scoped_training(command, candidate, requested, directory, lease, progress=None):
     """Fit each declared language in isolation; expected quality failures do not
     discard another language's work. Unexpected crashes still fail the job."""
     failures, models = {}, []
@@ -328,16 +377,22 @@ def run_scoped_training(command, candidate, requested, directory, lease):
     started = time.monotonic()
     with (directory / 'training.log').open('w', encoding='utf-8') as log:
         log.write('Language-scoped training: ' + ', '.join(requested) + '\n'); log.flush()
-        for language in requested:
+        for index, language in enumerate(requested):
             output = directory / 'language-candidates' / language
             output.parent.mkdir(exist_ok=True)
             args = list(command)
             args[args.index('--output-dir') + 1] = str(output)
             args += ['--languages', language]
-            process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
+            progress_path = directory / f'{language}-progress.json'
+            if progress:
+                progress.emit(1 + index, 'fitting', language)
+            process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT,
+                                       env={**os.environ, 'CS_TRAINING_PROGRESS_FILE': str(progress_path)})
             try:
                 while process.poll() is None:
                     lease.check()
+                    if progress:
+                        progress.fitting(progress_path, index, language)
                     if time.monotonic() - started > 7200:
                         raise RuntimeError('Training exceeded the two-hour limit')
                     time.sleep(1)
@@ -346,6 +401,8 @@ def run_scoped_training(command, candidate, requested, directory, lease):
                     if not failure or failure[0] != language:
                         raise RuntimeError(f'{language}: training process failed unexpectedly. Inspect the private training.log.')
                     failures[language] = failure[1]
+                    if progress:
+                        progress.emit(2 + index, 'fitting', language)
                     continue
             finally:
                 if process.poll() is None:
@@ -358,6 +415,8 @@ def run_scoped_training(command, candidate, requested, directory, lease):
             for extension in ('onnx', 'joblib'):
                 shutil.copyfile(output / f'sentiment_{language}.{extension}', candidate / f'sentiment_{language}.{extension}')
             models.extend(metadata['models'])
+            if progress:
+                progress.emit(2 + index, 'fitting', language)
     (candidate / 'baseline_metrics.json').write_text(json.dumps({'models': models, 'requested_languages': requested,
         'language_failures': failures, 'scope_version': 1}), encoding='utf-8')
     return failures
@@ -379,6 +438,8 @@ def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, r
         if scoped and (not independent or not isinstance(requested, list) or not requested or
                        any(not isinstance(l, str) or l not in LANGUAGES for l in requested) or len(set(requested)) != len(requested)):
             raise ValueError('Invalid server-claimed training language scope')
+        progress = TrainingProgress(cloud, job, requested if scoped else sorted(LANGUAGES))
+        progress.emit(0, 'preparing')
         if mode not in ("continue", "fresh"):
             raise ValueError(f"Unsupported training mode {mode!r}; refusing to train")
         builtin_hashes = {name: sha256(baseline / name) for name in FILES}
@@ -388,6 +449,7 @@ def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, r
             raise ValueError("Baseline ONNX bundle is incomplete")
         (directory / "approved_snapshot.json").write_text(json.dumps(job["snapshot"], ensure_ascii=False), encoding="utf-8")
         merged = build_snapshot(data_dir, job["snapshot"], directory / "data")
+        progress.emit(1, 'preparing')
         candidate = directory / "candidate"
         if mode == "fresh":
             # Fresh challenger: train from scratch on the full snapshot with a new
@@ -405,7 +467,7 @@ def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, r
                 command.append('--independent-quality')
         command.insert(1, '-u')  # Progress logs must be visible while training, not only at exit.
         started = time.monotonic()
-        training_failures = run_scoped_training(command, candidate, requested, directory, lease) if scoped else {}
+        training_failures = run_scoped_training(command, candidate, requested, directory, lease, progress) if scoped else {}
         with (directory / "training.log").open("a" if scoped else "w", encoding="utf-8") as log:
             log.write(f"training mode: {mode}\n")
             log.flush()
@@ -446,9 +508,17 @@ def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, r
         # Keep language routing fixed; this job only retrains sentiment models.
         shutil.copyfile(baseline / "language_id.onnx", candidate / "language_id.onnx")
         cloud.rpc("evaluating", job)
+        language_count = len(progress.languages)
+        progress.emit(1 + language_count, 'checking')
+        checked = set()
+        def checked_language(language):
+            lease.check()
+            checked.add(language)
+            progress.emit(1 + language_count + len(checked), 'checking', language)
         splits = read_splits(directory / "data")
-        metrics = (evaluate_independent(splits, candidate, builtin_hashes, requested, training_failures) if scoped else
-                   evaluate_independent(splits, candidate, builtin_hashes) if independent else evaluate_bundle(splits["test"], baseline, candidate))
+        metrics = (evaluate_independent(splits, candidate, builtin_hashes, requested, training_failures, on_language_complete=checked_language) if scoped else
+                   evaluate_independent(splits, candidate, builtin_hashes, on_language_complete=checked_language) if independent else evaluate_bundle(splits["test"], baseline, candidate))
+        progress.emit(1 + 2 * language_count, 'checking')
         metrics["pool_protocol"] = 1
         metrics["training_mode"] = mode
         metrics["data"] = merged
@@ -475,19 +545,22 @@ def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, r
             raise ValueError("Built-in files changed during evaluation; nothing will be registered")
         files, training_files = {}, {}
         artifact_names = (['language_id.onnx'] + [f'sentiment_{l}.{ext}' for l in metrics['qualified_languages'] for ext in ('onnx','joblib')]) if scoped else [*FILES, *TRAINING_FILES]
-        for name in artifact_names:
+        progress.emit(1 + 2 * language_count, 'uploading')
+        for artifact_index, name in enumerate(artifact_names):
             lease.check()
             file = candidate / name
             path = f"{job['id']}/{job['lease_token']}/{name}"
             if not 0 < file.stat().st_size <= 104857600:
                 raise ValueError("Model artifact exceeds storage limits")
             cloud.upload(path, file)
+            progress.emit(1 + 2 * language_count + (artifact_index + 1) / len(artifact_names), 'uploading')
             target = training_files if name in TRAINING_FILES else files
             target[name] = {"path": path, "sha256": sha256(file), "size": file.stat().st_size}
         lease.check()
         manifest = {"files": files, "training_files": training_files}
         if scoped:
             manifest['languages'] = metrics['qualified_languages']
+        progress.emit(progress.total - 1, 'registering')
         cloud.rpc("complete", job, {"manifest": manifest, "metrics": metrics})
 
 
@@ -499,6 +572,7 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="Process at most one available job, then exit")
     parser.add_argument("--env-file", type=Path, help="Optional private .env file (e.g. server/.env)")
     args = parser.parse_args()
+    install_stop_handlers()
     if args.env_file:
         from dotenv import load_dotenv
         if not args.env_file.is_file():
@@ -514,6 +588,9 @@ def main() -> None:
         raise ValueError('Apply DB_Schema/migrations/sentiment_independent_admission.sql before starting this worker. Comparative admission will not be used as a fallback.')
     if capabilities.get('language_scoped_training') is not True:
         raise ValueError('Apply DB_Schema/migrations/sentiment_language_scoped_training.sql before starting this worker. All-language training will not be used as a fallback.')
+    cloud.progress_enabled = cloud.progress_available()
+    print('Completed-work progress enabled.' if cloud.progress_enabled else
+          'Percentage progress unavailable. Apply sentiment_training_progress.sql and restart this worker; stage-only reporting remains available.', flush=True)
     if capabilities.get("fresh_candidates") is True:
         print("Fresh challengers supported. Queue them from the admin Training panel; built-ins stay permanent.", flush=True)
     else:
@@ -533,7 +610,9 @@ def main() -> None:
             elif args.once:
                 print("No claimable job. Queue training from the Training panel; queued jobs use a 30-second batching window.", flush=True)
         except KeyboardInterrupt:
-            print("Worker stopped. An unfinished job will expire safely.", flush=True)
+            reported = record_worker_shutdown(cloud, job)
+            print("Worker stopped. The active run was marked interrupted." if reported else
+                  "Worker stopped. No stop confirmation was saved; heartbeat/lease checks will detect any unfinished run.", flush=True)
             return
         except Exception as error:
             message = f"{type(error).__name__}: {error}"[:1000]
@@ -552,7 +631,7 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("Worker stopped. No startup job was claimed.", flush=True)
+        print("Worker stopped.", flush=True)
     except (CloudRequestError, ValueError, RuntimeError) as error:
         print(f"Worker could not start: {error}", file=sys.stderr, flush=True)
         raise SystemExit(1) from None

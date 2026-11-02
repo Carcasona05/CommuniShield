@@ -73,7 +73,7 @@ def calibrate(scores, y):
             'selection_policy': 'validation-wilson-95-v1'}
 
 
-def evaluate(splits, candidate, builtin_hashes, selected_languages=None, training_failures=None):
+def evaluate(splits, candidate, builtin_hashes, selected_languages=None, training_failures=None, on_language_complete=None):
     scoped = selected_languages is not None
     requested = sorted(set(selected_languages)) if scoped else list(LANGUAGES)
     if not requested or any(l not in LANGUAGES for l in requested):
@@ -85,6 +85,8 @@ def evaluate(splits, candidate, builtin_hashes, selected_languages=None, trainin
             check = {'passed': False, 'reasons': ['No fitted candidate met validation quality requirements.'], 'failure_stage': 'validation_selection'}
             checks[language] = check
             reasons.append(f'{language}: {check["reasons"][0]}')
+            if on_language_complete:
+                on_language_complete(language)
             continue
         arrays = {}
         for split in ('validation', 'test'):
@@ -119,6 +121,8 @@ def evaluate(splits, candidate, builtin_hashes, selected_languages=None, trainin
         if check['passed']:
             rules[language] = rule
         reasons.extend(f'{language}: {r}' for r in language_reasons)
+        if on_language_complete:
+            on_language_complete(language)
     # Every shipped language must meet absolute quality; routing can qualify a
     # subset, but no failed candidate is published or silently enabled.
     passed = bool(rules) if scoped else not reasons

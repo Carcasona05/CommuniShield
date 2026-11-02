@@ -6,6 +6,7 @@ import {
   ScrollView,
   Image,
   Modal,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
@@ -19,7 +20,8 @@ import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
 import ErrorBoundary from "../../components/ErrorBoundary";
 import { saveLastPage } from "../../services/lastPage";
-import { subscribeToAdminNotifications } from "../../services/realtime";
+import { subscribeToAdminNotifications, subscribeToAccountStatusChanges } from "../../services/realtime";
+import { sessionData } from "../../services/sessionData";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -52,6 +54,8 @@ export default function SAdmin_LayoutWrapper({ children }) {
 }
 
 function SAdmin_Layout({ children }) {
+  const { width } = useWindowDimensions();
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const toast = useToast();
   const router = useRouter();
   const pathname = usePathname();
@@ -143,29 +147,9 @@ function SAdmin_Layout({ children }) {
 
       if (status === 403 && /disabled/i.test(message)) {
         setShowDisabledModal(true);
-        return;
       }
     }
 
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-
-      const profileRes = await apiClient.get("/profile", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (profileRes.data?.status === "Disabled") {
-        setShowDisabledModal(true);
-      }
-    } catch (err) {
-      const status = err.response?.status;
-      const message = err.response?.data?.error || "";
-
-      if (status === 403 && /disabled/i.test(message)) {
-        setShowDisabledModal(true);
-      }
-    }
   }, []);
 
   useAutoRefresh(loadNotifications, 120000);
@@ -189,9 +173,13 @@ function SAdmin_Layout({ children }) {
   }, [loadNotifications]);
 
   const disabledCheckRef = useRef(false);
+  const disabledRecheckRef = useRef(false);
 
   const checkDisabled = useCallback(async () => {
-    if (disabledCheckRef.current) return;
+    if (disabledCheckRef.current) {
+      disabledRecheckRef.current = true;
+      return;
+    }
     if (
       typeof document !== "undefined" &&
       document.visibilityState === "hidden"
@@ -202,13 +190,10 @@ function SAdmin_Layout({ children }) {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      const res = await apiClient.get("/profile", {
+      // /session verifies account status without loading the full profile.
+      await apiClient.get("/session", {
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      if (res.data?.status === "Disabled") {
-        setShowDisabledModal(true);
-      }
     } catch (err) {
       const status = err.response?.status;
       const message = err.response?.data?.error || "";
@@ -218,12 +203,24 @@ function SAdmin_Layout({ children }) {
       }
     } finally {
       disabledCheckRef.current = false;
+      const recheck = disabledRecheckRef.current;
+      disabledRecheckRef.current = false;
+      if (recheck && sessionData.session()) void checkDisabled();
     }
   }, []);
 
+  useAutoRefresh(checkDisabled, 60000);
+
   useEffect(() => {
-    const id = setInterval(checkDisabled, 60000);
-    return () => clearInterval(id);
+    const unsubscribe = subscribeToAccountStatusChanges(checkDisabled);
+    const unsubscribeSession = sessionData.subscribe((event) => {
+      if (event.type === "session" && event.reason === "disabled") setShowDisabledModal(true);
+    });
+    return () => {
+      disabledRecheckRef.current = false;
+      if (typeof unsubscribe === "function") unsubscribe();
+      unsubscribeSession();
+    };
   }, [checkDisabled]);
 
   useEffect(() => {
@@ -571,9 +568,11 @@ function SAdmin_Layout({ children }) {
     setShowProfileDropdown(false);
   };
 
+  const compactWorkspace = width < 900 && pathname.includes("SAdmin_SentimentDatasets");
+
   return (
     <View style={styles.container}>
-      <View style={styles.sidebar}>
+      <View style={[styles.sidebar, compactWorkspace && { display: "none" }]}>
         <View style={styles.logoSection}>
           <Image
             source={IMAGES.logoNoText}
@@ -610,18 +609,19 @@ function SAdmin_Layout({ children }) {
         </View>
       </View>
 
-      <View style={styles.mainContent}>
-        <View style={styles.topHeader}>
-          <View style={styles.headerLeft}>
+      <View style={[styles.mainContent, compactWorkspace && { minWidth: 0 }]}>
+        <View style={[styles.topHeader, compactWorkspace && { height: "auto", minHeight: 98, padding: 12, gap: 12, flexWrap: "wrap" }]}>
+          <View style={[styles.headerLeft, compactWorkspace && { flexBasis: "100%", marginRight: 0, minWidth: 0 }]}>
+            {compactWorkspace ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open navigation" onPress={() => setMobileNavigationOpen(true)} style={[styles.headerIconButton, { marginRight: 10 }]}><Ionicons name="menu-outline" size={24} color={COMMUNISHIELD_BLUE} /></TouchableOpacity> : null}
             <View style={styles.headerTitleDivider} />
 
-            <View>
-              <Text style={styles.pageTitle}>{currentPage.label}</Text>
-              <Text style={styles.pageDesc}>{currentPage.description}</Text>
+            <View style={compactWorkspace && { flex: 1, minWidth: 0 }}>
+              <Text style={[styles.pageTitle, compactWorkspace && { fontSize: 21 }]}>{currentPage.label}</Text>
+              <Text style={[styles.pageDesc, compactWorkspace && { fontSize: 12 }]}>{currentPage.description}</Text>
             </View>
           </View>
 
-          <View style={styles.headerRight}>
+          <View style={[styles.headerRight, compactWorkspace && { width: "100%", justifyContent: "flex-end" }]}>
             <View style={styles.notificationWrapper}>
               <TouchableOpacity
                 style={[
@@ -796,7 +796,7 @@ function SAdmin_Layout({ children }) {
                   <Text style={styles.avatarText}>S</Text>
                 </View>
 
-                <View style={styles.profileInfo}>
+                <View style={[styles.profileInfo, compactWorkspace && { display: "none" }]}>
                   <Text style={styles.profileText}>SuperAdmin</Text>
                   <Text style={styles.profileRole}>System Owner</Text>
                 </View>
@@ -855,12 +855,21 @@ function SAdmin_Layout({ children }) {
 
         <TouchableOpacity
           activeOpacity={1}
-          style={styles.pageContent}
+          style={[styles.pageContent, compactWorkspace && { padding: 12, minWidth: 0 }]}
           onPress={closeDropdowns}
         >
           {children}
         </TouchableOpacity>
       </View>
+
+      <Modal visible={compactWorkspace && mobileNavigationOpen} transparent animationType="fade" onRequestClose={() => setMobileNavigationOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(15,23,42,0.45)", justifyContent: "center", padding: 20 }}>
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 16, maxHeight: "90%" }}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close navigation" onPress={() => setMobileNavigationOpen(false)} style={[styles.navItem, { justifyContent: "space-between" }]}><Text style={styles.navText}>Navigation</Text><Ionicons name="close-outline" size={24} color={COMMUNISHIELD_BLUE} /></TouchableOpacity>
+            <ScrollView>{navItems.map((item) => <TouchableOpacity key={item.route} accessibilityRole="button" style={[styles.navItem, isRouteActive(item) && styles.activeNavItem]} onPress={() => { setMobileNavigationOpen(false); handleNavPress(item.route); }}><View style={styles.navIcon}>{getIcon(item, isRouteActive(item))}</View><Text style={[styles.navText, isRouteActive(item) && styles.activeNavText]}>{item.label}</Text></TouchableOpacity>)}</ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={showLogoutModal}

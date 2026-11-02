@@ -57,3 +57,5 @@ yarn-error.*
 /artifacts/private-test-analysis/
 __pycache__/
 *.py[cod]
+.vercel
+.env*
