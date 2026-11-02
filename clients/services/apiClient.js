@@ -75,7 +75,6 @@ apiClient.interceptors.request.use(async (config) => {
 
 apiClient.interceptors.response.use(
   (response) => response,
-  (response) => response,
   async (error) => {
     const status = error.response?.status;
     const message = error.response?.data?.error || "";
@@ -89,16 +88,6 @@ apiClient.interceptors.response.use(
       } catch {}
     }
 
-    if (status === 401 && error.response?.data?.code === "DEVICE_VERIFICATION_REQUIRED") {
-      // Old/password-only sessions must return to sign-in, never bypass the code.
-      // Ignore stale requests from a previous session after a new login completes.
-      const token = await AsyncStorage.getItem("access_token");
-      if (token && error.config?.headers?.Authorization === `Bearer ${token}`) {
-        const { clearAuth } = await import("./auth");
-        await clearAuth();
-        const { router } = await import("expo-router");
-        router.replace(Platform.OS === "web" ? "/(auth)/Admin_Login" : "/(auth)/User_Login");
-      }
     if (status === 401 && error.response?.data?.code === "DEVICE_VERIFICATION_REQUIRED") {
       // Old/password-only sessions must return to sign-in, never bypass the code.
       // Ignore stale requests from a previous session after a new login completes.
@@ -128,13 +117,11 @@ export const apiRequest = async (config, retries = MAX_RETRIES) => {
       const status = error.response?.status;
       const isRetryable =
         !status ||
-        !status ||
         status === 429 ||
         status === 502 ||
         status === 503 ||
         status === 504 ||
         error.code === "ECONNABORTED" ||
-        error.code === "ERR_NETWORK";
         error.code === "ERR_NETWORK";
 
       if (!isRetryable || attempt === retries) break;

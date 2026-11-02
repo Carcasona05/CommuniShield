@@ -1,8 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Platform } from "react-native";
-import { Image } from "expo-image";
+import { AppState, Platform } from "react-native";
 import { apiRequest } from "./apiClient";
-import { ROLE_KEY } from "./auth";
+import { prefetchPlan, sessionData } from "./sessionData";
+import { querySnapshotKey, usableQuerySnapshot } from "./querySnapshots";
 
 const CACHE_KEY = "communishield_data_cache";
 const cache = new Map();
@@ -58,6 +58,11 @@ export const setCache = (key, value) => {
 };
 
 export const getCache = (key) => (cache.has(key) ? cache.get(key) : undefined);
+
+export const getCachedPage = (endpoint, params = {}) => {
+  const snapshot = sessionData.get(querySnapshotKey(endpoint, params));
+  return usableQuerySnapshot(snapshot) ? snapshot.data : undefined;
+};
 
 const hydrateFromStorage = () => {
   const obj = readStorageSync();

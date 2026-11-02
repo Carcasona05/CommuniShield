@@ -1,7 +1,18 @@
 import { createClient } from "@supabase/supabase-js";
+import { sessionData } from "./sessionData";
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+let realtimeClient;
+const getRealtimeClient = () => {
+  if (!realtimeClient) {
+    realtimeClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+  }
+  return realtimeClient;
+};
 
 // This public channel carries no account data. Treat broadcasts as hints only;
 // the caller must use /session to authoritatively verify its own account.
@@ -19,9 +30,7 @@ export const subscribeToAccountStatusChanges = (onChange) => {
     }, 150);
   };
   try {
-    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    });
+    supabase = getRealtimeClient();
     channel = supabase.channel("cs-account-status");
     channel.on("broadcast", { event: "account-status-changed" }, scheduleCheck);
     channel.subscribe((status) => {
@@ -47,7 +56,7 @@ export const subscribeToAdminNotifications = (onChange) => {
   }
 
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supabase = getRealtimeClient();
     const channel = supabase.channel("cs-admin-notifications");
 
     channel.on("broadcast", { event: "admin-notifications-changed" }, () => {
