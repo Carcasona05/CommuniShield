@@ -5,12 +5,14 @@ import { forgotPassword, verifyOtp, resetPassword } from "../controllers/passwor
 import { authenticate } from "../middlewares/authMiddleware.js";
 import { adapt } from "../utils/adapt.js";
 import { getNotificationPreferences, updateNotificationPreferences } from "../controllers/notificationPreferencesController.js";
+import { getSession } from "../controllers/sessionController.js";
 
 const router = express.Router();
 
 router.post("/register", register);
 router.post("/login", login);
 router.post("/login/verify", verifyLoginCode);
+router.get("/session", authenticate, adapt(getSession));
 router.get("/profile", authenticate, adapt(getProfile));
 router.get("/profile/notification-preferences", authenticate, adapt(getNotificationPreferences));
 router.patch("/profile/notification-preferences", authenticate, adapt(updateNotificationPreferences));

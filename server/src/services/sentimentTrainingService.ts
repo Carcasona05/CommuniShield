@@ -1,10 +1,14 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
-import { modelRegistryEnabled, prepareModelBundle } from "./sentimentModelRegistry.js";
+import { modelRegistryEnabled, supportingModelsEnabled } from "./sentimentModelRegistry.js";
 
 export const sentimentTrainingService = {
   async status() {
+    // Read capabilities before selecting columns added by optional migrations.
+    const capabilities = await supabaseAdmin.rpc("sentiment_training_capabilities", {});
+    const independentAdmission = capabilities.data?.independent_admission === true && !capabilities.error;
+    const freshCandidates = capabilities.data?.fresh_candidates === true && !capabilities.error;
     const state = await supabaseAdmin.from("sentiment_model_state").select("generation, data_revision, active_job_id, previous_job_id, updated_at").eq("id", 1).single();
-    const jobs = await supabaseAdmin.from("sentiment_training_jobs").select("id, status, created_at, available_at, started_at, finished_at, lease_until, data_revision, base_generation, base_job_id, metrics, error, datasets:snapshot->datasets").order("created_at", { ascending: false }).limit(10);
+    const jobs = await supabaseAdmin.from("sentiment_training_jobs").select(`id, status, created_at, available_at, started_at, finished_at, lease_until, data_revision, base_generation, base_job_id, metrics, error, datasets:snapshot->datasets${freshCandidates ? ", training_mode" : ""}${capabilities.data?.language_scoped_training === true ? ", training_languages" : ""}`).order("created_at", { ascending: false }).limit(10);
     if (state.error || jobs.error) return { data: null, error: state.error || jobs.error };
     // Supabase's type parser cannot infer the optional-column select string.
     const jobRows = (jobs.data || []) as unknown as Array<{ id: string; [key: string]: unknown }>;

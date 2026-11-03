@@ -191,7 +191,7 @@ export default function SentimentDatasetManager({ embedded = false }) {
     try {
       await apiClient.post(`/sentiment/datasets/${detail.dataset.id}/review`, { action, version: detail.dataset.version, note: reviewNote });
       setTrainingRefreshKey((value) => value + 1);
-      tell(action === "approve" ? "Dataset approved. Training queued." : action === "reject" ? "Dataset rejected." : "Dataset archived."); await openDetail(detail.dataset.id, detailPage); await load();
+      tell(action === "approve" ? "Dataset approved. Review the collected examples in Training." : action === "reject" ? "Dataset rejected." : "Dataset archived."); await openDetail(detail.dataset.id, detailPage); await load();
     } catch (err) { fail(err); }
     finally { setBusy(false); }
   };
@@ -217,7 +217,7 @@ export default function SentimentDatasetManager({ embedded = false }) {
   return <View style={[s.card, embedded && s.embeddedCard]}>
     <View style={s.managerHeading}>
       <View style={s.headingIcon}><Ionicons name="layers-outline" size={21} color="#294880" /></View>
-      <View style={s.flex}><Text style={s.title}>Sentiment Training Data</Text><Text style={s.note}>{embedded ? "Add examples and track their progress." : "Review datasets and manage model updates."}</Text></View>
+      <View style={s.flex}><Text style={s.title}>Sentiment Training Data</Text><Text style={s.note}>Collect examples. Review labels. Train and approve supporting models.</Text></View>
     </View>
     <SectionTabs value={activeTab} disabled={busy} onChange={(tab) => { setActiveTab(tab); setNotice(""); setFilterOpen(false); }} options={embedded ? [
       { key: "add", label: "Add data" }, { key: "datasets", label: "Datasets" }, { key: "training", label: "Training" },
@@ -317,7 +317,7 @@ export default function SentimentDatasetManager({ embedded = false }) {
         </Disclosure> : null}
       </> : null}
     </Sheet> : null}
-    {confirmation ? <ConfirmModal visible onClose={() => setConfirmation(null)} onConfirm={() => review(confirmation)} title={`${confirmation[0].toUpperCase() + confirmation.slice(1)} dataset?`} message={confirmation === "approve" ? "Approve these examples and queue retraining? The active model will not change yet." : confirmation === "reject" ? "Reject this submission with your review note?" : "Archive this dataset? Its history will be kept."} confirmLabel="Confirm" /> : null}
+    {confirmation ? <ConfirmModal visible onClose={() => setConfirmation(null)} onConfirm={() => review(confirmation)} title={`${confirmation[0].toUpperCase() + confirmation.slice(1)} dataset?`} message={confirmation === "approve" ? "Approve these labels for the reviewed training pool? You can collect more examples before queueing training. The built-in model stays permanent." : confirmation === "reject" ? "Reject this submission with your review note?" : "Archive this dataset? Its history will be kept."} confirmLabel="Confirm" /> : null}
   </View>;
 }
 

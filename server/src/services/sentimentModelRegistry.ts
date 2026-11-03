@@ -11,6 +11,7 @@ export type ModelManifest = { files: Record<string, ModelFile> };
 export type ModelBundle = { version: string; directory: string };
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export const modelRegistryEnabled = () => process.env.SENTIMENT_MODEL_REGISTRY_ENABLED === "true";
+export const supportingModelsEnabled = () => modelRegistryEnabled() && process.env.SENTIMENT_SUPPORT_ENABLED === "true";
 
 export function validateManifest(jobId: string, manifest: unknown): ModelManifest {
   if (!uuid.test(jobId) || !manifest || typeof manifest !== "object") throw new Error("Invalid model manifest");

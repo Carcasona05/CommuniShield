@@ -40,6 +40,9 @@ export const authenticate = async (
 
   req.user = data.user;
   req.token = token;
+  res.locals.verifiedSession = profile.data && !profile.error
+    ? { userId: data.user.id, role: profile.data.role }
+    : null;
   next();
 };
 

@@ -57,3 +57,24 @@ test("queue requires ready data, not cumulative approvals; retries are separate"
   assert.equal(retry.canRetry, true);
   assert.equal(layout([{ status: "failed", data_revision: 0 }], { approvedExamples: 100 }).canRetry, false);
 });
+
+test("training styles remain defined after merges and action rows wrap on narrow screens", () => {
+  const definitions = source.slice(source.indexOf("const s = StyleSheet.create("));
+  const defined = new Set([...definitions.matchAll(/^ {2}(\w+):/gm)].map(match => match[1]));
+  for (const match of source.matchAll(/\bs\.(\w+)/g)) {
+    assert.ok(defined.has(match[1]), `Missing training style: ${match[1]}`);
+  }
+  assert.match(definitions, /modelControls: \{[^\n]*flexDirection: "row"[^\n]*flexWrap: "wrap"[^\n]*gap: 8/);
+  assert.match(definitions, /between: \{[^\n]*flexWrap: "wrap"/);
+});
+
+test("history uses independent quality results rather than legacy baseline comparisons", () => {
+  assert.match(source, /compact && job\.metrics\?\.languages \? <TrainingEvaluation metrics=\{job\.metrics\} \/>/);
+  assert.doesNotMatch(source, /result\.baseline\?\.macro_f1|Roll back model/);
+});
+
+test("dataset approval messaging does not claim that training was automatically queued", () => {
+  const manager = readFileSync(new URL("../../clients/components/Admin_compo/SentimentDatasetManager.jsx", import.meta.url), "utf8");
+  assert.doesNotMatch(manager, /Dataset approved\. Training queued\.|Approve these examples and queue retraining/);
+  assert.match(manager, /Dataset approved\. Review the collected examples in Training\./);
+});
