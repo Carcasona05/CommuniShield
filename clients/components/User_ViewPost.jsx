@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import { useFonts } from "expo-font";
 import censorText from "../services/censorText";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../services/apiClient";
+import { ensureCompleteProfile, ensureNotSuspended } from "../services/profileCompletion";
 
 const PRIMARY = "#294880";
 
@@ -42,6 +43,10 @@ const User_ViewPost = ({ post, onBack }) => {
 
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
+  const commentInputRef = useRef(null);
+  const handleCommentPress = async () => {
+    if (!await ensureNotSuspended()) commentInputRef.current?.blur();
+  };
 
   const loadComments = useCallback(async () => {
     if (!safePost?.id) return;
@@ -104,15 +109,16 @@ const User_ViewPost = ({ post, onBack }) => {
   const handleAddComment = async () => {
     if (!newComment.trim() || !safePost?.id) return;
     const text = newComment.trim();
-    setNewComment("");
     try {
       const token = await AsyncStorage.getItem("access_token");
+      if (!await ensureCompleteProfile("comment")) return;
       await apiClient.post(
         `/reports/${safePost.id}/comments`,
         { content: text },
         { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
       );
       await loadComments();
+      setNewComment("");
     } catch {
       setNewComment(text);
     }
@@ -264,7 +270,7 @@ const User_ViewPost = ({ post, onBack }) => {
                 <Text style={styles.actionCount}>{safePost.likes}</Text>
               </View>
 
-              <View style={styles.actionButton}>
+              <TouchableOpacity style={styles.actionButton} onPress={handleCommentPress}>
                 <Ionicons
                   name="chatbubble-ellipses-outline"
                   size={iconSize}
@@ -272,7 +278,7 @@ const User_ViewPost = ({ post, onBack }) => {
                 />
                 <Text style={styles.actionText}>Comment</Text>
                 <Text style={styles.actionCount}>{comments.length}</Text>
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -313,6 +319,8 @@ const User_ViewPost = ({ post, onBack }) => {
 
         <View style={styles.inputContainer}>
           <TextInput
+            ref={commentInputRef}
+            onPressIn={handleCommentPress}
             style={styles.input}
             placeholder="Write a comment..."
             placeholderTextColor="#8A94A6"

@@ -70,14 +70,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path, default=DATASET_DIR)
     parser.add_argument("--output-dir", type=Path, default=MODEL_DIR)
-    parser.add_argument("--baseline-model-dir", type=Path,
-                        help="Active ONNX bundle used for validation-only recall safeguards")
-    parser.add_argument('--independent-quality', action='store_true',
-                        help='Select with absolute validation quality floors, not built-in scores')
-    parser.add_argument('--validation-only', action='store_true',
-                        help='Offline development: do not load or score test.csv')
-    parser.add_argument('--languages', nargs='+', choices=('cebuano','english','filipino'),
-                        help='Fit only the declared languages; never infer scope from baseline splits')
+    parser.add_argument("--baseline-model-dir", type=Path)
+    parser.add_argument("--independent-quality", action="store_true")
+    parser.add_argument("--validation-only", action="store_true",
+                        help="Do not load or score test.csv")
+    parser.add_argument("--languages", nargs="+", choices=("cebuano", "english", "filipino"))
     return parser.parse_args()
 
 
@@ -189,8 +186,10 @@ def build_classifier(candidate: float) -> OneVsRestClassifier:
             max_iter=1000,
             random_state=RANDOM_STATE,
             solver="liblinear",
-            # Rebalance classes from this training snapshot only. Validation
-            # calibration separately protects each class's recall.
+            # The Cebuano splits are heavily skewed toward negative (crime/news
+            # origin), which pushed positive recall down to ~0.12. Balanced
+            # class weights penalise mistakes on the rare positive class so the
+            # model stops defaulting to negative on praise like "gwapo".
             class_weight="balanced",
         )
     )
@@ -251,9 +250,8 @@ def evaluate(y_true: pd.Series, y_pred: pd.Series) -> EvaluationMetrics:
 
 
 def baseline_validation_metrics(model: Path, frame: pd.DataFrame) -> EvaluationMetrics:
-    # Legacy bundles were refitted on validation: re-predicting that data with
-    # them creates an in-sample (unfairly high) target. Use recorded pre-refit
-    # validation metrics paired with exactly the same ONNX artifact instead.
+    # Use recorded pre-refit validation metrics paired with the exact ONNX file.
+    # Re-predicting a legacy train+validation model would contaminate the target.
     for folder in dict.fromkeys([model.parent, MODEL_DIR]):
         metadata = folder / "baseline_metrics.json"
         paired = folder / model.name
@@ -262,8 +260,6 @@ def baseline_validation_metrics(model: Path, frame: pd.DataFrame) -> EvaluationM
         manifest = json.loads(metadata.read_text(encoding="utf-8"))
         if hashlib.sha256(paired.read_bytes()).digest() != hashlib.sha256(model.read_bytes()).digest():
             continue
-        # Downloaded active bundles include hashes bound to their training
-        # metadata by the worker; reject a stale sidecar rather than guessing.
         expected_hash = manifest.get("onnx_hashes", {}).get(model.name)
         if expected_hash and expected_hash != hashlib.sha256(model.read_bytes()).hexdigest():
             continue
@@ -272,25 +268,20 @@ def baseline_validation_metrics(model: Path, frame: pd.DataFrame) -> EvaluationM
         if entry and entry.get("validation_metrics"):
             metrics = entry["validation_metrics"]
             if metrics.get("samples") != len(frame):
-                raise ValueError(f"{language}: validation size differs from the baseline metadata. Provision the original frozen holdout.")
+                raise ValueError(f"{language}: validation size differs from the baseline metadata.")
             if any(metrics["per_label"][label]["support"] != int(frame["label"].eq(label).sum()) for label in LABELS):
                 raise ValueError(f"{language}: validation class counts differ from the baseline metadata.")
             expected_validation = manifest.get("input_split_hashes", {}).get("validation")
             if expected_validation and expected_validation != frame.attrs.get("source_sha256"):
-                raise ValueError(f"{language}: validation file changed since baseline training. Provision the original frozen holdout.")
+                raise ValueError(f"{language}: validation file changed since baseline training.")
             return metrics
-    raise ValueError(f"Recorded validation metadata matching {model.name} is missing. Provision datasets/models/baseline_metrics.json with its matching ONNX bundle; do not use test metrics as a substitute.")
+    raise ValueError(f"Recorded validation metadata matching {model.name} is missing. Provision the matching ONNX bundle and metadata; do not substitute test metrics.")
 
 
 def select_validation_offsets(decisions, classes, labels, reference=None, independent_quality=False):
-    """Choose class intercept offsets on validation, never keywords or test rows.
-
-    Macro-F1 alone can trade away negative recall. Protect ALL classes relative
-    to the active model's validation recall, while keeping macro-F1 comparable.
-    Center the neutral offset at zero to avoid redundant uniform shifts.
-    """
+    """Select class intercepts on validation only, with existing quality floors."""
     if independent_quality and reference is not None:
-        raise ValueError('Independent selection must not use a built-in metric reference')
+        raise ValueError("Independent selection must not use a built-in metric reference")
     classes = [str(label) for label in classes]
     if set(classes) != set(LABELS):
         raise ValueError("Classifier must contain all three sentiment classes")
@@ -318,13 +309,11 @@ def select_validation_offsets(decisions, classes, labels, reference=None, indepe
         recall = tp / support
         predicted_counts = confusion.sum(axis=0)
         precision = np.divide(tp, predicted_counts, out=np.zeros(3), where=predicted_counts > 0)
-        denominator = support + confusion.sum(axis=0)
-        score = float(np.mean(2 * tp / denominator))
+        score = float(np.mean(2 * tp / (support + predicted_counts)))
         if score < minimum_f1 or np.any(recall + 1e-12 < floors):
             continue
         if independent_quality and np.any(precision < 0.5):
             continue
-        # Prefer smaller offsets when validation scores tie.
         rank = (score, -float(np.abs(bias).sum()))
         if best is None or rank > best["rank"]:
             best = {"rank": rank, "offsets": dict(zip(classes, bias.tolist())),
@@ -344,6 +333,7 @@ def train_language(
     independent_quality: bool = False,
     evaluate_test: bool = True,
 ) -> dict[str, object]:
+    from training_progress import write_fit_progress
     if independent_quality and baseline_model_dir is not None:
         raise ValueError('Independent training cannot use built-in selection metrics')
     train_frame: pd.DataFrame = train.loc[train["language"].eq(language)].reset_index(drop=True)
@@ -364,24 +354,27 @@ def train_language(
         f"\n{language}: {len(train_frame):,} train / {len(validation_frame):,} validation / "
         f"{f'{len(test_frame):,} test' if test_frame is not None else 'test deferred (validation-only)'}"
     )
+    configurations = [(c, weight) for c in CANDIDATES for weight in (('balanced', None) if independent_quality else ('balanced',))]
+    write_fit_progress(0, len(configurations) + 2)
     vectorizer = build_vectorizer() if word_max_ngram == 2 else build_vectorizer(word_max_ngram)
     train_features = vectorizer.fit_transform(train_frame["text"])
     validation_features = vectorizer.transform(validation_frame["text"])
+    write_fit_progress(1, len(configurations) + 2)
 
-    reference = baseline_validation_metrics(baseline_model_dir / f"sentiment_{language}.onnx", validation_frame) if baseline_model_dir else None
     best_candidate = CANDIDATES[0]
     best_score = -1.0
     best_classifier = None
     best_selection = None
-    best_class_weight = 'balanced'
+    best_class_weight = "balanced"
+    reference = baseline_validation_metrics(baseline_model_dir / f"sentiment_{language}.onnx", validation_frame) if baseline_model_dir else None
     validation_labels = cast(pd.Series, validation_frame["label"])
-    configurations = [(c, weight) for c in CANDIDATES for weight in (('balanced', None) if independent_quality else ('balanced',))]
-    for candidate, class_weight in configurations:
+    for configuration_index, (candidate, class_weight) in enumerate(configurations):
         classifier = build_classifier(candidate)
         classifier.set_params(estimator__class_weight=class_weight)
         classifier.fit(train_features, train_frame["label"])
         selection = select_validation_offsets(classifier.decision_function(validation_features),
                                                classifier.classes_, validation_labels, reference, independent_quality)
+        write_fit_progress(configuration_index + 2, len(configurations) + 2)
         if selection is None:
             print(f"  C={candidate:g}, weight={class_weight}: no validation setting meets the required class-quality floors", flush=True)
             continue
@@ -396,8 +389,7 @@ def train_language(
 
     if best_classifier is None or best_selection is None:
         raise TrainingQualityError(language, [
-            'No fitted candidate meets the required validation macro-F1 and per-class precision/recall floors. '
-            'Review the training labels and class coverage. Quality requirements were not relaxed.'
+            "No fitted candidate meets validation macro-F1 and per-class precision/recall floors. Review training labels and class coverage."
         ])
     for index, label in enumerate(best_classifier.classes_):
         best_classifier.estimators_[index].intercept_ += best_selection["offsets"][label]
@@ -407,8 +399,7 @@ def train_language(
             ("classifier", best_classifier),
         ]
     )
-    # Export the exact model selected on validation. Do NOT refit it on
-    # train+validation: that changes its decisions and contaminates the holdout.
+    # Keep the exact validation-selected model; never refit on held-out rows.
     best_validation = evaluate(validation_labels, pd.Series(pipeline.predict(validation_frame["text"])))
     test_predictions = pipeline.predict(test_frame["text"]) if test_frame is not None else None
     test_metrics = evaluate(
@@ -422,8 +413,8 @@ def train_language(
         "labels": list(LABELS),
         "best_c": best_candidate,
         "word_max_ngram": word_max_ngram,
-        'class_weight': best_class_weight,
-        'test_evaluated': evaluate_test,
+        "class_weight": best_class_weight,
+        "test_evaluated": evaluate_test,
         "random_state": RANDOM_STATE,
         "sklearn_version": sklearn.__version__,
         "trained_at": datetime.now(timezone.utc).isoformat(),
@@ -431,20 +422,21 @@ def train_language(
         "fit_splits": ["train"],
         "calibration": {"selection_split": "validation", "logit_offsets": best_selection["offsets"],
                         "recall_floors": best_selection["recall_floors"], "baseline_validation": reference,
-                        "precision_floors": best_selection['precision_floors'],
-                        "selection_policy": 'independent-quality-v2' if independent_quality else 'legacy'},
+                        "precision_floors": best_selection["precision_floors"],
+                        "selection_policy": "independent-quality-v2" if independent_quality else "legacy"},
         "validation_metrics": best_validation,
         "test_metrics": test_metrics,
     }
     artifact_path = output_dir / f"sentiment_{language}.joblib"
     joblib.dump({"pipeline": pipeline, "metadata": metadata}, artifact_path, compress=3)
     onnx_metadata = export_onnx(pipeline, artifact_path)
+    write_fit_progress(len(configurations) + 2, len(configurations) + 2)
     metadata["artifact_path"] = str(artifact_path)
     metadata["onnx_artifact"] = onnx_metadata
     if test_metrics is not None:
         print(f"  selected C={best_candidate:g}; test macro_f1={test_metrics['macro_f1']:.4f}, accuracy={test_metrics['accuracy']:.4f}")
     else:
-        print(f'  selected C={best_candidate:g}; test not read or scored')
+        print(f"  selected C={best_candidate:g}; test not read or scored")
     print(f"  saved {artifact_path} and {onnx_metadata['artifact_path']}")
     return metadata
 
@@ -465,28 +457,20 @@ def main() -> None:
     results = []
     for language in languages:
         try:
-            result = train_language(
-                language,
-                frames["train"],
-                frames["validation"],
-                frames.get("test", pd.DataFrame()),
+            results.append(train_language(
+                language, frames["train"], frames["validation"], frames.get("test", pd.DataFrame()),
                 args.output_dir.resolve(),
                 args.baseline_model_dir.resolve() if args.baseline_model_dir else None,
                 independent_quality=args.independent_quality,
                 word_max_ngram=3 if args.independent_quality else 2,
                 evaluate_test=not args.validation_only,
-            )
-            results.append(result)
+            ))
         except TrainingQualityError as error:
-            # Deliberately no private text, traceback, or absolute file paths.
-            # Partial artifacts stay private and can never be registered.
-            failure = {
-                'kind': 'validation_quality', 'language': error.language,
-                'reasons': error.reasons, 'completed_languages': [r['language'] for r in results],
-                'requested_languages': list(languages), 'test_used_for_selection': False,
-            }
-            (args.output_dir / 'training_failure.json').write_text(json.dumps(failure, indent=2), encoding='utf-8')
-            print(f'Validation quality checks failed: {error}', flush=True)
+            failure = {"kind": "validation_quality", "language": error.language,
+                       "reasons": error.reasons, "completed_languages": [r["language"] for r in results],
+                       "requested_languages": list(languages), "test_used_for_selection": False}
+            (args.output_dir / "training_failure.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+            print(f"Validation quality checks failed: {error}", flush=True)
             raise SystemExit(2) from None
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),

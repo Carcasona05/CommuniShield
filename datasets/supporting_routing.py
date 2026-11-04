@@ -33,7 +33,11 @@ def describe(y, predicted):
 
 
 def cascade(primary, supports):
-    """Mirror supportingModelRouting.ts: agreement, no votes/probability averaging."""
+    """Mirror serving: correct weak primaries; supports must agree with each other.
+
+    Agreement with an uncertain primary is not required. Strong primaries stay
+    protected; weak/conflicting supports abstain. No votes/probability averaging.
+    """
     best = primary.argmax(axis=1); confidence = primary.max(axis=1)
     ordered = np.sort(primary, axis=1); margin = ordered[:, -1] - ordered[:, -2]
     eligible_any = np.zeros(len(primary), dtype=bool)

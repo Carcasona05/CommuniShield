@@ -20,6 +20,7 @@ import Admin_AddAnnouncementModal from "../../components/Admin_compo/Admin_AddAn
 import Admin_AddBlotterModal from "../../components/Admin_compo/Admin_AddBlotterModal";
 import PoliceCertificationPreview from "../../components/Admin_compo/PoliceCertificationPreview";
 import { buildPoliceCertificationHtml } from "../../utils/policeCertification";
+import { buildFormalReportHtml, getReportImages, waitForReportImages } from "../../utils/formalReport";
 import {
   BatchDateRangeDropdown,
   BatchFilterDropdown,
@@ -27,7 +28,6 @@ import {
 import ToastProvider, { useToast } from "../../components/Toast";
 import ConfirmModal from "../../components/modals/ConfirmModal";
 import apiClient from "../../services/apiClient";
-import { getCache, getCachedPage } from "../../services/dataStore";
 import localBlotterStore from "../../services/localBlotterStore";
 import { uploadImage } from "../../services/imageUpload";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
@@ -69,6 +69,8 @@ const getRecordDocumentSections = (record) => {
         fields: [
           ["Record ID", record.id],
           ["Record Type", record.kind],
+          ["Announcement Type", record.type],
+          ["Title", record.title],
           ["Published", formatDate(record.created_at)],
           ["Status", record.status],
           ["Published By", record.actor || record.reportedBy],
@@ -97,6 +99,7 @@ const getRecordDocumentSections = (record) => {
           ["Incident Category", record.incident_category || record.incidentCategory],
           ["Type of Incident", record.incident_type || record.incidentType],
           ["Location", record.location],
+          ["Coordinates", record.latitude != null && record.longitude != null ? `${record.latitude}, ${record.longitude}` : ""],
           ["Description", record.details],
         ],
       },
@@ -169,6 +172,7 @@ const getRecordDocumentSections = (record) => {
 const buildRecordDocumentHtml = (record) => {
   if (record.kind === "Blotter") return buildPoliceCertificationHtml(record);
   const sections = getRecordDocumentSections(record);
+  if (["Incident", "Announcement"].includes(record.kind)) return buildFormalReportHtml(record, sections);
   const sectionMarkup = sections.map((section) => `
     <section>
       <h2>${escapeHtml(section.title)}</h2>
@@ -231,13 +235,11 @@ function SAdmin_ReportManagementPage() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
-  const [reports, setReports] = useState(() => (getCachedPage("/admin/dashboard", { source: "Admin" })?.reports || [])
-    .filter((item) => item.status !== "Archived"));
-  const [announcements, setAnnouncements] = useState(() => getCachedPage("/admin/announcements", { source: "Admin" })?.announcements || []);
-  const [blotters, setBlotters] = useState(() => getCache("api:/admin/blotters")?.blotters || []);
-  const [logs, setLogs] = useState(() => getCache("api:/admin/logs")?.logs || []);
-  const [loading, setLoading] = useState(() => !getCachedPage("/admin/dashboard", { source: "Admin" }) ||
-    !getCachedPage("/admin/announcements", { source: "Admin" }) || !getCache("api:/admin/logs"));
+  const [reports, setReports] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
+  const [blotters, setBlotters] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [status, setStatus] = useState("All");
@@ -668,6 +670,7 @@ function SAdmin_ReportManagementPage() {
         printWindow.document.open();
         printWindow.document.write(html);
         printWindow.document.close();
+        await waitForReportImages(printWindow.document);
         printWindow.focus();
         printWindow.print();
         return;
@@ -675,7 +678,7 @@ function SAdmin_ReportManagementPage() {
 
       const { uri } = await Print.printToFileAsync({
         html,
-        ...(previewRecord.kind === "Blotter" ? { width: 595.28, height: 841.89 } : {}),
+        ...(["Incident", "Announcement", "Blotter"].includes(previewRecord.kind) ? { width: 595.28, height: 841.89 } : {}),
       });
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, {
@@ -944,11 +947,11 @@ function SAdmin_ReportManagementPage() {
                   </View>
                 ))}
 
-                {(previewRecord.images || previewRecord.photos || []).length > 0 ? (
+                {getReportImages(previewRecord).length > 0 ? (
                   <View style={styles.previewSection}>
-                    <Text style={styles.previewSectionTitle}>Photo Evidence</Text>
+                    <Text style={styles.previewSectionTitle}>{previewRecord.kind === "Announcement" ? "Announcement Attachment" : "Photo Evidence"}</Text>
                     <View style={styles.previewImages}>
-                      {(previewRecord.images || previewRecord.photos).map((image, index) => {
+                      {getReportImages(previewRecord).map((image, index) => {
                         const uri = typeof image === "string" ? image : image?.uri || image?.url || image?.image_url;
                         return uri ? <Image key={`${uri}-${index}`} source={{ uri }} style={styles.previewImage} resizeMode="cover" /> : null;
                       })}

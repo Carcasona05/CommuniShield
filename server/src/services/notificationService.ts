@@ -366,9 +366,10 @@ export const notificationService = {
 
       const child = childById.get(n.id);
 
-      if (typeId === typeIdByName.get("report_status")) {
+      if (typeId === typeIdByName.get("report_status") || typeId === typeIdByName.get("credibility_suspension")) {
         reportStatuses.push({
           ...base,
+          route: typeId === typeIdByName.get("credibility_suspension") ? "/(tabs)/User_ProfileSettings" : null,
           reportId: child?.report_id ?? null,
           location: child?.location ?? "",
           verified: child?.is_verified ?? false,

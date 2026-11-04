@@ -40,6 +40,7 @@ before(async()=>{
   await db.query('insert into auth.users values ($1)',[actor]);
   await db.query("insert into public.profiles values ($1,'super_admin','Active','Test','test')",[actor]);
   for(const name of ['sentiment_datasets.sql','sentiment_training_jobs.sql','sentiment_continued_training.sql','sentiment_supporting_pool.sql','sentiment_fresh_candidates.sql','sentiment_independent_admission.sql','sentiment_pending_training_summary.sql','sentiment_language_scoped_training.sql','sentiment_language_scoped_training.sql']) await db.exec(await readFile(new URL(`../../DB_Schema/migrations/${name}`,import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../../DB_Schema/migrations/sentiment_training_queue_eligibility.sql',import.meta.url),'utf8'));
 });
 beforeEach(async()=>db.exec(`update public.sentiment_model_state set active_job_id=null,previous_job_id=null,generation=0,data_revision=0;
   delete from public.sentiment_supporting_models; delete from public.sentiment_training_events; delete from public.sentiment_training_jobs;
@@ -84,4 +85,45 @@ test('scope cannot be broadened by a completion payload or weak evidence',async(
 test('outdated workers are rejected and private wrappers cannot bypass checks',async()=>{
   await assert.rejects(worker('claim',null,{}),{code:'22023'});
   for(const role of ['anon','authenticated','service_role']) assert.equal(await call("select has_function_privilege($1,'public.sentiment_training_worker_scope_legacy(text,uuid,uuid,jsonb)','execute') v",[role]),false);
+});
+
+test('worker shutdown ends the leased run immediately and prevents late heartbeat/publication',async()=>{
+  await approve(['cebuano']); const job=await queue();
+  await worker('fail',job,{error:'Worker stopped by operator.',metrics:{failure_stage:'worker_shutdown',interrupted:true}});
+  const row=(await db.query('select status,metrics,lease_until from public.sentiment_training_jobs where id=$1',[job.id])).rows[0];
+  assert.equal(row.status,'failed');
+  assert.equal(row.metrics.interrupted,true);
+  assert.equal(row.lease_until,null);
+  await assert.rejects(worker('heartbeat',job),{code:'40001'});
+  await assert.rejects(worker('complete',job,payload(job,['cebuano'])),{code:'40001'});
+  assert.equal(await call('select count(*)::int v from public.sentiment_supporting_models'),0);
+  assert.equal(await call('select active_job_id v from public.sentiment_model_state where id=1'),null);
+});
+
+test('a late stop cannot overwrite a registered candidate or another worker lease',async()=>{
+  await approve(['cebuano']); const job=await queue();
+  await assert.rejects(worker('fail',{...job,lease_token:randomUUID()},{error:'Worker stopped'}),{code:'40001'});
+  await worker('evaluating',job);
+  await worker('complete',job,payload(job,['cebuano']));
+  await assert.rejects(worker('fail',job,{error:'Worker stopped'}),{code:'40001'});
+  assert.equal(await call('select status v from public.sentiment_training_jobs where id=$1',[job.id]),'ready');
+  assert.equal(await call('select status v from public.sentiment_supporting_models where id=$1',[job.id]),'disabled');
+});
+
+test('normal queue rejects no approvals, already-trained data and duplicate active work',async()=>{
+  await assert.rejects(queue(),{code:'22023'});
+  await approve(['cebuano']); const job=await queue();
+  await assert.rejects(queue(),{code:'40001'});
+  await worker('evaluating',job); await worker('complete',job,payload(job,['cebuano']));
+  await assert.rejects(queue(),{code:'22023'});
+});
+
+test('retry is explicit, requires unchanged approved data, and cannot bypass completed-run rules',async()=>{
+  await approve(['cebuano']); const job=await queue();
+  await worker('fail',job,{error:'Quality rejected',metrics:{training:{mode:'fresh'}}});
+  await assert.rejects(queue(),{code:'22023'});
+  const retry=await call("select public.manage_sentiment_training($1,'queue',null,null,$2) v",[actor,JSON.stringify({retry_job_id:job.id})]);
+  assert.ok(retry.job_id);
+  assert.equal(await call('select training_mode v from public.sentiment_training_jobs where id=$1',[retry.job_id]),'fresh');
+  assert.equal(await call("select has_function_privilege('service_role','public.manage_sentiment_training_eligibility_legacy(uuid,text,uuid,bigint,jsonb)','execute') v"),false);
 });

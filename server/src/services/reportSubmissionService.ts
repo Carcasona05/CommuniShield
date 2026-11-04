@@ -1,5 +1,4 @@
 import { aiService } from "./aiService.js";
-import { credibilityService } from "./credibilityService.js";
 import { notificationService } from "./notificationService.js";
 import { sentimentService } from "./sentimentService.js";
 
@@ -32,7 +31,6 @@ export const reportSubmissionService = {
   async process(input: SubmittedReport) {
     const { ownerId, reportId } = input;
     await Promise.all([
-      logged(reportId, "submission points", () => credibilityService.addPoints(ownerId, "report_submitted", "Report submitted", reportId)),
       logged(reportId, "nearby notifications", () => notificationService.notifyNearbyUsers({
         reportId, latitude: input.latitude, longitude: input.longitude,
         title: input.incidentType || "Incident report near you",

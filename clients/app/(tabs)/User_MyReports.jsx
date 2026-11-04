@@ -617,7 +617,7 @@ const MyReportsInner = () => {
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
 
-  const loadMyReports = useCallback(async () => {
+  const loadMyReports = useCallback(async ({ force = false } = {}) => {
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
@@ -626,6 +626,7 @@ const MyReportsInner = () => {
       if (cached !== undefined) setMyReports(mapMyReports(cached));
 
       const res = await apiClient.get("/reports/mine", {
+        ...(force ? { cacheMode: "network" } : {}),
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -646,7 +647,7 @@ const MyReportsInner = () => {
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    loadMyReports();
+    loadMyReports({ force: true });
   }, [loadMyReports]);
 
   const filteredReports = useMemo(() => {

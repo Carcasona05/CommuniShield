@@ -19,7 +19,8 @@ import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
 import ErrorBoundary from "../../components/ErrorBoundary";
 import { saveLastPage } from "../../services/lastPage";
-import { subscribeToAdminNotifications } from "../../services/realtime";
+import { subscribeToAdminNotifications, subscribeToAccountStatusChanges } from "../../services/realtime";
+import { sessionData } from "../../services/sessionData";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -213,29 +214,9 @@ function Admin_Layout({ children }) {
 
       if (status === 403 && /disabled/i.test(message)) {
         setShowDisabledModal(true);
-        return;
       }
     }
 
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-
-      const profileRes = await apiClient.get("/profile", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (profileRes.data?.status === "Disabled") {
-        setShowDisabledModal(true);
-      }
-    } catch (err) {
-      const status = err.response?.status;
-      const message = err.response?.data?.error || "";
-
-      if (status === 403 && /disabled/i.test(message)) {
-        setShowDisabledModal(true);
-      }
-    }
   }, []);
 
   useAutoRefresh(loadNotifications, 120000);
@@ -265,9 +246,13 @@ function Admin_Layout({ children }) {
   };
 
   const disabledCheckRef = useRef(false);
+  const disabledRecheckRef = useRef(false);
 
   const checkDisabled = useCallback(async () => {
-    if (disabledCheckRef.current) return;
+    if (disabledCheckRef.current) {
+      disabledRecheckRef.current = true;
+      return;
+    }
     if (
       typeof document !== "undefined" &&
       document.visibilityState === "hidden"
@@ -278,13 +263,10 @@ function Admin_Layout({ children }) {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      const res = await apiClient.get("/profile", {
+      // /session verifies account status without loading the full profile.
+      await apiClient.get("/session", {
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      if (res.data?.status === "Disabled") {
-        setShowDisabledModal(true);
-      }
     } catch (err) {
       const status = err.response?.status;
       const message = err.response?.data?.error || "";
@@ -294,12 +276,24 @@ function Admin_Layout({ children }) {
       }
     } finally {
       disabledCheckRef.current = false;
+      const recheck = disabledRecheckRef.current;
+      disabledRecheckRef.current = false;
+      if (recheck && sessionData.session()) void checkDisabled();
     }
   }, []);
 
+  useAutoRefresh(checkDisabled, 60000);
+
   useEffect(() => {
-    const id = setInterval(checkDisabled, 60000);
-    return () => clearInterval(id);
+    const unsubscribe = subscribeToAccountStatusChanges(checkDisabled);
+    const unsubscribeSession = sessionData.subscribe((event) => {
+      if (event.type === "session" && event.reason === "disabled") setShowDisabledModal(true);
+    });
+    return () => {
+      disabledRecheckRef.current = false;
+      if (typeof unsubscribe === "function") unsubscribe();
+      unsubscribeSession();
+    };
   }, [checkDisabled]);
 
   useEffect(() => {

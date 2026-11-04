@@ -1,16 +1,8 @@
 # Sentiment datasets: setup and workflow
 
-**Current workflow:** see [SENTIMENT_INDEPENDENT_ADMISSION.md](SENTIMENT_INDEPENDENT_ADMISSION.md)
-and apply `sentiment_independent_admission.sql` after the fresh-candidates migration.
-Approval only collects reviewed data; super-admins queue training and enable
-qualified models explicitly. One-row/one-word submissions are allowed with
-context review. Automatic-training references below describe the legacy protocol.
-
-**Supporting-pool upgrade:** see `server/SENTIMENT_SUPPORTING_POOL.md` and apply
-`sentiment_training_jobs.sql`, then `sentiment_continued_training.sql`, after
-the migration below, then `sentiment_supporting_pool.sql`. Approval queues a
-separate supporting candidate. Only full-pool evaluated policies can serve;
-the built-in models are never replaced. The export
+**Automatic training upgrade:** see `server/SENTIMENT_AUTOTRAIN.md` and apply
+`sentiment_training_jobs.sql` after the migration below. The upgraded approval
+flow automatically queues training; model activation remains manual. The export
 workflow below remains useful for review and offline operation.
 
 ## Deployment prerequisite
@@ -33,9 +25,6 @@ No additional hosting service, API key, or client package is required.
   automatic-training panel tracks those runs separately.
 - Approved/rejected/archived examples cannot be edited. Submit a revised batch
   after archiving/rejection; old samples, edit snapshots, and reviewer names remain.
-  If the active model already learned a removed or relabelled example, continued
-  training stops: removing its influence requires an appropriate rollback or a
-  separately reviewed full rebuild, not merely archiving the source row.
 - Mutations are transactional, use optimistic dataset versions, and serialize
   duplicate checks. Normal browser/anonymous roles cannot access these tables or
   call the mutation RPC directly. API access requires an approved admin session.
@@ -86,12 +75,14 @@ unchanged and their examples are excluded from imports to prevent leakage.
 This is also where imports are deduplicated against your original training corpus;
 the web preview only knows about DB examples, not local CSV files.
 
-Use the final language-scoped worker described in
-`SENTIMENT_LANGUAGE_SCOPED_TRAINING.md`. Each selected language is evaluated
-independently; passing candidates require explicit super-admin enabling. Approval
-does not start training. The unsafe historical `retrain_all.py` repair-and-copy
-wrapper was retired; it is not part of the supporting-model flow. Built-ins are
-permanent, and old report sentiment is unchanged unless explicitly reanalyzed.
+Evaluate per-language macro-F1, per-class recall, and Cebuano regression phrases
+against the active model before deployment. Training/activation/rollback are
+  can now use the separate automatic worker described in `SENTIMENT_AUTOTRAIN.md`;
+  activation remains an explicit super-admin action, not an upload side effect. Do **not** expose
+`datasets/retrain_all.py` as an upload handler: it performs historical repairs
+and overwrites active artifacts. Existing in-memory ONNX sessions need a restart
+or deployment to load a new model. Old report sentiment is unchanged unless
+explicitly reanalyzed.
 
 ## Verification
 
@@ -100,14 +91,14 @@ cd server
 npm test
 ```
 
-`../tests/server/SentimentDataset.test.ts` covers CSV parsing, normalization, validation,
+`src/SentimentDataset.test.ts` covers CSV parsing, normalization, validation,
 duplicates/conflicts, permissions/errors, previews, version passing, and exports.
 For real PostgreSQL transaction checks without touching Supabase, install
 `@electric-sql/pglite@0.5.10` in a temporary folder, set `PGLITE_MODULE` to its
 `dist/index.js` **file URL**, then run:
 
 ```powershell
-node --test ../tests/database/sentimentDataset.postgres.mjs
+node --test tests/sentimentDataset.postgres.mjs
 ```
 
 These tests run the actual migration twice, verify atomic rollback, uniqueness,
@@ -119,7 +110,7 @@ temporary folder, set `PLAYWRIGHT_MODULE` to its `index.mjs` file URL,
 executable. From `server`, run:
 
 ```powershell
-node --import tsx --test ../tests/browser/sentimentDataset.browser.mjs
+node --import tsx --test tests/sentimentDataset.browser.mjs
 ```
 
 This uses the real exported UI and CSV parser with a mocked API to verify manual

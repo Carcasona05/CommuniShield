@@ -4,7 +4,7 @@ import { AppState } from "react-native";
 
 const MIN_INTERVAL = 60000;
 
-export const useAutoRefresh = (loader, interval = 60000) => {
+export const useAutoRefresh = (loader, interval = 60000, { minimumInterval = MIN_INTERVAL } = {}) => {
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
   const inflight = useRef(false);
@@ -22,7 +22,7 @@ export const useAutoRefresh = (loader, interval = 60000) => {
 
   useFocusEffect(
     useCallback(() => {
-      const ms = Math.max(interval, MIN_INTERVAL);
+      const ms = Math.max(interval, minimumInterval);
 
       let timer = null;
 
@@ -42,7 +42,7 @@ export const useAutoRefresh = (loader, interval = 60000) => {
         timer = null;
       };
 
-      if (!isHidden()) start();
+      if (!isHidden() && AppState.currentState !== "background" && AppState.currentState !== "inactive") start();
 
       const onVisibility = () => {
         if (isHidden()) stop();
@@ -67,7 +67,7 @@ export const useAutoRefresh = (loader, interval = 60000) => {
         }
         appStateSub.remove();
       };
-    }, [interval, safeLoad])
+    }, [interval, minimumInterval, safeLoad])
   );
 };
 

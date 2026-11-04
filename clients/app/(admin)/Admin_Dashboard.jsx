@@ -44,22 +44,18 @@ const sentimentColor = (label) => {
   }
 };
 
-const cachedOverview = () => getCache("api:/admin/overview") || getCache("preview:/admin/overview") || getCache("api:/admin/dashboard");
-
 export default function Admin_Dashboard() {
   const router = useRouter();
 
   const [summary, setSummary] = useState(() => {
-    const cached = cachedOverview();
+    const cached = getCache("api:/admin/dashboard");
     return cached?.summary || { total: 0, pending: 0, verified: 0, rejected: 0, hotspots: 0 };
   });
   const [reports, setReports] = useState(() => {
     const cached = getCache("api:/admin/dashboard");
     return cached?.reports || [];
   });
-  const [loading, setLoading] = useState(() => cachedOverview() === undefined);
-  const [dataStatus, setDataStatus] = useState(() => getCache("preview:/admin/overview")
-    ? "Saved overview — updating live reports…" : "Loading live overview…");
+  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
   const [showFilter, setShowFilter] = useState(false);
   const [selectedSeverity, setSelectedSeverity] = useState("All");
 
@@ -85,26 +81,28 @@ export default function Admin_Dashboard() {
         }
       }
 
-      let overviewLoaded = false;
       await Promise.allSettled([
-        apiClient.get("/admin/overview", { headers, timeout: 10000 }).then((res) => {
-          overviewLoaded = true;
-          setSummary(res.data.summary);
-          setLoading(false);
-          setDataStatus("Overview updated. Report details refresh in the background.");
-        }).catch(() => {
-          setLoading(false);
-          setDataStatus("Overview refresh unavailable. Any saved counts may be outdated.");
-        }),
         apiClient.get("/admin/dashboard", { headers }).then((res) => {
           setCache("api:/admin/dashboard", res.data ?? {});
           const data = res.data ?? {};
-          if (data.summary && !overviewLoaded) {
+          if (data.summary) {
             setSummary((prev) => ({ ...prev, ...data.summary }));
           }
           if (Array.isArray(data.reports)) {
             setReports(data.reports);
           }
+        }),
+        apiClient.get("/admin/analytics", { headers }).then((res) => {
+          setCache("api:/admin/analytics", res.data ?? {});
+        }),
+        apiClient.get("/admin/logs", { headers }).then((res) => {
+          setCache("api:/admin/logs", res.data ?? {});
+        }),
+        apiClient.get("/admin/notifications", { headers }).then((res) => {
+          setCache("api:/admin/notifications", res.data ?? {});
+        }),
+        apiClient.get("/admin/accounts", { headers }).then((res) => {
+          setCache("api:/admin/accounts", res.data ?? {});
         }),
       ]);
     } catch {
@@ -225,9 +223,6 @@ export default function Admin_Dashboard() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.contentWrap}>
-          <Text testID="dashboard-data-status" accessibilityRole="status" style={{ color: "#52627a", marginBottom: 12 }}>
-            {dataStatus}
-          </Text>
           <View style={styles.summaryRow}>
             {summaryCards.map((card, index) => (
               <TouchableOpacity
@@ -436,7 +431,7 @@ export default function Admin_Dashboard() {
                         router.push({
                           pathname: "/(admin)/Admin_Validation",
                           params: {
-                            openReport: item.id,
+                            openReport: String(item.id),
                             notifNonce: String(Date.now()),
                           },
                         })
@@ -450,7 +445,7 @@ export default function Admin_Dashboard() {
                       >
                         <Ionicons
                           name="warning-outline"
-                          size={18}
+                          size={15}
                           color={item.statusColor}
                         />
                       </View>
@@ -589,7 +584,7 @@ const styles = {
   middleSection: {
     flexDirection: "row",
     gap: 20,
-    alignItems: "flex-start",
+    alignItems: "stretch",
     marginBottom: 16,
   },
 
@@ -599,7 +594,9 @@ const styles = {
   },
 
   feedSection: {
-    width: 350,
+    width: 330,
+    minHeight: 0,
+    position: "relative",
   },
 
   mainCard: {
@@ -732,7 +729,7 @@ const styles = {
   },
 
   mapArea: {
-    height: 410,
+    height: 330,
     borderRadius: 14,
     overflow: "hidden",
     borderWidth: 1,
@@ -793,39 +790,48 @@ const styles = {
   },
 
   sideCard: {
-    height: 500,
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    minHeight: 0,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#D9E2F0",
-    borderRadius: 16,
+    borderRadius: 12,
     overflow: "hidden",
   },
 
   sideHeaderRow: {
-    paddingHorizontal: 18,
-    paddingVertical: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
     borderBottomWidth: 1,
     borderBottomColor: "#D9E2F0",
     backgroundColor: "#F7F9FD",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 10,
   },
 
   sideCardTitle: {
-    fontSize: 16,
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
     fontFamily: "PoppinsSemiBold",
     color: "#294880",
   },
 
   viewAllText: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: "PoppinsSemiBold",
     color: "#294880",
   },
 
   feedScrollArea: {
     flex: 1,
+    minHeight: 0,
   },
 
   feedScrollContent: {
@@ -833,12 +839,12 @@ const styles = {
   },
 
   feedRow: {
-    paddingHorizontal: 18,
-    paddingVertical: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 10,
+    gap: 8,
   },
 
   feedRowBorder: {
@@ -847,9 +853,10 @@ const styles = {
   },
 
   feedIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    flexShrink: 0,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 1,
@@ -865,54 +872,58 @@ const styles = {
     justifyContent: "space-between",
     alignItems: "center",
     gap: 8,
-    marginBottom: 4,
+    marginBottom: 2,
   },
 
   feedTitle: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 13,
     color: "#111827",
     fontFamily: "PoppinsSemiBold",
-    lineHeight: 20,
+    lineHeight: 18,
   },
 
   feedTime: {
-    fontSize: 13,
+    flexShrink: 0,
+    fontSize: 11,
+    lineHeight: 16,
     color: "#7A8BA8",
     fontFamily: "PoppinsMedium",
   },
 
   feedLocation: {
-    fontSize: 13,
+    fontSize: 11,
     color: "#6D7D99",
     fontFamily: "PoppinsRegular",
-    marginBottom: 7,
-    lineHeight: 18,
+    marginBottom: 5,
+    lineHeight: 16,
   },
 
   feedMetaRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 8,
+    columnGap: 6,
+    rowGap: 4,
   },
 
   feedStatusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
     borderRadius: 999,
   },
 
   feedStatusText: {
-    fontSize: 11,
+    fontSize: 10,
+    lineHeight: 14,
     fontFamily: "PoppinsSemiBold",
   },
 
   feedMetaText: {
-    fontSize: 12,
+    fontSize: 10,
     color: "#6D7D99",
     fontFamily: "PoppinsRegular",
-    lineHeight: 17,
+    lineHeight: 14,
   },
 
   feedScore: {
@@ -931,7 +942,7 @@ const styles = {
   },
 
   emptyFeedText: {
-    fontSize: 14,
+    fontSize: 12,
     color: "#7A8BA8",
     fontFamily: "PoppinsRegular",
   },

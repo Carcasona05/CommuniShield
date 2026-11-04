@@ -64,7 +64,8 @@ artifact names. Backend checksums/downloads support partial bundles. The fixed
 
 The permanent built-in and language router remain primary. Supports are only
 proposed for their qualified matching language in the primary's uncertainty
-region; qualified disagreement returns `unclear`, no voting. Other languages use
+region; qualified, agreeing supports may correct the weak primary's label. Weak
+support or disagreement between supports returns `unclear`, with no voting. Other languages use
 their built-ins or separately enabled matching supports. Independent eligibility
 does not prove improved combined-system quality.
 

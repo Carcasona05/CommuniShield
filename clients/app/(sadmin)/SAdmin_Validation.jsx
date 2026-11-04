@@ -20,6 +20,7 @@ import {
   BatchFilterDropdown,
 } from "../../components/Admin_compo/AdminBatchFilters";
 import apiClient from "../../services/apiClient";
+import { getSentimentRetryCommentIds } from "../../services/sentimentReanalysis";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { getCache, setCache } from "../../services/dataStore";
@@ -365,6 +366,12 @@ function SAdmin_ValidationPage() {
     return getGroupedReports(reports);
   }, [reports]);
 
+  useEffect(() => {
+    setSelectedCompiledGroup((current) => current
+      ? groupedReports.find((group) => group.id === current.id) || current
+      : current);
+  }, [groupedReports]);
+
   const filteredReports = useMemo(() => {
     const rangeStart = parseDateBoundary(fromDate);
     const rangeEnd = parseDateBoundary(toDate, true);
@@ -684,13 +691,7 @@ function SAdmin_ValidationPage() {
       if (!token) return;
       const headers = { Authorization: `Bearer ${token}` };
 
-      const missingCommentIds = targetReports
-        .flatMap((item) => item.comments || [])
-        .filter(
-          (comment) =>
-            comment?.id && comment.sentiment_status !== "succeeded"
-        )
-        .map((comment) => comment.id);
+      const commentIdsToRetry = getSentimentRetryCommentIds(targetReports);
 
       const calls = [];
       for (const item of targetReports) {
@@ -704,11 +705,11 @@ function SAdmin_ValidationPage() {
         );
       }
 
-      if (missingCommentIds.length > 0) {
+      if (commentIdsToRetry.length > 0) {
         calls.push(
           apiClient.post(
             "/ai/sentiment/reanalyze",
-            { subject_type: "comment", ids: missingCommentIds },
+            { subject_type: "comment", ids: commentIdsToRetry },
             { headers }
           )
         );
@@ -719,7 +720,7 @@ function SAdmin_ValidationPage() {
         (result) => result.status === "fulfilled"
       ).length;
 
-      loadValidation();
+      await loadValidation();
 
       if (succeeded === 0) {
         const failure = results.find(

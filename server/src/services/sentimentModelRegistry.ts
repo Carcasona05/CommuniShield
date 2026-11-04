@@ -7,7 +7,7 @@ import { supabaseAdmin } from "../config/supabaseAdmin.js";
 
 export const MODEL_FILES = ["sentiment_english.onnx", "sentiment_filipino.onnx", "sentiment_cebuano.onnx", "language_id.onnx"] as const;
 type ModelFile = { path: string; sha256: string; size: number };
-export type ModelManifest = { files: Record<string, ModelFile>; languages?: string[] };
+export type ModelManifest = { files: Record<string, ModelFile> };
 export type ModelBundle = { version: string; directory: string };
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export const modelRegistryEnabled = () => process.env.SENTIMENT_MODEL_REGISTRY_ENABLED === "true";
@@ -16,17 +16,12 @@ export const supportingModelsEnabled = () => modelRegistryEnabled() && process.e
 export function validateManifest(jobId: string, manifest: unknown): ModelManifest {
   if (!uuid.test(jobId) || !manifest || typeof manifest !== "object") throw new Error("Invalid model manifest");
   const files = (manifest as ModelManifest).files;
-  const languages = (manifest as ModelManifest).languages;
-  if (languages !== undefined && (!Array.isArray(languages) || !languages.length || languages.length > 3 ||
-      new Set(languages).size !== languages.length || languages.some(l => !['cebuano','english','filipino'].includes(l)))) throw new Error('Invalid bundle language scope');
-  const expected = languages ? ['language_id.onnx', ...languages.map(l => `sentiment_${l}.onnx`)] : [...MODEL_FILES];
-  if (languages && (!files || Object.keys(files).length !== expected.length)) throw new Error('Unexpected bundle artifacts');
-  for (const name of expected) {
+  for (const name of MODEL_FILES) {
     const file = files?.[name];
     const parts = typeof file?.path === "string" ? file.path.split("/") : [];
     if (!file || parts.length !== 3 || parts[0] !== jobId || !uuid.test(parts[1] || "") || parts[2] !== name || !/^[a-f0-9]{64}$/.test(file.sha256 || "") || !Number.isInteger(file.size) || file.size < 1 || file.size > 104857600) throw new Error("Invalid model file metadata");
   }
-  return languages ? { files, languages } : { files };
+  return { files };
 }
 
 export const modelRegistryDependencies = {
@@ -66,7 +61,7 @@ export async function prepareModelBundle(jobId: string, rawManifest: unknown): P
   const work = (async () => {
     const directory = join(process.env.SENTIMENT_MODEL_CACHE_DIR || join(tmpdir(), "communishield-models"), version);
     await mkdir(directory, { recursive: true });
-    for (const name of Object.keys(manifest.files)) {
+    for (const name of MODEL_FILES) {
       const file = manifest.files[name]!;
       const target = join(directory, name);
       let bytes: Buffer | undefined;
@@ -86,8 +81,25 @@ export async function prepareModelBundle(jobId: string, rawManifest: unknown): P
   try { return await work; } catch (error) { materializing.delete(version); throw error; }
 }
 
+let lastCheck = 0;
+let current: ModelBundle | null = null;
+let refresh: Promise<ModelBundle> | null = null;
 export async function getActiveModelBundle(baselineDirectory: string): Promise<ModelBundle> {
-  // Permanent primary. A supporting/legacy registry pointer can NEVER replace
-  // these files or the language-identification model.
-  return { version: "bundled", directory: baselineDirectory };
+  const baseline = { version: "bundled", directory: baselineDirectory };
+  if (!modelRegistryEnabled()) return baseline;
+  if (current && modelRegistryDependencies.now() - lastCheck < 30000) return current;
+  if (refresh) return refresh;
+  refresh = (async () => {
+    try {
+      const active = await modelRegistryDependencies.readActive();
+      current = active ? await prepareModelBundle(active.jobId, active.manifest) : baseline;
+    } catch (error) {
+      // Never replace a working model with a failed/partial download.
+      console.error("Sentiment model refresh failed:", error instanceof Error ? error.message : "Unknown error");
+      current ||= baseline;
+    }
+    lastCheck = modelRegistryDependencies.now();
+    return current!;
+  })();
+  try { return await refresh; } finally { refresh = null; }
 }

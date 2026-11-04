@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scrollToTop } from "../services/scrollToTopBus";
+import { ensureNotSuspended } from "../services/profileCompletion";
 
 const COMMUNISHIELD_BLUE = "#294880";
 const INACTIVE = "#6C7A96";
@@ -184,7 +185,9 @@ const BottomNavBar = ({ visible = true }) => {
         {showPlusButton && (
           <TouchableOpacity
             activeOpacity={0.85}
-            onPress={() => router.push("/User_PostReport")}
+            onPress={async () => {
+              if (await ensureNotSuspended()) router.push("/User_PostReport");
+            }}
             style={[
               styles.plusButton,
               {

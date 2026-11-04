@@ -1,27 +1,37 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { View, StyleSheet, ActivityIndicator, Platform } from "react-native";
 import { router } from "expo-router";
 import ThemedView from "../components/ThemedView";
 import ThemedText from "../components/ThemedText";
-import { restoreAuth } from "../services/auth";
-import SessionRetry from "../components/SessionRetry";
-import AppConfigurationNotice from "../components/AppConfigurationNotice";
-import { API_CONFIGURATION_ERROR } from "../services/apiClient";
+import { getAuth } from "../services/auth";
+import { prefetchAllData, hydrateCache, setCache } from "../services/dataStore";
+import apiClient from "../services/apiClient";
 
 const LoadingScreen = () => {
-  const [attempt, setAttempt] = useState(0);
-  const [connectionError, setConnectionError] = useState(false);
   useEffect(() => {
     if (API_CONFIGURATION_ERROR) return;
     let active = true;
 
     const init = async () => {
-      let auth;
+      await hydrateCache();
+      const { token, role } = await getAuth();
+      if (!active) return;
+
+      if (!token) {
+        if (Platform.OS === "web") {
+          router.replace("/(auth)/Admin_Login");
+        } else {
+          router.replace("/(auth)/User_Login");
+        }
+        return;
+      }
+
       try {
-        auth = await restoreAuth();
-      } catch (error) {
-        if (!active || error.code === "ERR_CANCELED") return;
-        if (![401, 403].includes(error.response?.status)) { setConnectionError(true); return; }
+        const res = await apiClient.get("/profile", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setCache("api:/profile", res.data ?? {});
+      } catch {
         const { clearAuth } = await import("../services/auth");
         await clearAuth();
         if (Platform.OS === "web") {
@@ -33,11 +43,8 @@ const LoadingScreen = () => {
       }
 
       if (!active) return;
-      if (!auth) {
-        router.replace(Platform.OS === "web" ? "/(auth)/Admin_Login" : "/(auth)/User_Login");
-        return;
-      }
-      const { role } = auth;
+
+      prefetchAllData();
 
       if (role === "super_admin") {
         router.replace("/(sadmin)/SAdmin_Dashboard");
@@ -53,10 +60,7 @@ const LoadingScreen = () => {
     return () => {
       active = false;
     };
-  }, [attempt]);
-
-  if (API_CONFIGURATION_ERROR) return <AppConfigurationNotice message={API_CONFIGURATION_ERROR} />;
-  if (connectionError) return <SessionRetry onRetry={() => { setConnectionError(false); setAttempt(value => value + 1); }} />;
+  }, []);
 
   return (
     <ThemedView style={styles.container}>

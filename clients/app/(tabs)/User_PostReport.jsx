@@ -25,6 +25,7 @@ import ThemedText from "../../components/ThemedText";
 import Dropdown from "../../components/Dropdown";
 import ToastProvider, { useToast } from "../../components/Toast";
 import apiClient from "../../services/apiClient";
+import { ensureCompleteProfile } from "../../services/profileCompletion";
 import { uploadImages } from "../../services/imageUpload";
 import { getCache, setCache } from "../../services/dataStore";
 
@@ -358,8 +359,23 @@ function UserPostReportInner() {
 
   const handlePostReport = async () => {
     if (submitLockRef.current) return;
+    let postingProfile;
+    submitLockRef.current = true;
+    try {
+      if (!await ensureCompleteProfile()) return;
+      const { data: profile } = await apiClient.get("/profile", { cacheMode: "network" });
+      postingProfile = profile;
+      const name = [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ");
+      if (name) setFullName(name);
+      if (profile.user_name) setUsername(profile.user_name);
+    } catch (error) {
+      toast.error(error.response?.data?.error || "Could not verify your profile. Please try again.");
+      return;
+    } finally { submitLockRef.current = false; }
     const selectedDisplayName =
-      displayNameType === "Fullname" ? fullName : username.trim();
+      displayNameType === "Fullname"
+        ? [postingProfile?.first_name, postingProfile?.middle_name, postingProfile?.last_name].filter(Boolean).join(" ") || fullName
+        : postingProfile?.user_name?.trim() || username.trim();
 
     if (
       !selectedDisplayName ||

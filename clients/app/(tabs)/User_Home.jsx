@@ -347,7 +347,7 @@ const User_Home = () => {
   const scrollRef = useScrollToTop();
   const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
 
-  const loadReports = useCallback(async () => {
+  const loadReports = useCallback(async ({ force = false } = {}) => {
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
@@ -360,11 +360,12 @@ const User_Home = () => {
 
       const [reportsRes, adminRes] = await Promise.all([
         apiClient.get("/reports", {
+          ...(force ? { cacheMode: "network" } : {}),
           headers: { Authorization: `Bearer ${token}` },
         }),
-        // /admin/posts is admin-only. Residents must not issue a forbidden
-        // request that would make Promise.all discard their valid reports.
-        Promise.resolve({ data: {} }),
+        apiClient.get("/admin/posts", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
       ]);
 
       setCache("api:/reports", reportsRes.data ?? {});
@@ -385,7 +386,7 @@ const User_Home = () => {
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    loadReports();
+    loadReports({ force: true });
   }, [loadReports]);
 
   const filteredReports = useMemo(() => {

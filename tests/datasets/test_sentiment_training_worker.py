@@ -239,7 +239,7 @@ class TrainingWorkerTests(unittest.TestCase):
             for name in worker.FILES:
                 self.assertEqual((models / name).read_bytes(), b"baseline")
 
-    def run_fake_job(self, passed, mode="continue", independent=False, training_rejected=False, scope=None, reject_language=None):
+    def run_fake_job(self, passed, mode="continue", independent=False, training_rejected=False, scope=None, reject_language=None, progress_enabled=False):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             data, models = self.make_baseline(root)
@@ -253,6 +253,8 @@ class TrainingWorkerTests(unittest.TestCase):
             if scope:
                 job['snapshot'].update(scope_version=1,requested_languages=scope)
             cloud = FakeCloud()
+            cloud.progress_enabled = progress_enabled
+            cloud.report_progress = Mock()
 
             class Process:
                 returncode = 2 if training_rejected else 0
@@ -302,6 +304,14 @@ class TrainingWorkerTests(unittest.TestCase):
                  patch.object(worker, "evaluate_independent", return_value={"passed": passed, "admission": 'independent-v1', 'routing_policy': {'version': 2}, 'qualified_languages':[l for l in (scope or []) if l!=reject_language], "languages": good_metrics(), "reasons": [] if passed else ["Test regression"]}) as independent_eval, \
                  patch.object(worker, "evaluate_bundle", return_value={"passed": passed, "languages": good_metrics(), "reasons": [] if passed else ["Test regression"]}) as legacy_eval:
                 worker.process_job(cloud, job, data, models, root / "runs")
+                if progress_enabled:
+                    reports = [call.args for call in cloud.report_progress.call_args_list]
+                    self.assertTrue(reports)
+                    self.assertEqual([row[1] for row in reports], list(range(1, len(reports) + 1)))
+                    completed = [row[2] for row in reports]
+                    self.assertEqual(completed, sorted(completed))
+                    self.assertTrue(all(row[2] < row[3] for row in reports), 'only server registration can signal 100%')
+                    self.assertEqual(reports[-1][4], 'registering' if passed else 'checking')
                 if independent:
                     if training_rejected:
                         independent_eval.assert_not_called()
@@ -348,6 +358,10 @@ class TrainingWorkerTests(unittest.TestCase):
             self.assertTrue((root / "runs" / job["id"] / "evaluation.json").is_file())
             snapshot = json.loads((root / "runs" / job["id"] / "approved_snapshot.json").read_text())
             self.assertEqual(snapshot, job["snapshot"])
+
+    def test_progress_enabled_job_preserves_success_and_quality_failure_paths(self):
+        self.run_fake_job(True, mode='fresh', independent=True, scope=['cebuano'], progress_enabled=True)
+        self.run_fake_job(False, mode='fresh', independent=True, scope=['cebuano'], progress_enabled=True)
 
     def test_onnx_contract_with_real_bundled_model(self):
         try:

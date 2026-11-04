@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createSessionData, PAGE_FRESH_MS, PAGE_RETAIN_MS, prefetchPlan } from "../../clients/services/sessionData.js";
+import { createSessionData, PAGE_FRESH_MS, PAGE_RETAIN_MS, PROFILE_FRESH_MS, prefetchPlan } from "../../clients/services/sessionData.js";
 import { querySnapshotKey } from "../../clients/services/querySnapshots.js";
 
 const deferred = () => {
@@ -161,4 +161,124 @@ test("cached forecasts are never reused across UTC midnight", async () => {
   await data.run(config, transport);
   time += 2000;
   assert.equal((await data.run(config, transport)).data.day, 2);
+});
+
+test("profile reads share one request and remain fresh for five minutes", async () => {
+  const { data, config, advance } = setup();
+  let calls = 0;
+  const transport = async () => response({ name: `User ${++calls}` });
+  await Promise.all(Array.from({ length: 5 }, () => data.run(config("/profile"), transport)));
+  assert.equal(calls, 1);
+  advance(PROFILE_FRESH_MS - 1);
+  assert.equal((await data.run(config("/profile"), transport)).data.name, "User 1");
+  advance(1);
+  assert.equal((await data.run(config("/profile"), transport)).data.name, "User 2");
+  await data.run(config("/profile", { cacheMode: "network" }), transport);
+  assert.equal(calls, 3);
+  data.set("api:/profile", undefined);
+  await data.run(config("/profile"), transport);
+  assert.equal(calls, 4, "pull-to-refresh clears the transport response too");
+});
+
+test("unrelated mutations preserve profile freshness, profile mutations invalidate it immediately", async () => {
+  const { data, config } = setup();
+  let calls = 0;
+  const transport = async () => response({ name: `User ${++calls}` });
+  await data.run(config("/profile"), transport);
+  await data.run(config("/notifications/one/read", { method: "put" }), async () => response());
+  assert.equal(data.get("api:/profile").name, "User 1");
+  await data.run(config("/profile"), transport);
+  assert.equal(calls, 1);
+  for (const path of ["/profile", "/profile/password", "/profile/notification-preferences"]) {
+    await data.run(config(path, { method: "put" }), async () => response());
+    assert.equal(data.get("api:/profile"), undefined);
+    await data.run(config("/profile"), transport);
+  }
+  assert.equal(calls, 4);
+});
+
+test("session probes deduplicate concurrently but are never cached or published as page data", async () => {
+  const { data, config } = setup();
+  let calls = 0;
+  const transport = async () => { calls++; return response({ userId: "one", role: "admin" }); };
+  await Promise.all([data.run(config("/session"), transport), data.run(config("/session"), transport)]);
+  assert.equal(calls, 1);
+  await data.run(config("/session"), transport);
+  assert.equal(calls, 2);
+  assert.equal(data.get("api:/session"), undefined);
+  await assert.rejects(data.run(config("/session"), async () => { throw { response: { status: 403, data: { error: "Account disabled" } } }; }),
+    error => error.response.status === 403);
+});
+
+test("profile responses cannot cross logout or account changes, including late responses", async () => {
+  const { data, config } = setup();
+  await data.run(config("/profile"), async () => response({ name: "Private" }));
+  const wait = deferred();
+  const pending = data.run(config("/profile", { cacheMode: "network" }), () => wait.promise);
+  await Promise.resolve();
+  data.reset();
+  data.begin("token-b", "user");
+  wait.resolve(response({ name: "Old account" }));
+  await assert.rejects(pending, error => error.code === "ERR_CANCELED");
+  assert.equal(data.get("api:/profile"), undefined);
+  const fresh = await data.run({ url: "/profile", sessionToken: "token-b", sessionEpoch: data.epoch() }, async () => response({ name: "New account" }));
+  assert.equal(fresh.data.name, "New account");
+});
+
+test("explicit profile refresh does not join or publish a pending pre-refresh read", async () => {
+  const { data, config } = setup();
+  const wait = deferred();
+  const pending = data.run(config("/profile"), () => wait.promise);
+  await Promise.resolve();
+  data.set("api:/profile", undefined);
+  const fresh = await data.run(config("/profile"), async () => response({ name: "Fresh" }));
+  assert.equal(fresh.data.name, "Fresh");
+  wait.resolve(response({ name: "Stale" }));
+  await assert.rejects(pending, error => error.code === "ERR_CANCELED");
+  assert.equal(data.get("api:/profile").name, "Fresh");
+});
+
+test("scoped invalidation cancels affected reads but keeps unrelated responses and requests intact", async () => {
+  const { data, config } = setup();
+  await data.run(config("/admin/dashboard"), async () => response({ reports: ["cached"] }));
+  const notificationGate = deferred(), analyticsGate = deferred();
+  const notification = data.run(config("/admin/notifications"), () => notificationGate.promise);
+  const analytics = data.run(config("/admin/analytics"), () => analyticsGate.promise);
+  await Promise.resolve();
+  await data.run(config("/admin/notifications/one/read", { method: "put" }), async () => response());
+  notificationGate.resolve(response({ notifications: ["old"] }));
+  analyticsGate.resolve(response({ analytics: ["unrelated"] }));
+  await assert.rejects(notification, error => error.code === "ERR_CANCELED");
+  assert.deepEqual((await analytics).data.analytics, ["unrelated"]);
+  assert.deepEqual(data.get("api:/admin/dashboard").reports, ["cached"]);
+  assert.equal(data.get("api:/admin/notifications"), undefined);
+});
+
+test("dataset preview is read-only for cached pages; training writes affect only sentiment panels", async () => {
+  const { data, config } = setup("super_admin");
+  for (const path of ["/admin/dashboard", "/sentiment/datasets", "/sentiment/training", "/sentiment/supporting-models"]) {
+    await data.run(config(path), async () => response({ ready: true }));
+  }
+  await data.run(config("/sentiment/datasets/preview", { method: "post" }), async () => response());
+  assert.ok(data.get("api:/sentiment/training"));
+  await data.run(config("/sentiment/training", { method: "post" }), async () => response());
+  assert.equal(data.get("api:/sentiment/training"), undefined);
+  assert.ok(data.get("api:/admin/dashboard"));
+});
+
+test("foreground accounting ignores background warming and old-session late responses", async () => {
+  const { data, config } = setup();
+  const oldGate = deferred(), backgroundGate = deferred();
+  const old = data.run(config("/reports"), () => oldGate.promise);
+  assert.equal(data.foregroundBusy(), true);
+  data.reset();
+  data.begin("token-b", "user");
+  assert.equal(data.foregroundBusy(), false);
+  const background = data.run({ url: "/reports", sessionToken: "token-b", sessionEpoch: data.epoch(), background: true }, () => backgroundGate.promise);
+  assert.equal(data.foregroundBusy(), false);
+  oldGate.resolve(response());
+  await assert.rejects(old, error => error.code === "ERR_CANCELED");
+  assert.equal(data.foregroundBusy(), false);
+  backgroundGate.resolve(response());
+  await background;
 });

@@ -13,6 +13,8 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import BottomNavBar from "../../components/BottomNavBar";
 import ErrorBoundary from "../../components/ErrorBoundary";
+import ProfileCompletionGate from "../../components/ProfileCompletionGate";
+import CredibilityNotice from "../../components/CredibilityNotice";
 import { scrollToTop } from "../../services/scrollToTopBus";
 import { subscribeNavVisibility, publishNavVisibility } from "../../services/navBus";
 import { smartBack } from "../../services/navigation";
@@ -20,14 +22,12 @@ import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
 import { saveLastPage, getLastPage } from "../../services/lastPage";
-import { restoreAuth } from "../../services/auth";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
 export default function TabLayout() {
   const router = useRouter();
   const pathname = usePathname();
-  const [checked, setChecked] = useState(false);
   // Computed up front: the web layout returns early below, but the effects
   // registered above that return still run and read this value.
   const isChildScreen =
@@ -62,7 +62,6 @@ export default function TabLayout() {
   }, [pathname]);
 
   const loadNotifications = useCallback(async () => {
-    if (!checked) return;
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
@@ -88,10 +87,9 @@ export default function TabLayout() {
     } catch {
       // keep last count
     }
-  }, [checked]);
+  }, []);
 
   useAutoRefresh(loadNotifications, 120000);
-  useEffect(() => { if (checked) loadNotifications(); }, [checked, loadNotifications]);
 
   useEffect(() => {
     if (!isChildScreen) {
@@ -106,7 +104,12 @@ export default function TabLayout() {
   useEffect(() => {
     const guard = async () => {
       try {
-        const role = (await restoreAuth())?.role;
+        let role;
+        if (Platform.OS === "web") {
+          role = window.localStorage.getItem("user_role");
+        } else {
+          role = await AsyncStorage.getItem("user_role");
+        }
 
         if (role === "super_admin") {
           const target = await getLastPage("super_admin");
@@ -122,27 +125,21 @@ export default function TabLayout() {
           } else {
             router.replace(target);
           }
-        } else if (role === "user") {
-          setChecked(true);
-        } else {
-          router.replace(Platform.OS === "web" ? "/(auth)/Admin_Login" : "/(auth)/User_Login");
         }
-      } catch {
-        router.replace(Platform.OS === "web" ? "/(auth)/Admin_Login" : "/(auth)/User_Login");
-      }
+      } catch {}
     };
 
     guard();
   }, []);
 
-  if (!fontsLoaded || !checked) return null;
+  if (!fontsLoaded) return null;
 
   const isDark = colorScheme === "dark";
 
   const showBottomNav = !isChildScreen;
 
   const getScreenTitle = () => {
-    if (pathname.includes("User_ProfileSettings")) return "Account Settings";
+    if (pathname.includes("User_ProfileSettings")) return "Profile Details";
     if (pathname.includes("MyUser_RepPostView_Edit")) return "Edit Report";
     if (pathname.includes("User_RepPostView")) return "Post Details";
     if (pathname.includes("MyUser_RepPostView")) return "My Report";
@@ -220,6 +217,8 @@ export default function TabLayout() {
     <ErrorBoundary>
     <View style={[styles.root, isDark && styles.darkRoot]}>
       <Header />
+      <ProfileCompletionGate />
+      <CredibilityNotice />
 
       <View style={styles.content}>
         <Tabs

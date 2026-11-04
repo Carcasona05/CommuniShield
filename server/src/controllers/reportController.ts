@@ -2,7 +2,6 @@ import type { Response } from "express";
 import { reportService } from "../services/reportService.js";
 import { profileService } from "../services/authService.js";
 import { notificationService } from "../services/notificationService.js";
-import { credibilityService } from "../services/credibilityService.js";
 import { aiService } from "../services/aiService.js";
 import {
   sentimentService,
@@ -13,6 +12,7 @@ import { backgroundTasks } from "../services/backgroundTasks.js";
 import { reportSubmissionService } from "../services/reportSubmissionService.js";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { buildBlotterUpdates } from "../utils/blotterFields.js";
+import { credibilityFailure } from "./credibilityController.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string }; token?: string };
 
@@ -41,11 +41,13 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
 
   const { status, is_verified } = req.body ?? {};
   const isArchive = status === "Archived";
+  const forceUnverified = isArchive || status === "Rejected" || status === "Marked Fake";
+  if (is_verified !== undefined && typeof is_verified !== "boolean") return res.status(400).json({ error: "Verification must be true or false." });
 
   const result = await reportService.validateReport(String(id), {
     status,
     // Archived reports are never verified; force the flag off with the status.
-    is_verified: isArchive ? false : is_verified,
+    is_verified: forceUnverified ? false : is_verified,
   });
 
   if (result.error) return res.status(400).json({ error: result.error });
@@ -53,42 +55,11 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
   if (result.data?.ownerId) {
     const prev = result.data;
     const newStatus = status ?? prev.previousStatus ?? "Pending Review";
-    const verified = isArchive
+    const verified = forceUnverified
       ? false
       : is_verified ?? prev.previousVerified ?? false;
 
-    if (newStatus === "Rejected") {
-      await credibilityService
-        .addPoints(
-          result.data.ownerId,
-          "report_rejected",
-          "Report rejected after review",
-          result.data.id
-        )
-        .catch(() => {});
-    }
-
-    if (verified) {
-      await credibilityService
-        .addPoints(
-          result.data.ownerId,
-          "report_verified",
-          "Report verified by admin",
-          result.data.id
-        )
-        .catch(() => {});
-    }
-
-    if (newStatus === "Marked Fake") {
-      await credibilityService
-        .addPoints(
-          result.data.ownerId,
-          "report_marked_fake",
-          "Report marked as fake",
-          result.data.id
-        )
-        .catch(() => {});
-    }
+    // Review scoring is committed with the report update by the database trigger.
 
     await notificationService.createNotification({
       userId: result.data.ownerId,
@@ -271,9 +242,13 @@ const createReportImpl = async (req: AuthRequest, res: Response) => {
   const result = await reportService.createReport(user.id, {
     ...req.body,
     role: userRole,
+    ...(userRole === "user" ? { status: "Pending Review", is_verified: false } : {}),
   });
 
-  if (result.error) return res.status(400).json({ error: result.error });
+  if (result.error) {
+    const failure = credibilityFailure(result.error);
+    return res.status(failure?.status || 400).json(failure || { error: result.error });
+  }
   const createdReport = result.data;
   const reportId = createdReport?.id;
   if (!createdReport || !reportId) {
@@ -412,7 +387,10 @@ export const addComment = async (req: AuthRequest, res: Response) => {
 
   const result = await reportService.addComment(user.id, String(id), content);
 
-  if (result.error) return res.status(400).json({ error: result.error });
+  if (result.error) {
+    const failure = credibilityFailure(result.error);
+    return res.status(failure?.status || 400).json(failure || { error: result.error });
+  }
   if (!result.data) return res.status(500).json({ error: "Failed to create comment" });
 
   const sentiment = await sentimentService.analyze("comment", result.data).catch((error) => {
@@ -464,13 +442,6 @@ export const getAdminPosts = async (req: AuthRequest, res: Response) => {
   if (error) return res.status(500).json({ error });
 
   res.json({ posts: data });
-};
-
-export const getAdminOverview = async (_req: AuthRequest, res: Response) => {
-  const { data, error } = await reportService.getAdminOverview();
-  res.setHeader("Cache-Control", "no-store");
-  if (error || !data) return res.status(503).json({ error: error || "Report counts are unavailable." });
-  return res.json(data);
 };
 
 export const getAdminDashboard = async (req: AuthRequest, res: Response) => {

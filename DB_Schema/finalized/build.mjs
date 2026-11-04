@@ -17,6 +17,8 @@ export const sources = [
   'migrations/sentiment_continued_training.sql', 'migrations/sentiment_supporting_pool.sql',
   'migrations/sentiment_fresh_candidates.sql', 'migrations/sentiment_independent_admission.sql',
   'migrations/sentiment_pending_training_summary.sql', 'migrations/sentiment_language_scoped_training.sql',
+  'migrations/sentiment_training_progress.sql',
+  'migrations/sentiment_training_queue_eligibility.sql',
 ];
 export const quote = value => '"' + value.replaceAll('"', '""') + '"';
 const literal = value => value === null ? 'null' : typeof value === 'boolean' || typeof value === 'number' ? String(value) : "'" + String(value).replaceAll("'", "''") + "'";

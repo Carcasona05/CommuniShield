@@ -12,22 +12,26 @@ const text = name => readFileSync(new URL(`../../clients/${name}`, import.meta.u
 const source = name => text(name).replace(/^import .*;\r?\n/gm, "").replace(/export const /g, "const ");
 const wait = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
-function storeFixture() {
-  const sessionData = createSessionData();
+function storeFixture({ autoTimers = true } = {}) {
+  let time = Date.parse("2026-11-03T12:00:00Z");
+  const sessionData = createSessionData({ now: () => time });
   const calls = [], intervals = new Map(), timeouts = [], storageRemoved = [];
   let transport = async () => ({ data: {} });
   let timer = 0;
   const context = vm.createContext({
     sessionData, prefetchPlan, querySnapshotKey, usableQuerySnapshot,
     AsyncStorage: { removeItem: async key => storageRemoved.push(key) },
-    apiRequest: (...args) => { calls.push(args[0]); return transport(...args); },
+    apiRequest: config => sessionData.run({ ...config, sessionToken: sessionData.session()?.token, sessionEpoch: sessionData.epoch() },
+      liveConfig => { calls.push(config); return transport(liveConfig); }),
     AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
     setInterval: fn => { intervals.set(++timer, fn); return timer; },
     clearInterval: id => intervals.delete(id),
-    setTimeout: fn => { timeouts.push(fn); },
+    setTimeout: fn => { timeouts.push(fn); if (autoTimers) queueMicrotask(fn); return timeouts.length; },
   });
   vm.runInContext(`${source("services/dataStore.js")}\n globalThis.store = { prefetchAllData, hydrateCache, clearDataCache, getCache, setCache };`, context);
   return { sessionData, calls, intervals, timeouts, storageRemoved, store: context.store,
+    advance: ms => { time += ms; },
+    appState: context.AppState,
     transport: fn => { transport = fn; } };
 }
 
@@ -50,37 +54,86 @@ test("preload does nothing before verified auth, then schedules only allowed rol
   }
 });
 
-test("preload has bounded parallelism, deduplicates startup and stops scheduling on logout", { timeout: 3000 }, async () => {
+test("preload staggers one optional request at a time, deduplicates startup and stops on logout", { timeout: 3000 }, async () => {
   const f = storeFixture();
   f.sessionData.begin("a", "admin");
   const gates = [];
+  const firstStarted = wait();
   const nextStarted = wait();
-  f.transport(() => { const gate = wait(); gates.push(gate); if (gates.length === 4) nextStarted.resolve(); return gate.promise; });
+  f.transport(() => { const gate = wait(); gates.push(gate); if (gates.length === 1) firstStarted.resolve(); if (gates.length === 2) nextStarted.resolve(); return gate.promise; });
   const first = f.store.prefetchAllData();
   const second = f.store.prefetchAllData();
   assert.equal(first, second);
-  assert.equal(f.calls.length, 3);
-  gates[1].resolve({ data: {} });
+  assert.equal(f.calls.length, 0, "give the landing page/rendering a head start");
+  await firstStarted.promise;
+  assert.equal(f.calls.length, 1);
+  gates[0].resolve({ data: {} });
   await nextStarted.promise;
-  assert.equal(f.calls.length, 4, "one slow request must not block the entire next batch");
+  assert.equal(f.calls.length, 2, "the next optional request waits for the first to finish");
   f.store.clearDataCache();
   gates.forEach(gate => gate.resolve({ data: {} }));
   await first;
-  assert.equal(f.calls.length, 4);
+  assert.equal(f.calls.length, 2);
   assert.equal(f.intervals.size, 0);
 });
 
-test("background polling refreshes while active; cache hydration discards legacy unscoped storage", async () => {
+test("background sweeps skip fresh data and refresh expired data; hydration discards legacy storage", async () => {
   const f = storeFixture();
   f.sessionData.begin("a", "admin");
   await f.store.prefetchAllData();
   const count = f.calls.length;
   [...f.intervals.values()][0]();
   await f.store.prefetchAllData();
+  assert.equal(f.calls.length, count, "do not download already-warm pages again");
+  f.advance(5 * 60 * 1000);
+  await f.store.prefetchAllData();
   assert.equal(f.calls.length, count * 2);
   await f.store.hydrateCache();
   assert.ok(f.storageRemoved.includes("communishield_data_cache"));
   assert.equal(f.store.getCache("api:/admin/accounts"), undefined);
+});
+
+test("background warming yields to foreground requests and pauses while the app is hidden", async () => {
+  const f = storeFixture({ autoTimers: false });
+  f.sessionData.begin("a", "admin");
+  const gate = wait();
+  const foreground = f.sessionData.run({ url: "/admin/dashboard", sessionToken: "a", sessionEpoch: f.sessionData.epoch() }, () => gate.promise);
+  const warm = f.store.prefetchAllData();
+  f.timeouts.shift()();
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.equal(f.calls.length, 0, "an optional preload must not start while a page request is active");
+  gate.resolve({ data: {} });
+  await foreground;
+  f.appState.currentState = "background";
+  f.timeouts.shift()();
+  await warm;
+  assert.equal(f.calls.length, 0);
+});
+
+test("notification writes keep unrelated pages warm and do not trigger an immediate preload storm", async () => {
+  const f = storeFixture();
+  f.sessionData.begin("a", "admin");
+  await f.store.prefetchAllData();
+  const before = f.calls.length;
+  await f.sessionData.run({ method: "put", url: "/admin/notifications/one/read", sessionToken: "a", sessionEpoch: f.sessionData.epoch() }, async () => ({ data: {} }));
+  assert.ok(f.store.getCache("api:/admin/dashboard"));
+  await Promise.resolve();
+  assert.equal(f.calls.length, before);
+  await f.store.prefetchAllData();
+  assert.equal(f.calls.length, before + 1, "only the invalidated endpoint needs another warm request");
+});
+
+test("foreground completion during the worker's idle delay prevents a duplicate optional download", async () => {
+  const f = storeFixture({ autoTimers: false });
+  f.sessionData.begin("a", "admin");
+  const warm = f.store.prefetchAllData();
+  await f.sessionData.run({ url: "/admin/overview", sessionToken: "a", sessionEpoch: f.sessionData.epoch() }, async () => ({ data: { summary: {} } }));
+  f.timeouts.shift()();
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.equal(f.calls.length, 0, "the worker rechecks freshness after yielding");
+  f.store.clearDataCache();
+  f.timeouts.shift()();
+  await warm;
 });
 
 test("restored sessions validate lightweight session before preloading and use the server role rather than stale local role", async () => {
@@ -122,6 +175,7 @@ test("real Axios transformation and adapter integration share GETs, preserve dat
   const code = source("services/apiClient.js").replace("export default apiClient;", "globalThis.client = apiClient;");
   const context = vm.createContext({
     axios: fakeAxios, sessionData, process: { env: { EXPO_PUBLIC_API_URL: "https://backend.example/api" } },
+    Platform: { OS: "web" },
     AsyncStorage: { getItem: async key => storage.get(key) }, setTimeout, console,
   });
   vm.runInContext(code, context);

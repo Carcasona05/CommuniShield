@@ -1,196 +1,224 @@
-# Continued training and automatic model updates
+# Automatic retraining after dataset approval
 
-> **Superseded for serving:** use `server/SENTIMENT_SUPPORTING_POOL.md` and apply
-> `sentiment_supporting_pool.sql`. The built-in models are now permanent; new
-> candidates join a bounded supporting pool instead of replacing the primary.
-> The single-active-model workflow below is historical migration context only.
+## What happens
 
-**Active model state + newly approved examples + bounded older replay examples
-→ updated model → quality checks → automatic activation.**
+1. A super admin approves a dataset using the existing approval screen.
+2. A database trigger **atomically queues** retraining in that same transaction.
+   Approvals within 30 seconds share one queued job. A later approval while a job
+   is already training creates the next queued job.
+3. An always-running Python worker claims the job and takes an immutable snapshot
+   of **all currently approved datasets**, not just the last upload. Pending,
+   rejected, and archived examples are excluded.
+4. The worker builds a new training snapshot, trains the three sentiment models,
+   and evaluates the exported ONNX artifacts against the active model on the same
+   fixed test set. The language-identification model is preserved unchanged.
+5. A passing candidate appears as **Ready for review**. A super admin explicitly
+   clicks **Activate candidate**. Training never activates a model automatically.
+6. Backend instances verify checksums and ONNX contracts, download a complete
+   bundle into writable temporary storage, and refresh within 30 seconds.
+   Old report/comment analyses are not automatically recalculated.
 
-Uploads still require super-admin approval. A failed, interrupted, stale or
-incomplete job never replaces the active model. Existing report/comment analyses
-are not automatically recalculated.
+Until activation, the current model continues serving requests. Training,
+evaluation, storage, or download failures never overwrite the bundled ONNX files.
 
-## One-time setup / upgrade
+## Required one-time setup
 
-Run the migrations in Supabase SQL Editor in this order:
+### 1. Apply the new migration
 
-1. `DB_Schema/migrations/sentiment_datasets.sql`
-2. `DB_Schema/migrations/sentiment_training_jobs.sql`
-3. **`DB_Schema/migrations/sentiment_continued_training.sql`**
+After `DB_Schema/migrations/sentiment_datasets.sql`, run:
 
-For an existing installation with the first two already applied, run only the
-third. Do not reapply the older worker migration afterward: it would restore the
-legacy manual-activation protocol. The new migration does not itself activate,
-retrain or overwrite any existing model.
+**`DB_Schema/migrations/sentiment_training_jobs.sql`**
 
-Set this in `server/.env` (used by the local worker) and the deployed backend:
+Run it in Supabase SQL Editor. It creates the durable queue, lease protocol,
+versioned model pointer, audit log, and private `sentiment-models` storage bucket.
+It also queues existing approved datasets once when upgrading from manual exports.
+Do not add public storage policies or expose the worker RPC to authenticated users.
+
+### 2. Enable model activation on the backend
+
+Add this to `server/.env` and the backend's Vercel environment variables:
 
 ```env
 SENTIMENT_MODEL_REGISTRY_ENABLED=true
 ```
 
-Restart/redeploy the backend and restart the Python worker. From the project root:
+Keep your existing Supabase configuration. Restart/redeploy the backend and refresh
+the client. Activation is intentionally disabled until this flag is enabled.
+Models remain in the private bucket; browser clients never receive service keys.
+
+### 3. Start the Python worker
+
+From the repository root on Windows:
 
 ```powershell
 .\.venv-data\Scripts\python.exe -m pip install -r datasets/requirements-training.txt
 .\.venv-data\Scripts\python.exe datasets/sentiment_training_worker.py --env-file server/.env
 ```
 
-Keep the worker running. It can run on your computer while the app/backend are
-online. It needs internet, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`; those
-credentials must never be exposed to the browser or committed. `--once` handles
-at most one job; a 30-second batching window can mean none is claimable yet.
+To check imports and CLI startup without contacting Supabase or claiming a job:
 
-### Startup HTTP 503 / PGRST002
-
-This means Supabase's database API cannot load its schema cache. It is not an
-evaluation failure or evidence of a bad dataset. The worker retries only the
-read-only capabilities probe with backoff (5, 10, 20, then 30 seconds) without
-claiming jobs. Ctrl+C stops the wait; `--once` reports the error immediately.
-Mutating RPCs and uploads are not automatically replayed after ambiguous errors.
-
-Check that the Supabase project is active/resumed and inspect Database/API health
-and logs. In the SQL Editor, test `select 1;`. If database access works but the API
-cache remains unavailable, request a cache refresh with
-`NOTIFY pgrst, 'reload schema';`. If database access itself fails, resolve the
-project/database availability first; rerunning training migrations will not fix
-an unavailable database. Once the API recovers, the worker rechecks migration
-capabilities and starts normally. Auth health can be 200 while database API reads
-still fail.
-
-### Repeated lease errors during status polling (SQLSTATE 40001)
-
-A log showing `sentiment_training_worker` called with only `p_action` and raising
-`Training lease is stale or invalid` can indicate an old worker RPC receiving a
-capabilities probe, not a real expired training job. An earlier status probe was
-incompatible with that old definition. The backend and Python worker now call
-the dedicated `sentiment_training_capabilities()` read-only RPC instead. It never
-claims a job, takes the queue lock or checks a lease. It also detects if the old
-worker migration was reapplied over the newer protocol.
-
-Stop old workers/status clients, apply the **latest complete**
-`sentiment_continued_training.sql`, then restart/redeploy the backend and worker.
-The migration reloads the PostgREST schema cache at commit. Verify in SQL Editor:
-
-```sql
-select public.sentiment_training_capabilities();
+```powershell
+.\.venv-data\Scripts\python.exe datasets/sentiment_training_worker.py --help
 ```
 
-Both flags should be `true`. Missing function/false flags mean migration setup is
-incomplete. Do not bypass lease validation or force job statuses. This fixes the
-protocol mismatch; a separate `PGRST002` outage still needs API/database health
-diagnosis if it persists after upgrading.
+The worker does not require a `builtin_sentiment_examples` module. A stale lease
+(`40001`) stops that job immediately; it must not retry progress or failure writes
+with the rejected token. Temporary telemetry outages use bounded backoff, while
+only the read-only startup capability check is automatically retried. Never
+disable the database's lease checks to work around a stale-worker error.
 
-## How continued training actually works
+If the worker starts but job claiming returns HTTP 400, the claim must include
+the supporting-pool, independent-admission and language-scope protocol versions,
+plus SHA-256 fingerprints of the actual built-in ONNX files. Use the current
+worker file; do not remove database protocol checks. Persistent 4xx claim errors
+stop the worker rather than looping, and temporary claim outages back off.
+Diagnostics show only an allowlisted error code, never private response bodies.
 
-`datasets/continue_sentiment.py` loads the current fitted Python model state,
-including its vectorizer and classifier weights. It does **not** initialize a
-new classifier or refit the vocabulary. For each language with new examples:
+Fresh and continued jobs use different trainers. `train_sentiment.py` accepts
+`--languages` and `--independent-quality`; continued jobs use
+`continue_sentiment.py` with the admitted approved-example snapshot. A validation
+quality rejection is not a subprocess crash and does not lower quality gates.
 
-- Determine additions relative to the active job's approved-data snapshot.
-- Exclude exact baseline duplicates and validation/test overlaps.
-- Select deterministic older rehearsal examples, up to 300 per sentiment class,
-  from training rows only, excluding the new rows themselves.
-- Warm-start the existing binary logistic classifiers using `lbfgs`. The previous
-  `liblinear` solver does not support the required warm-start behavior.
-- Select a bounded update strength using validation metrics, preserving per-class
-  recall and macro-F1 safeguards. Test examples are never used for selection.
-- Export both the updated ONNX inference model and its fitted joblib state.
+Continued training requires trusted joblib states paired with the built-in ONNX
+files. If `datasets/models` is not paired with `server/models`, do not replace
+the built-ins or silently switch training modes. Supply the matching state folder:
 
-Languages with no new examples are copied unchanged, not unnecessarily retrained.
-A job with no genuinely new eligible examples stops with an explanatory message.
-The final complete bundle must still pass all existing test-set and regression
-gates. No gate is weakened to force activation.
+```powershell
+.\.venv-data\Scripts\python.exe datasets/sentiment_training_worker.py --env-file server/.env --bootstrap-state-dir path/to/trusted/paired/models
+```
 
-**Vocabulary limitation:** new weights can learn from existing word/character
-features, but this is not a vocabulary rebuild. If no new text has recognized
-features, continued training stops. A full feature/vocabulary rebuild is a
-separate, explicitly reviewed operation.
+Only use locally trusted training artifacts: joblib deserialization executes code.
+The trainer checks the companion ONNX fingerprint before using bootstrap states.
+An offline regression runs real fresh/continued subprocesses on synthetic fixtures
+with mocked cloud calls, without touching Supabase or the bundled models:
 
-## Required baseline files
+```powershell
+$env:PYTHONPATH='datasets'
+.\.venv-data\Scripts\python.exe -m unittest test_training_pipeline_regression
+```
 
-For the built-in model, the worker needs:
+The optional `--env-file` loads server credentials without copying them into the
+client. Environment variables already supplied by a host take precedence.
 
-- The frozen `datasets/processed/train.csv`, `validation.csv`, `test.csv`.
-- The served `server/models/*.onnx` bundle.
-- The matching trusted `datasets/models/sentiment_*.joblib` fitted states and
-  their paired `sentiment_*.onnx` files.
-- `datasets/models/baseline_metrics.json`, containing recorded validation scores.
+**Keep this process running** for automatic training. A local demo stops processing
+jobs when the terminal/computer is stopped. For production, run this same worker
+as a supervised Python service on an always-on host; do not run it inside Vercel
+HTTP functions. No particular hosting provider is required by the implementation.
+Allow up to two hours per job and provision CPU/RAM for your roughly 100k-row
+training corpus (start with 4–8 GB RAM and monitor actual usage).
 
-These data/state files are git-ignored. Provision them explicitly on a remote
-worker. Bootstrap ONNX hashes must match the served model before a paired state
-is accepted. Legacy models were refitted on validation, so the trainer uses
-their recorded pre-refit validation scores, not inflated in-sample predictions.
-Older model knowledge cannot be retrospectively removed from their weights.
+The worker needs:
 
-After the first successful update, inference files **and training states** are
-stored privately in the `sentiment-models` bucket. The next job downloads the
-exact active state, verifies sizes/checksums/paths, and loads its snapshot and
-recorded validation metadata. No local job directory is the source of truth.
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (server-side only).
+- The **same immutable baseline** `datasets/processed/train.csv`,
+  `validation.csv`, and `test.csv`. These are git-ignored; explicitly provision
+  them securely on a remote worker. Do not upload a previous job's merged snapshot
+  as the baseline, or archived examples would silently remain in future training.
+- The bundled baseline `server/models/*.onnx` for the first evaluation/rollback.
+  Subsequent runs download the active baseline bundle from private storage.
 
-Joblib is executable serialization. Only trusted bootstrap states and private
-worker-generated, checksum-verified states may be loaded. Never load joblib files
-from dataset uploads or arbitrary URLs. Browser/backend inference downloads only
-ONNX files, not the Python training state.
+Optional paths:
 
-## Automatic activation and rollback
+```powershell
+python datasets/sentiment_training_worker.py --env-file server/.env --data-dir path/to/frozen-baseline --baseline-model-dir path/to/bundled-models --runs-dir path/to/private-runs
+```
 
-The worker uploads the complete immutable bundle, then completes the job through
-the service-role-only RPC. The database atomically verifies:
+`--once` processes at most one available job. It may report no claimable job during
+the 30-second batching window. The default mode polls automatically every 5 seconds.
+Never put the service-role key in Expo variables, browser requests, or source control.
 
-- A valid, unexpired worker lease and a passing evaluation.
-- Continued-training provenance (legacy cold-training workers cannot activate).
-- All four inference files and all three saved Python training states.
-- The same active-model generation/parent and approved-data revision as claimed.
+## Super-admin workflow
 
-Only then does it mark the job ready, move the previous pointer and activate the
-update in **one transaction**. New approval/model changes during training make
-the result stale; the old model remains active and a fresh queued job can proceed.
-Browser roles cannot call this protocol.
+### Exact dataset selection tracking
 
-Backend instances refresh within approximately 30 seconds, verifying checksums
-and ONNX contracts. Download failures retain the last working in-memory model
-(or bundled fallback on a cold start) and log the failure.
+Apply `DB_Schema/migrations/sentiment_training_dataset_selection.sql` in Supabase
+SQL Editor after queue eligibility / the finalized schema, then restart the API
+and refresh Training. This additive, rerunnable migration does not delete or
+rewrite historical jobs, datasets, samples, or model artifacts.
 
-In Sentiment Datasets → Training, **Queue retraining** and **Roll back model**
-are directly below **Currently in use**, aligned right. Rollback is disabled
-when the built-in model is already active, during a live training/evaluation,
-or when registry serving is disabled. Rollback restores the previous pointer;
-the first rollback can return to the built-in bundle. It does not delete datasets.
+Each queued job now records `selected_dataset_versions` independently of the full
+approved pool snapshot. Readiness and queue validation use that receipt, so
+selecting one dataset does not consume unselected datasets (even in the same
+language). No selection means all currently ready datasets. Retries preserve the
+original selected versions and language scope; changed approvals are rejected.
+Prior approved examples can still provide fitting/replay context in those languages.
 
-## Removed or relabelled data
+Older jobs did not record exact selections; their full pool snapshots cannot
+reconstruct which boxes were checked. They are kept unchanged and do not consume
+readiness, so previously trained datasets may also reappear. Select the intended
+datasets explicitly for the next run. An ambiguous old run cannot use automatic
+retry, which would silently broaden its scope. New tracked retries work normally.
 
-Continued training cannot guarantee unlearning. If an example already learned by
-the active model is archived, removed or relabelled, the worker stops instead of
-silently claiming that its influence has disappeared. Roll back to an appropriate
-earlier model, or perform a separately reviewed full rebuild to remove its effect.
-Archiving may queue a job, but it does not itself remove knowledge from weights.
+Offline SQL coverage (set `PGLITE_MODULE` when using an external PGlite install):
 
-## Evaluation and diagnostics
+```powershell
+node --test tests/database/sentimentDatasetSelection.postgres.mjs
+```
 
-Final test policy is unchanged: each language needs macro-F1 ≥ 0.60, no macro-F1
-drop above 0.01, no class recall drop above 0.03, and at least 10 test examples per
-class. Known-correct regression phrases must not become incorrect.
+Open **Sentiment Datasets** → approve → check **Automatic retraining**:
 
-Failure messages identify the language/class and actual values. Detailed private
-logs, the immutable approved snapshot, metadata and evaluation results are under
-`datasets/training-runs/<job-id>/`. A candidate is not guaranteed to improve or
-pass merely because additional data was uploaded. Review labels and data quality.
+- **Queued:** worker has not claimed it yet. If it stays queued, start/check the worker.
+- **Training:** candidate models are being built.
+- **Evaluating:** real ONNX predictions are being compared with the active baseline.
+- **Ready for review:** all checks passed; review the scores, then activate manually.
+- **Failed:** inspect the error, fix the data/worker problem, and choose **Queue retraining**.
+
+The panel refreshes every 10 seconds. Model generation and dataset revisions
+prevent activation of stale candidates. Approving/archiving more data during a run
+can make a completed candidate outdated; the next queued run captures the changes.
+Archiving an approved dataset queues a new candidate without it; it does not
+instantly remove its influence from a model that has already been activated.
+
+**Roll back model** restores the previously active candidate, or the bundled
+baseline for the first activation. Rollback increments the generation and is
+audited. It may restore a model without the latest approved data. Activation and
+rollback are blocked while a live evaluation is running, avoiding baseline races.
+
+## Evaluation and data safety
+
+- Train only on the frozen baseline training data plus approved examples.
+- Exclude approved samples matching validation/test text after language-aware
+  Unicode/case/whitespace normalization. Duplicates of baseline training examples
+  are not added again; conflicting approved/baseline labels fail the job for review.
+- Remove pre-existing training/holdout overlaps **only from the new snapshot**.
+  Originals and validation/test files are never rewritten. Conflicting labels
+  inside the existing fixed holdouts are reported as quality warnings, not silently
+  changed to improve scores. The current source has 3 train/test overlap keys and
+  3 conflicting-label groups in its test data; curate a separately versioned
+  benchmark if those need correction.
+- Each language must achieve macro-F1 ≥ 0.60 and must not fall more than 0.01 below
+  the active baseline. No class recall may fall more than 0.03; each test class
+  needs at least 10 examples. Known-correct Cebuano/Filipino/English regression
+  phrases must not become incorrect. Metrics and policy are stored with the job.
+- ONNX evaluation uses small batches to avoid dense TF-IDF memory blowups.
+- A job records dataset IDs/versions, source split hashes, baseline model hashes,
+  import counts, evaluation scores, and checksummed candidate artifacts.
+- Job leases are heartbeated. Expired workers cannot complete/publish a job, and
+  concurrent workers cannot claim two running jobs. A restarted worker expires
+  old leases safely; **Queue retraining** retries with a fresh job/snapshot.
+- The initial approved-pool limit is 50,000 samples. Archive/curate or explicitly
+  revise the policy before growing beyond it. Per-import limits remain unchanged.
+- Worker snapshots/logs live under git-ignored `datasets/training-runs/`; keep
+  them private. Storage artifacts use immutable job/lease paths. Retain active and
+  previous bundles; orphaned/failed-upload artifacts can be reviewed for cleanup.
+
+Backend temporary caches are not the source of truth. A cold instance downloads
+the active bundle again. Registry/download failures retain the last-good in-memory
+model, or the bundled fallback on a cold start; inspect backend logs if an instance
+has not switched. Disable the registry flag only as an emergency fallback to the
+bundled models, consistently on all backend instances.
 
 ## Verification
 
-```powershell
-.\.venv-data\Scripts\python.exe -m unittest discover -s tests -t .
-```
+- `npm test` in `server`: API validation, access checks, registry/checksum tests,
+  real ONNX cache smoke tests, and existing backend coverage.
+- `python -m unittest discover -s datasets -p test_sentiment_training_worker.py`:
+  merge isolation, evaluation gates, worker lifecycle, and no automatic activation.
+  Run with `.venv-data` to include the real ONNX contract test.
+- `server/tests/sentimentTraining.postgres.mjs`: isolated PostgreSQL tests for the
+  actual migrations, approval-trigger queueing, batching, immutable snapshots,
+  leases, stale revisions, manual activation, rollback, and permissions. Use the
+  same optional `PGLITE_MODULE` setup documented in `SENTIMENT_DATASETS.md`.
 
-From `server/`, `npm test` covers API access and registry behavior. Optional
-`tests/sentimentContinuedTraining.postgres.mjs` runs the actual migrations in an
-isolated PGlite database, covering atomic activation, stale/expired workers,
-rollback, incomplete states and permissions. Use `PGLITE_MODULE` as documented
-for the other optional PostgreSQL tests. The browser dataset test also verifies
-the right-aligned controls and automatic-update UI.
-
-Changing code alone does not apply migrations, start workers, deploy the backend,
-train a live job or activate a live model. Complete setup explicitly.
+No live migration, cloud deployment, full-corpus retraining, or model activation
+is performed merely by installing this code. Perform the setup above first.

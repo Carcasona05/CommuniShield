@@ -10,6 +10,7 @@ import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCache, setCache } from "../../services/dataStore";
 import SentimentDatasetManager from "../../components/Admin_compo/SentimentDatasetManager";
+import SentimentDistributionCard from "../../components/Admin_compo/SentimentDistributionCard";
 
 const TRAINING_SCROLLBAR_CSS = `
   #sentiment-training-scroll {
@@ -84,23 +85,6 @@ const SentimentChart = ({ data = [] }) => {
       ))}
     </Svg>
   );
-};
-
-const distColor = (label) => {
-  switch (label) {
-    case "positive":
-      return "#3DBB74";
-    case "neutral":
-      return "#4F8EF7";
-    case "negative":
-      return "#E45757";
-    case "mixed":
-      return "#F29A2E";
-    case "unclear":
-      return "#9AA8C2";
-    default:
-      return "#9AA8C2";
-  }
 };
 
 export default function Admin_Analytics() {
@@ -179,15 +163,6 @@ export default function Admin_Analytics() {
     );
   }
 
-  // Calculate total sum of breakdown items
-  const distributionList = Array.isArray(summary.sentimentDistribution)
-    ? summary.sentimentDistribution
-    : [];
-  const totalBreakdownCount = distributionList.reduce(
-    (acc, item) => acc + (Number(item?.count) || 0),
-    0
-  );
-
   return (
     <Admin_Layout>
       {Platform.OS === "web" ? <style>{TRAINING_SCROLLBAR_CSS}</style> : null}
@@ -220,7 +195,7 @@ export default function Admin_Analytics() {
                   {/* SUMMARY METRICS MINI-BANNER */}
                   <View style={styles.metricsBanner}>
                     <View style={styles.metricBox}>
-                      <Text style={styles.metricLabel}>Total Comments</Text>
+                      <Text style={styles.metricLabel}>Reports & Comments</Text>
                       <Text style={styles.metricValue}>{summary.sentimentTotal ?? 0}</Text>
                     </View>
                     <View style={styles.metricDivider} />
@@ -232,7 +207,7 @@ export default function Admin_Analytics() {
                     </View>
                     <View style={styles.metricDivider} />
                     <View style={styles.metricBox}>
-                      <Text style={styles.metricLabel}>Pending AI</Text>
+                      <Text style={styles.metricLabel}>No Successful Result</Text>
                       <Text style={[styles.metricValue, { color: "#E5A12F" }]}>
                         {(summary.sentimentTotal || 0) - (summary.sentimentAnalyzed || 0)}
                       </Text>
@@ -276,71 +251,7 @@ export default function Admin_Analytics() {
                     <Text style={styles.axisText}>23:00</Text>
                   </View>
 
-                  {/* DISTRIBUTION BREAKDOWN */}
-                  <Text style={[styles.chartSubhead, { marginTop: 16 }]}>
-                    Distribution Breakdown
-                  </Text>
-                  <View style={styles.distList}>
-                    {distributionList.map((item) => {
-                      const count = Number(item?.count) || 0;
-                      const divisor = totalBreakdownCount || 1;
-                      const pct = Math.round((count / divisor) * 100);
-                      const isNone = item?.label === "none";
-                      return (
-                        <View key={String(item?.label)} style={styles.distRow}>
-                          <Text style={styles.distLabel}>
-                            {isNone ? "No data" : String(item?.label)}
-                          </Text>
-                          <View style={styles.distBarTrack}>
-                            <View
-                              style={[
-                                styles.distBarFill,
-                                {
-                                  width: `${pct}%`,
-                                  backgroundColor: isNone
-                                    ? "#9AA8C2"
-                                    : distColor(String(item?.label)),
-                                },
-                              ]}
-                            />
-                          </View>
-                          <Text style={styles.distCount}>
-                            {count} ({pct}%)
-                          </Text>
-                        </View>
-                      );
-                    })}
-
-                    {/* CUMULATIVE TOTAL ROW WITH COMBINED COLOR BAR */}
-                    <View style={styles.distRow}>
-                      <Text style={[styles.distLabel, { fontFamily: "PoppinsSemiBold", color: "#294880" }]}>
-                        Total
-                      </Text>
-                      <View style={styles.distBarTrack}>
-                        <View style={[styles.distBarFill, { flexDirection: "row", width: "100%", overflow: "hidden" }]}>
-                          {distributionList.map((item) => {
-                            const count = Number(item?.count) || 0;
-                            const divisor = totalBreakdownCount || 1;
-                            const pct = (count / divisor) * 100;
-                            if (pct <= 0) return null;
-                            return (
-                              <View
-                                key={item.label}
-                                style={{
-                                  height: "100%",
-                                  width: `${pct}%`,
-                                  backgroundColor: distColor(item.label),
-                                }}
-                              />
-                            );
-                          })}
-                        </View>
-                      </View>
-                      <Text style={[styles.distCount, { fontFamily: "PoppinsSemiBold", color: "#294880" }]}>
-                        {totalBreakdownCount} (100%)
-                      </Text>
-                    </View>
-                  </View>
+                  <SentimentDistributionCard summary={summary} />
                 </View>
               </View>
             </View>

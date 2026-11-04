@@ -20,6 +20,7 @@ import {
   BatchFilterDropdown,
 } from "../../components/Admin_compo/AdminBatchFilters";
 import apiClient from "../../services/apiClient";
+import { getSentimentRetryCommentIds } from "../../services/sentimentReanalysis";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { getCache, setCache } from "../../services/dataStore";
@@ -365,6 +366,12 @@ function Admin_Validation() {
     return getGroupedReports(reports);
   }, [reports]);
 
+  useEffect(() => {
+    setSelectedCompiledGroup((current) => current
+      ? groupedReports.find((group) => group.id === current.id) || current
+      : current);
+  }, [groupedReports]);
+
   const filteredReports = useMemo(() => {
     const rangeStart = parseDateBoundary(fromDate);
     const rangeEnd = parseDateBoundary(toDate, true);
@@ -480,6 +487,16 @@ function Admin_Validation() {
   const consumedOpenReport = useRef(null);
 
   useEffect(() => {
+    if (!openReportParam) return;
+    setSelectedStatus("All");
+    setSelectedCategory("All");
+    setSelectedIncidentType("All");
+    setSelectedBarangay("All");
+    setFromDate("");
+    setToDate("");
+  }, [openReportParam, openReportNonce]);
+
+  useEffect(() => {
     const target = Array.isArray(openReportParam)
       ? openReportParam[0]
       : openReportParam;
@@ -493,13 +510,19 @@ function Admin_Validation() {
     if (consumedOpenReport.current === consumeKey) return;
 
     const group = groupedReports.find((g) =>
-      g.reports.some((report) => report.id === target)
+      g.reports.some((report) => String(report.id) === String(target))
     );
 
     if (!group) return;
 
     consumedOpenReport.current = consumeKey;
-    setSelectedCompiledGroup(group);
+    setSelectedCompiledGroup({
+      ...group,
+      reports: [
+        ...group.reports.filter((report) => String(report.id) === String(target)),
+        ...group.reports.filter((report) => String(report.id) !== String(target)),
+      ],
+    });
     setViewVisible(true);
   }, [openReportParam, openReportNonce, groupedReports, loading]);
 
@@ -684,13 +707,7 @@ function Admin_Validation() {
       if (!token) return;
       const headers = { Authorization: `Bearer ${token}` };
 
-      const missingCommentIds = targetReports
-        .flatMap((item) => item.comments || [])
-        .filter(
-          (comment) =>
-            comment?.id && comment.sentiment_status !== "succeeded"
-        )
-        .map((comment) => comment.id);
+      const commentIdsToRetry = getSentimentRetryCommentIds(targetReports);
 
       const calls = [];
       for (const item of targetReports) {
@@ -704,11 +721,11 @@ function Admin_Validation() {
         );
       }
 
-      if (missingCommentIds.length > 0) {
+      if (commentIdsToRetry.length > 0) {
         calls.push(
           apiClient.post(
             "/ai/sentiment/reanalyze",
-            { subject_type: "comment", ids: missingCommentIds },
+            { subject_type: "comment", ids: commentIdsToRetry },
             { headers }
           )
         );
@@ -719,7 +736,7 @@ function Admin_Validation() {
         (result) => result.status === "fulfilled"
       ).length;
 
-      loadValidation();
+      await loadValidation();
 
       if (succeeded === 0) {
         const failure = results.find(

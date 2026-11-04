@@ -1,0 +1,228 @@
+{
+  "createdAt": "2026-11-01T14:47:43.024Z",
+  "primaryDirectory": "C:\\Users\\Administrator\\Desktop\\CommuniShield\\server\\models",
+  "primaryHashes": {
+    "sentiment_english.onnx": "264e55483fc93dd941d5356c1a38eca70fd273f3ecd6ce6e0d31d0852dac7341",
+    "sentiment_filipino.onnx": "ca27c428e437b8525c1f69d7e9c030411da9d00968933f7c7d48f1e0def8e3b4",
+    "sentiment_cebuano.onnx": "f4d8b78e8a70e372bb2d7619cce1c3cd81a878419e573763c73554069f858a47",
+    "language_id.onnx": "3e59403dd1e4ccc9cb48622db5d9e38cdf71eeb74a15227a7831e316e11deefd"
+  },
+  "models": [
+    {
+      "id": "2f3dec76-bfb7-4886-ad1a-d72effa59934",
+      "directory": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\communishield-models\\2f3dec76-bfb7-4886-ad1a-d72effa59934-a7d9445611e9",
+      "policy": {
+        "note": "Independent held-out quality; no claim of improvement over the built-in or the combined system.",
+        "passed": true,
+        "version": 2,
+        "admission": "independent-v1",
+        "languages": {
+          "cebuano": {
+            "primary_margin": 0.2,
+            "support_margin": 0.05,
+            "selection_policy": "validation-wilson-95-v1",
+            "primary_confidence": 0.85,
+            "support_confidence": 0.5,
+            "validation_support": 2380,
+            "validation_precision": 0.8529411764705882,
+            "validation_precision_lower_bound": 0.8381435591491505
+          }
+        },
+        "thresholds": {
+          "minimum_macro_f1": 0.6,
+          "minimum_class_recall": 0.5,
+          "minimum_class_support": 10,
+          "minimum_test_accepted": 10,
+          "minimum_class_precision": 0.5,
+          "minimum_accepted_precision": 0.75,
+          "minimum_validation_accepted": 20
+        },
+        "scope_version": 1,
+        "builtin_hashes": {
+          "language_id.onnx": "3e59403dd1e4ccc9cb48622db5d9e38cdf71eeb74a15227a7831e316e11deefd",
+          "sentiment_cebuano.onnx": "f4d8b78e8a70e372bb2d7619cce1c3cd81a878419e573763c73554069f858a47",
+          "sentiment_english.onnx": "264e55483fc93dd941d5356c1a38eca70fd273f3ecd6ce6e0d31d0852dac7341",
+          "sentiment_filipino.onnx": "ca27c428e437b8525c1f69d7e9c030411da9d00968933f7c7d48f1e0def8e3b4"
+        },
+        "independent_test": {
+          "passed": true,
+          "languages": {
+            "cebuano": {
+              "passed": true,
+              "metrics": {
+                "macro_f1": 0.7220068711854468,
+                "per_class": {
+                  "neutral": {
+                    "f1": 0.8582025677603423,
+                    "recall": 0.8323187603763144,
+                    "support": 1807,
+                    "precision": 0.8857479387514723
+                  },
+                  "negative": {
+                    "f1": 0.6004447739065975,
+                    "recall": 0.7404021937842779,
+                    "support": 547,
+                    "precision": 0.5049875311720698
+                  },
+                  "positive": {
+                    "f1": 0.7073732718894009,
+                    "recall": 0.6055226824457594,
+                    "support": 507,
+                    "precision": 0.850415512465374
+                  }
+                }
+              },
+              "reasons": [],
+              "support": 2376,
+              "precision": 0.8468013468013468,
+              "validation_metrics": {
+                "macro_f1": 0.7278912913767884,
+                "per_class": {
+                  "neutral": {
+                    "f1": 0.8503496503496504,
+                    "recall": 0.8310552214324768,
+                    "support": 1829,
+                    "precision": 0.870561282932417
+                  },
+                  "negative": {
+                    "f1": 0.5959970348406227,
+                    "recall": 0.7077464788732394,
+                    "support": 568,
+                    "precision": 0.5147247119078106
+                  },
+                  "positive": {
+                    "f1": 0.7373271889400922,
+                    "recall": 0.6412825651302605,
+                    "support": 499,
+                    "precision": 0.8672086720867209
+                  }
+                }
+              },
+              "selected_thresholds": {
+                "margin": 0.05,
+                "confidence": 0.5
+              },
+              "validation_acceptance": {
+                "support": 2380,
+                "precision": 0.8529411764705882
+              },
+              "test_acceptance_evaluated": true
+            }
+          }
+        },
+        "evaluated_pool_ids": [],
+        "requested_languages": [
+          "cebuano"
+        ]
+      }
+    },
+    {
+      "id": "f545efd8-1933-47d5-bf85-b917bf3fad4f",
+      "directory": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\communishield-models\\f545efd8-1933-47d5-bf85-b917bf3fad4f-bccb89bd251f",
+      "policy": {
+        "note": "Independent held-out quality; no claim of improvement over the built-in or the combined system.",
+        "passed": true,
+        "version": 2,
+        "admission": "independent-v1",
+        "languages": {
+          "cebuano": {
+            "primary_margin": 0.2,
+            "support_margin": 0.05,
+            "selection_policy": "validation-wilson-95-v1",
+            "primary_confidence": 0.85,
+            "support_confidence": 0.5,
+            "validation_support": 2384,
+            "validation_precision": 0.8515100671140939,
+            "validation_precision_lower_bound": 0.8366708100375347
+          }
+        },
+        "thresholds": {
+          "minimum_macro_f1": 0.6,
+          "minimum_class_recall": 0.5,
+          "minimum_class_support": 10,
+          "minimum_test_accepted": 10,
+          "minimum_class_precision": 0.5,
+          "minimum_accepted_precision": 0.75,
+          "minimum_validation_accepted": 20
+        },
+        "scope_version": 1,
+        "builtin_hashes": {
+          "language_id.onnx": "3e59403dd1e4ccc9cb48622db5d9e38cdf71eeb74a15227a7831e316e11deefd",
+          "sentiment_cebuano.onnx": "f4d8b78e8a70e372bb2d7619cce1c3cd81a878419e573763c73554069f858a47",
+          "sentiment_english.onnx": "264e55483fc93dd941d5356c1a38eca70fd273f3ecd6ce6e0d31d0852dac7341",
+          "sentiment_filipino.onnx": "ca27c428e437b8525c1f69d7e9c030411da9d00968933f7c7d48f1e0def8e3b4"
+        },
+        "independent_test": {
+          "passed": true,
+          "languages": {
+            "cebuano": {
+              "passed": true,
+              "metrics": {
+                "macro_f1": 0.722073755418663,
+                "per_class": {
+                  "neutral": {
+                    "f1": 0.8579577866514546,
+                    "recall": 0.8323187603763144,
+                    "support": 1807,
+                    "precision": 0.885226603884638
+                  },
+                  "negative": {
+                    "f1": 0.6008902077151336,
+                    "recall": 0.7404021937842779,
+                    "support": 547,
+                    "precision": 0.5056179775280899
+                  },
+                  "positive": {
+                    "f1": 0.7073732718894009,
+                    "recall": 0.6055226824457594,
+                    "support": 507,
+                    "precision": 0.850415512465374
+                  }
+                }
+              },
+              "reasons": [],
+              "support": 2375,
+              "precision": 0.8471578947368421,
+              "validation_metrics": {
+                "macro_f1": 0.7275811040232684,
+                "per_class": {
+                  "neutral": {
+                    "f1": 0.8504333240145373,
+                    "recall": 0.8316019682886824,
+                    "support": 1829,
+                    "precision": 0.870137299771167
+                  },
+                  "negative": {
+                    "f1": 0.5964391691394659,
+                    "recall": 0.7077464788732394,
+                    "support": 568,
+                    "precision": 0.5153846153846153
+                  },
+                  "positive": {
+                    "f1": 0.7358708189158016,
+                    "recall": 0.6392785571142284,
+                    "support": 499,
+                    "precision": 0.8668478260869565
+                  }
+                }
+              },
+              "selected_thresholds": {
+                "margin": 0.05,
+                "confidence": 0.5
+              },
+              "validation_acceptance": {
+                "support": 2384,
+                "precision": 0.8515100671140939
+              },
+              "test_acceptance_evaluated": true
+            }
+          }
+        },
+        "evaluated_pool_ids": [],
+        "requested_languages": [
+          "cebuano"
+        ]
+      }
+    }
+  ]
+}

@@ -70,11 +70,12 @@ export function routeSupportingModels(primary: Scores, proposals: SupportProposa
   if (!accepted.length) return { label: "unclear" as const, confidence: 0, origin: "unclear", reason: "no_reliable_support", ids: eligible.map((p) => p.id) };
   const labels = new Set(accepted.map((p) => ranked(p.scores).label));
   if (labels.size !== 1) return { label: "unclear" as const, confidence: 0, origin: "unclear", reason: "support_disagreement", ids: accepted.map((p) => p.id) };
-  if (accepted.some((p) => p.independent && ranked(p.scores).label !== base.label)) {
-    return { label: "unclear" as const, confidence: 0, origin: "unclear", reason: "primary_support_disagreement", ids: accepted.map((p) => p.id) };
-  }
-  // Agreeing proposals are ranked by observed validation precision, not by
-  // averaging unrelated raw probabilities or counting votes.
+  // Independent admission qualifies a support; it must not make agreement with
+  // an already-uncertain primary a prerequisite for correction. Only agreeing,
+  // threshold-qualified supports reach here. Strong primaries were retained
+  // above, and support/support conflicts still abstain instead of taking a vote.
+  // Rank agreeing proposals by observed validation precision, not by averaging
+  // unrelated raw probabilities or choosing the highest raw confidence.
   accepted.sort((a, b) => b.rule.validation_precision - a.rule.validation_precision || a.id.localeCompare(b.id));
   const best = accepted[0]!;
   return { label: ranked(best.scores).label, confidence: ranked(best.scores).score,

@@ -1,4 +1,6 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import { cleanCredibilityReview } from "../utils/credibilityReview.js";
+import { sentimentCoverage } from "./sentimentCoverage.js";
 import { reverseGeocode } from "../utils/geocode.js";
 import { deriveBarangay, hasReportCoordinates } from "../utils/argaoLocation.js";
 import {
@@ -275,7 +277,7 @@ export const reportService = {
         analysisMap.set(a.report_id, {
           ai_score: a.ai_score ?? null,
           severity: a.severity ?? "Medium",
-          credibility_review: a.credibility_review ?? "",
+        credibility_review: cleanCredibilityReview(a.credibility_review),
         });
       }
     );
@@ -380,7 +382,7 @@ export const reportService = {
         ai_score: analysis.ai_score ?? null,
         severity: analysis.severity ?? "Medium",
         ...sentimentFields(sentiment),
-        credibility_review: analysis.credibility_review ?? "",
+        credibility_review: cleanCredibilityReview(analysis.credibility_review),
       };
     });
 
@@ -874,22 +876,6 @@ export const reportService = {
     return { data: logs, error: null };
   },
 
-  // Count-only landing response: no narratives, profiles, images or comment joins.
-  async getAdminOverview() {
-    const count = () => supabaseAdmin.from("reports").select("id", { count: "exact", head: true }).neq("status", "Archived");
-    const results = await Promise.all([
-      count(), count().eq("status", "Pending Review"),
-      count().or("is_verified.eq.true,status.eq.Resolved"), count().eq("status", "Rejected"),
-      supabaseAdmin.from("reports")
-        .select("id,report_credibility_analysis!inner(severity)", { count: "exact", head: true })
-        .not("status", "in", '("Rejected","Archived")').in("report_credibility_analysis.severity", ["High", "Critical"]),
-    ]);
-    const failure = results.find(result => result.error || !Number.isSafeInteger(result.count) || result.count! < 0);
-    if (failure) return { data: null, error: failure.error?.message || "Report counts are unavailable." };
-    const [total, pending, verified, rejected, hotspots] = results.map(result => result.count!);
-    return { data: { summary: { total, pending, verified, rejected, hotspots } }, error: null };
-  },
-
   async getAdminDashboard(filters: {
     status?: string;
     source?: string;
@@ -999,7 +985,7 @@ export const reportService = {
         analysisMap.set(a.report_id, {
           ai_score: a.ai_score ?? null,
           severity: a.severity ?? "Medium",
-          credibility_review: a.credibility_review ?? "",
+        credibility_review: cleanCredibilityReview(a.credibility_review),
         });
       }
     );
@@ -1119,7 +1105,7 @@ export const reportService = {
         ai_score: analysis.ai_score ?? null,
         severity: analysis.severity ?? "Medium",
         ...sentimentFields(sentimentMap.get(r.id)),
-        credibility_review: analysis.credibility_review ?? "",
+        credibility_review: cleanCredibilityReview(analysis.credibility_review),
         comments: commentsByReport.get(r.id) || [],
         images: imagesByReport.get(r.id) || [],
         source: r.role === "admin" || r.role === "super_admin" ? "Admin" : "User",
@@ -1512,6 +1498,10 @@ export const reportService = {
           sentimentAnalyzed: successfulLabels.length,
           sentimentTotal: totalSubjects,
           sentimentDistribution: distribution,
+          sentimentCoverage: sentimentCoverage([
+            ...list.map(report => sentimentMap.get(report.id)),
+            ...(commentRows || []).map(comment => commentSentimentMap.get(comment.id)),
+          ]),
           credibilityRate,
         },
         sentimentTrend,
@@ -1570,11 +1560,14 @@ export const reportService = {
     if (input.status !== undefined && !VALID_STATUSES.includes(input.status)) {
       return { error: "Invalid report status." };
     }
+    if (input.status === undefined && input.is_verified === true && ["Archived", "Rejected", "Marked Fake"].includes(report.status)) {
+      return { error: "Choose a non-rejected, non-archived status before verifying this report." };
+    }
 
     const updates: Record<string, unknown> = {};
     if (input.status !== undefined) updates.status = input.status;
     if (input.is_verified !== undefined) updates.is_verified = input.is_verified;
-    if (updates.status === "Archived") updates.is_verified = false;
+    if (["Archived", "Rejected", "Marked Fake"].includes(String(updates.status))) updates.is_verified = false;
 
     const { error: updateError } = await supabaseAdmin
       .from("reports")
