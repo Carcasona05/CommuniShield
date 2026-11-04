@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { ensureNotSuspended } from "../../services/profileCompletion";
 import {
   View,
   Text,
@@ -363,7 +364,9 @@ const MyUser_RepPost_Layout = ({
         <TouchableOpacity
           style={styles.actionButton}
           activeOpacity={0.8}
-          onPress={onComment}
+          onPress={async () => {
+            if (await ensureNotSuspended()) onComment?.();
+          }}
         >
           <Ionicons
             name="chatbubble-ellipses-outline"

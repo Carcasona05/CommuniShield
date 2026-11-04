@@ -3,6 +3,7 @@ import { supabase } from "../config/supabase.js";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import type { User } from "@supabase/supabase-js";
 import { profileService } from "../services/authService.js";
+import { profileCompletionService, validProfileBirthdate } from "../services/profileCompletionService.js";
 import { isValidEmail, isValidPhone, passwordPolicyError } from "../services/validation.js";
 import { notificationService } from "../services/notificationService.js";
 import { credibilityService } from "../services/credibilityService.js";
@@ -226,6 +227,7 @@ export const getProfile = async (
   const { data } = await profileService.getProfile(user.id);
 
   const meta = user.user_metadata ?? {};
+  const completion = data ? await profileCompletionService.check(user.id, data, user.email) : null;
   const fallbackName = meta.userName ?? meta.name ?? user.email ?? "";
 
   let credibilityScore = 60;
@@ -252,6 +254,8 @@ export const getProfile = async (
     department: data?.department ?? "",
     birthdate: data?.birthdate ?? null,
     location: data?.location ?? "",
+    location_confirmed: completion?.data?.locationConfirmed === true,
+    profile_completion: completion?.data || null,
     role: data?.role ?? "user",
     email: user.email,
     credibility_score: credibilityScore,
@@ -313,6 +317,18 @@ export const updateProfile = async (
 
   const { first_name, middle_name, last_name, user_name, phone, birthdate, location, department } =
     req.body ?? {};
+
+  const current = await profileService.getProfile(user.id);
+  if (current.error || !current.data) return res.status(503).json({ error: "Could not verify your profile." });
+  if (current.data.role === "user" && location !== undefined) {
+    return res.status(400).json({ error: "Tap Address in Profile Details and allow location access before saving your address." });
+  }
+  if (birthdate !== undefined && birthdate !== null && !validProfileBirthdate(birthdate)) {
+    return res.status(400).json({ error: "Provide a valid birthdate that is not in the future." });
+  }
+  if (user_name !== undefined && (typeof user_name !== "string" || !user_name.trim())) {
+    return res.status(400).json({ error: "Username cannot be empty." });
+  }
 
   if (phone !== undefined && phone !== null && String(phone).trim() !== "" && !isValidPhone(phone)) {
     return res.status(400).json({ error: "Phone number must be exactly 11 digits" });

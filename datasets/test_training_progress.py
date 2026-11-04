@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
-from training_progress import TrainingProgress, write_fit_progress
+from training_progress import TrainingProgress, TrainingLeaseLost, write_fit_progress
 
 
 class ProgressTests(unittest.TestCase):
@@ -57,6 +57,45 @@ class ProgressTests(unittest.TestCase):
                 path.write_text(value)
                 progress.fitting(path, 0, "cebuano")
         cloud.report_progress.assert_not_called()
+
+    def test_failed_telemetry_is_backed_off_even_for_forced_updates(self):
+        cloud = Mock(progress_enabled=True)
+        cloud.report_progress.side_effect = OSError("offline")
+        clock = [0]
+        progress = TrainingProgress(cloud, {}, ["cebuano"], clock=lambda: clock[0])
+        with patch("builtins.print"):
+            for second in range(60):
+                clock[0] = second
+                progress.emit(0, "fitting", force=True)
+        self.assertEqual(cloud.report_progress.call_count, 4)  # 0, 5, 15, 35
+        self.assertEqual(progress.completed, 0)
+        cloud.report_progress.side_effect = None
+        clock[0] = 75
+        progress.emit(1, "fitting")
+        self.assertEqual(progress.completed, 1)
+        self.assertEqual(progress.failures, 0)
+
+    def test_stale_lease_is_terminal_and_never_sent_again(self):
+        cloud = Mock(progress_enabled=True)
+        error = RuntimeError("private server message")
+        error.api_code = "40001"
+        cloud.report_progress.side_effect = error
+        progress = TrainingProgress(cloud, {}, ["cebuano"])
+        for _ in range(3):
+            with self.assertRaises(TrainingLeaseLost):
+                progress.emit(0, "fitting")
+        self.assertEqual(cloud.report_progress.call_count, 1)
+
+    def test_fit_file_does_not_swallow_lease_rejection(self):
+        cloud = Mock(progress_enabled=True)
+        error = RuntimeError("stale lease")
+        error.api_code = "40001"
+        cloud.report_progress.side_effect = error
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "fit.json"
+            path.write_text(json.dumps({"completed": 1, "total": 2}))
+            with self.assertRaises(TrainingLeaseLost):
+                TrainingProgress(cloud, {}, ["cebuano"]).fitting(path, 0, "cebuano")
 
 
 if __name__ == "__main__":

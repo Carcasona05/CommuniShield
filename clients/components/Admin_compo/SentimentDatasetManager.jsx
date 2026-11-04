@@ -233,7 +233,18 @@ export default function SentimentDatasetManager({ embedded = false }) {
       <Disclosure title="Labeling tips"><Text style={s.note}>Label the emotion expressed, not the incident severity. Include enough context for slang or sarcasm.</Text></Disclosure>
     </View> : null}
     {activeTab === "datasets" ? <View style={s.stack}>
-      <View style={s.guideCard}><View style={s.row}><Ionicons name="folder-open-outline" size={20} color="#294880" /><Text style={s.subtitle}>Your reviewed data library</Text></View><Text style={s.note}>Open a dataset to inspect labels and review history. Only approved examples enter training. The permanent built-in model is never replaced.</Text><View style={s.row}>{[{ n: "1", title: "Collect" }, { n: "2", title: "Review" }, { n: "3", title: "Train" }, { n: "4", title: "Enable manually" }].map((step) => <View key={step.n} style={s.flowStep}><Text style={s.flowNumber}>{step.n}</Text><Text style={s.note}>{step.title}</Text></View>)}</View></View>
+      <View style={s.guideCard}>
+        <View style={s.row}><Ionicons name="folder-open-outline" size={20} color="#294880" /><Text style={s.subtitle}>Your reviewed data library</Text></View>
+        <Text style={s.note}>Open a dataset to inspect labels and review history. Only approved examples enter training. The permanent built-in model is never replaced.</Text>
+        <View style={s.flowSteps}>
+          {[{ n: "1", title: "Collect" }, { n: "2", title: "Review" }, { n: "3", title: "Train" }, { n: "4", title: "Enable manually" }].map((step) => (
+            <View key={step.n} accessible accessibilityLabel={`Step ${step.n}: ${step.title}`} style={s.flowStep}>
+              <View style={s.flowBadge}><Text style={s.flowNumber}>{step.n}</Text></View>
+              <Text style={s.flowLabel}>{step.title}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
       <View style={s.between}><Text style={s.subtitle}>{total} dataset{total === 1 ? "" : "s"}</Text><Button title="Refresh" icon="refresh-outline" secondary onPress={() => load({ force: true })} disabled={loading || busy} /></View>
       <InlineDropdown placeholder="Filter datasets" options={[{ value: "all", label: "All datasets" }, { value: "pending", label: "Pending review" }, { value: "approved", label: "Approved" }, { value: "rejected", label: "Rejected" }, { value: "archived", label: "Archived" }]} selectedValue={status} disabled={busy} open={filterOpen} onToggle={() => setFilterOpen(!filterOpen)} onClose={() => setFilterOpen(false)} onChange={(value) => { setStatus(value); setPage(1); }} />
       {loading ? <ActivityIndicator color="#294880" style={{ padding: 16 }} /> : null}
@@ -330,6 +341,12 @@ const s = StyleSheet.create({
   headingIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#EDF2FC", alignItems: "center", justifyContent: "center" },
   datasetIcon: { width: 38, height: 38, borderRadius: 11, backgroundColor: "#EDF2F9", alignItems: "center", justifyContent: "center" },
   datasetRow: { flexDirection: "row", alignItems: "flex-start", backgroundColor: "#FAFBFE", padding: 14, gap: 12, borderWidth: 1, borderColor: "#E6ECF5", borderRadius: 12 },
+  guideCard: { backgroundColor: "#F7FAFF", borderWidth: 1, borderColor: "#E0E8F4", borderRadius: 12, padding: 16, gap: 12 },
+  flowSteps: { flexDirection: "row", flexWrap: "wrap", columnGap: 24, rowGap: 10, borderTopWidth: 1, borderTopColor: "#E0E8F4", paddingTop: 12 },
+  flowStep: { flexDirection: "row", alignItems: "baseline", gap: 8 },
+  flowBadge: { flexShrink: 0 },
+  flowNumber: { fontFamily: "PoppinsSemiBold", fontSize: 12, lineHeight: 18, color: "#8595AC" },
+  flowLabel: { fontFamily: "PoppinsRegular", fontSize: 12, lineHeight: 18, color: "#52647C", flexShrink: 1 },
   formWidth: { width: "100%", maxWidth: 680, alignSelf: "center" },
   counter: { fontSize: 10, color: "#9AA8BD", fontFamily: "PoppinsRegular" },
   successBanner: { backgroundColor: "#EDF8F1", borderRadius: 9, flexDirection: "row", alignItems: "center", gap: 8, padding: 10 },

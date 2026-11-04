@@ -79,7 +79,7 @@ test("background failures are caught rather than becoming unhandled rejections",
   assert.equal(log.mock.callCount(), 1);
 });
 
-test("post-processing preserves points, notifications and analysis without tying independent work together", async (t) => {
+test("post-processing awards no submission points and preserves notifications and independent analysis", async (t) => {
   const points = t.mock.method(credibilityService, "addPoints", async () => ({ data: 65, error: null }));
   const nearby = t.mock.method(notificationService, "notifyNearbyUsers", async () => ({ data: 0, error: null }));
   const admins = t.mock.method(notificationService, "notifyAllAdmins", async () => ({ data: 1, error: null }));
@@ -90,7 +90,7 @@ test("post-processing preserves points, notifications and analysis without tying
   const processing = reportSubmissionService.process(submitted);
   // Allow immediate fulfilled service promises to finish, while sentiment is held.
   for (let i = 0; i < 8; i++) await Promise.resolve();
-  assert.equal(points.mock.callCount(), 1);
+  assert.equal(points.mock.callCount(), 0);
   assert.equal(nearby.mock.callCount(), 1);
   assert.equal(admins.mock.callCount(), 1, "admin notifications do not wait for sentiment");
   assert.equal(admins.mock.calls[0]?.arguments[0]?.priority, "High");

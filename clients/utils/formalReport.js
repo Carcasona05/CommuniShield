@@ -18,7 +18,7 @@ export const getReportImages = (record) => {
 
 export const waitForReportImages = async (document) => {
   await Promise.all(Array.from(document.images).map((image) => new Promise((resolve, reject) => {
-    let timeout;
+    const timeout = image.complete ? undefined : setTimeout(() => failed(), 30000);
     const finish = (error) => {
       clearTimeout(timeout);
       image.removeEventListener("load", loaded);
@@ -35,7 +35,6 @@ export const waitForReportImages = async (document) => {
     }
     image.addEventListener("load", loaded);
     image.addEventListener("error", failed);
-    timeout = setTimeout(failed, 30000);
   })));
 };
 

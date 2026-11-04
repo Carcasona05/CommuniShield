@@ -214,7 +214,6 @@ function Admin_Layout({ children }) {
 
       if (status === 403 && /disabled/i.test(message)) {
         setShowDisabledModal(true);
-        return;
       }
     }
 

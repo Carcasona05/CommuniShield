@@ -23,6 +23,7 @@ import Dropdown from "../../components/Dropdown";
 import ToastProvider, { useToast } from "../../components/Toast";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
+import { ensureCompleteProfile } from "../../services/profileCompletion";
 import { uploadImage } from "../../services/imageUpload";
 import { getCache, setCache, patchCachedReports } from "../../services/dataStore";
 import { triggerRefresh } from "../../services/refreshBus";
@@ -271,6 +272,7 @@ function EditScreenInner() {
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) throw new Error("Please sign in again.");
+      if (!await ensureCompleteProfile("edit")) return;
 
       const uploadedPhotos = [];
       for (const img of photos) {

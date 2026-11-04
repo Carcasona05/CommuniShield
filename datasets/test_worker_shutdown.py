@@ -60,6 +60,7 @@ class WorkerShutdownTests(unittest.TestCase):
              patch.object(worker, "Cloud", return_value=cloud), \
              patch.object(worker, "install_stop_handlers"), \
              patch.object(worker, "wait_for_capabilities", return_value=capabilities), \
+             patch.object(worker, "build_claim_payload", return_value={}), \
              patch.object(worker, "sha256", return_value="a" * 64), \
              patch.object(worker, "process_job", side_effect=KeyboardInterrupt), \
              patch("builtins.print"):

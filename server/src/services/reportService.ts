@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
+import { cleanCredibilityReview } from "../utils/credibilityReview.js";
 import { sentimentCoverage } from "./sentimentCoverage.js";
 import { reverseGeocode } from "../utils/geocode.js";
 import { deriveBarangay, hasReportCoordinates } from "../utils/argaoLocation.js";
@@ -276,7 +277,7 @@ export const reportService = {
         analysisMap.set(a.report_id, {
           ai_score: a.ai_score ?? null,
           severity: a.severity ?? "Medium",
-          credibility_review: a.credibility_review ?? "",
+        credibility_review: cleanCredibilityReview(a.credibility_review),
         });
       }
     );
@@ -374,7 +375,7 @@ export const reportService = {
         ai_score: analysis.ai_score ?? null,
         severity: analysis.severity ?? "Medium",
         ...sentimentFields(sentiment),
-        credibility_review: analysis.credibility_review ?? "",
+        credibility_review: cleanCredibilityReview(analysis.credibility_review),
       };
     });
 
@@ -977,7 +978,7 @@ export const reportService = {
         analysisMap.set(a.report_id, {
           ai_score: a.ai_score ?? null,
           severity: a.severity ?? "Medium",
-          credibility_review: a.credibility_review ?? "",
+        credibility_review: cleanCredibilityReview(a.credibility_review),
         });
       }
     );
@@ -1097,7 +1098,7 @@ export const reportService = {
         ai_score: analysis.ai_score ?? null,
         severity: analysis.severity ?? "Medium",
         ...sentimentFields(sentimentMap.get(r.id)),
-        credibility_review: analysis.credibility_review ?? "",
+        credibility_review: cleanCredibilityReview(analysis.credibility_review),
         comments: commentsByReport.get(r.id) || [],
         images: imagesByReport.get(r.id) || [],
         source: r.role === "admin" || r.role === "super_admin" ? "Admin" : "User",
@@ -1552,11 +1553,14 @@ export const reportService = {
     if (input.status !== undefined && !VALID_STATUSES.includes(input.status)) {
       return { error: "Invalid report status." };
     }
+    if (input.status === undefined && input.is_verified === true && ["Archived", "Rejected", "Marked Fake"].includes(report.status)) {
+      return { error: "Choose a non-rejected, non-archived status before verifying this report." };
+    }
 
     const updates: Record<string, unknown> = {};
     if (input.status !== undefined) updates.status = input.status;
     if (input.is_verified !== undefined) updates.is_verified = input.is_verified;
-    if (updates.status === "Archived") updates.is_verified = false;
+    if (["Archived", "Rejected", "Marked Fake"].includes(String(updates.status))) updates.is_verified = false;
 
     const { error: updateError } = await supabaseAdmin
       .from("reports")

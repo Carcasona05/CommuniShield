@@ -106,6 +106,7 @@ export default function SentimentTrainingPanel({ isSuperAdmin, refreshKey = 0 })
       <Disclosure title="Run details">
         <Text selectable style={s.note}>Run {job.id}</Text>
         {Array.isArray(job.datasets) ? <Text style={s.note}>{job.datasets.length} approved dataset versions included.</Text> : null}
+        {Array.isArray(job.selected_dataset_versions) ? <Text style={s.note}>{job.selected_dataset_versions.length} dataset versions selected for this run. Other approved datasets remain available to queue.</Text> : summary?.datasetSelectionVersion === 1 ? <Text style={s.note}>Exact selection was not recorded for this older run. Its full pool snapshot is not treated as proof that every dataset was selected.</Text> : null}
         <Text style={s.note}>Training approach: {job.training_mode === "fresh" ? "fresh challenger trained from scratch on all approved data." : "continued training from the built-in state."}</Text>
         {job.status === "queued" ? <Text style={s.note}>The Python worker starts this job after a short batching window. If it stays queued, check that the worker is running.</Text> : null}
         {job.error ? <Text style={s.error}>{job.error}</Text> : null}
@@ -130,7 +131,7 @@ export default function SentimentTrainingPanel({ isSuperAdmin, refreshKey = 0 })
           <View style={s.row}>{[[summary.readyToQueueExamples, "new approved examples"], [summary.readyToQueueDatasets, "approved datasets ready"]].map(([value, label]) => <View key={label} style={s.statCard}><Text style={s.statValue}>{value ?? 0}</Text><Text style={s.note}>{label}</Text></View>)}</View>
           {summary.readyToQueueExamples > 0 ? <>
             <View style={s.row}>{["cebuano", "english", "filipino"].filter((language) => summary.languages?.[language]?.total > 0).map((language) => { const counts = summary.languages[language]; return <View key={language} style={s.languageCard}><Text style={[s.label, { textTransform: "capitalize" }]}>{language}</Text><Text style={s.note}>{counts.total} new · {counts.negative} negative / {counts.neutral} neutral / {counts.positive} positive</Text></View>; })}</View>
-            {status.languageScopedTraining ? <Text style={s.note}>Optional: select datasets to choose the training languages. With none selected, newly approved dataset versions determine the scope. Earlier approved examples remain available within those languages.</Text> : null}
+             {status.languageScopedTraining ? <Text style={s.note}>Optional: select datasets for this run. Unselected datasets remain ready to queue. With none selected, all ready datasets are selected. Earlier approved examples remain available as training context within the selected languages.</Text> : null}
             {summary.readyDatasets?.map((dataset) => <View key={`${dataset.id}-${dataset.version}`} style={s.approvedDataset}>
               {status.languageScopedTraining && isSuperAdmin ? <Pressable accessibilityRole="checkbox" accessibilityLabel={`Train languages from ${dataset.name}`} aria-checked={selectedDatasetIds.includes(dataset.id)} accessibilityState={{checked:selectedDatasetIds.includes(dataset.id)}} disabled={busy} onPress={() => setSelectedDatasetIds((ids) => ids.includes(dataset.id) ? ids.filter(id => id !== dataset.id) : [...ids,dataset.id])} style={s.row}><Ionicons name={selectedDatasetIds.includes(dataset.id) ? 'checkbox' : 'square-outline'} size={20} color="#294880" /><Text style={s.label}>{dataset.name}</Text></Pressable> : <Text style={s.label}>{dataset.name}</Text>}
               <Text style={s.note}>{dataset.exampleCount} new examples · approved by {dataset.approvedBy} · {new Date(dataset.approvedAt).toLocaleDateString()}</Text></View>)}
@@ -139,7 +140,8 @@ export default function SentimentTrainingPanel({ isSuperAdmin, refreshKey = 0 })
           <Text style={s.note}>Already-trained examples and datasets in a running job are not counted here. Earlier approved examples remain available in the full training data, including when you retry training.</Text>
           {status.languageScopedTraining && !summary.readyToQueueExamples ? <Text style={s.note}>New training requires approved, untrained data. Eligible failed or interrupted runs can be retried separately without changing their language scope.</Text> : null}
         </> : <Text style={s.warning}>Apply sentiment_pending_training_summary.sql to show only newly approved examples. Cumulative totals are hidden to avoid counting already-trained data as new.</Text>}
-      </View> : null}
+       </View> : null}
+       {independent && summary?.datasetSelectionVersion !== 1 ? <Text style={s.warning}>Apply sentiment_training_dataset_selection.sql so selecting one dataset does not hide other approved datasets.</Text> : null}
       <View testID="current-model-section" style={s.currentModel}>
         <View style={s.activeCard}><View style={s.activeIcon}><Ionicons name="shield-checkmark-outline" size={22} color="#16794B" /></View><View style={{ flex: 1 }}><Text style={s.note}>Permanent primary</Text><Text style={s.label}>Built-in model</Text></View><StatusBadge status="active" /></View>
         {isSuperAdmin ? <View testID="current-model-controls" style={s.modelControls}>

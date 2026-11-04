@@ -13,6 +13,8 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import BottomNavBar from "../../components/BottomNavBar";
 import ErrorBoundary from "../../components/ErrorBoundary";
+import ProfileCompletionGate from "../../components/ProfileCompletionGate";
+import CredibilityNotice from "../../components/CredibilityNotice";
 import { scrollToTop } from "../../services/scrollToTopBus";
 import { subscribeNavVisibility, publishNavVisibility } from "../../services/navBus";
 import { smartBack } from "../../services/navigation";
@@ -137,7 +139,7 @@ export default function TabLayout() {
   const showBottomNav = !isChildScreen;
 
   const getScreenTitle = () => {
-    if (pathname.includes("User_ProfileSettings")) return "Account Settings";
+    if (pathname.includes("User_ProfileSettings")) return "Profile Details";
     if (pathname.includes("MyUser_RepPostView_Edit")) return "Edit Report";
     if (pathname.includes("User_RepPostView")) return "Post Details";
     if (pathname.includes("MyUser_RepPostView")) return "My Report";
@@ -215,6 +217,8 @@ export default function TabLayout() {
     <ErrorBoundary>
     <View style={[styles.root, isDark && styles.darkRoot]}>
       <Header />
+      <ProfileCompletionGate />
+      <CredibilityNotice />
 
       <View style={styles.content}>
         <Tabs

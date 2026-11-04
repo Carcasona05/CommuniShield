@@ -6,6 +6,7 @@ import { authenticate } from "../middlewares/authMiddleware.js";
 import { adapt } from "../utils/adapt.js";
 import { getNotificationPreferences, updateNotificationPreferences } from "../controllers/notificationPreferencesController.js";
 import { getSession } from "../controllers/sessionController.js";
+import { getProfileCompletion, setProfileLocation } from "../controllers/profileCompletionController.js";
 
 const router = express.Router();
 
@@ -14,6 +15,8 @@ router.post("/login", login);
 router.post("/login/verify", verifyLoginCode);
 router.get("/session", authenticate, adapt(getSession));
 router.get("/profile", authenticate, adapt(getProfile));
+router.get("/profile/completion", authenticate, adapt(getProfileCompletion));
+router.put("/profile/location", authenticate, adapt(setProfileLocation));
 router.get("/profile/notification-preferences", authenticate, adapt(getNotificationPreferences));
 router.patch("/profile/notification-preferences", authenticate, adapt(updateNotificationPreferences));
 router.put("/profile", authenticate, adapt(updateProfile));

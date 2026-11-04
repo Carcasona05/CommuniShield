@@ -55,6 +55,48 @@ From the repository root on Windows:
 .\.venv-data\Scripts\python.exe datasets/sentiment_training_worker.py --env-file server/.env
 ```
 
+To check imports and CLI startup without contacting Supabase or claiming a job:
+
+```powershell
+.\.venv-data\Scripts\python.exe datasets/sentiment_training_worker.py --help
+```
+
+The worker does not require a `builtin_sentiment_examples` module. A stale lease
+(`40001`) stops that job immediately; it must not retry progress or failure writes
+with the rejected token. Temporary telemetry outages use bounded backoff, while
+only the read-only startup capability check is automatically retried. Never
+disable the database's lease checks to work around a stale-worker error.
+
+If the worker starts but job claiming returns HTTP 400, the claim must include
+the supporting-pool, independent-admission and language-scope protocol versions,
+plus SHA-256 fingerprints of the actual built-in ONNX files. Use the current
+worker file; do not remove database protocol checks. Persistent 4xx claim errors
+stop the worker rather than looping, and temporary claim outages back off.
+Diagnostics show only an allowlisted error code, never private response bodies.
+
+Fresh and continued jobs use different trainers. `train_sentiment.py` accepts
+`--languages` and `--independent-quality`; continued jobs use
+`continue_sentiment.py` with the admitted approved-example snapshot. A validation
+quality rejection is not a subprocess crash and does not lower quality gates.
+
+Continued training requires trusted joblib states paired with the built-in ONNX
+files. If `datasets/models` is not paired with `server/models`, do not replace
+the built-ins or silently switch training modes. Supply the matching state folder:
+
+```powershell
+.\.venv-data\Scripts\python.exe datasets/sentiment_training_worker.py --env-file server/.env --bootstrap-state-dir path/to/trusted/paired/models
+```
+
+Only use locally trusted training artifacts: joblib deserialization executes code.
+The trainer checks the companion ONNX fingerprint before using bootstrap states.
+An offline regression runs real fresh/continued subprocesses on synthetic fixtures
+with mocked cloud calls, without touching Supabase or the bundled models:
+
+```powershell
+$env:PYTHONPATH='datasets'
+.\.venv-data\Scripts\python.exe -m unittest test_training_pipeline_regression
+```
+
 The optional `--env-file` loads server credentials without copying them into the
 client. Environment variables already supplied by a host take precedence.
 
@@ -86,6 +128,32 @@ the 30-second batching window. The default mode polls automatically every 5 seco
 Never put the service-role key in Expo variables, browser requests, or source control.
 
 ## Super-admin workflow
+
+### Exact dataset selection tracking
+
+Apply `DB_Schema/migrations/sentiment_training_dataset_selection.sql` in Supabase
+SQL Editor after queue eligibility / the finalized schema, then restart the API
+and refresh Training. This additive, rerunnable migration does not delete or
+rewrite historical jobs, datasets, samples, or model artifacts.
+
+Each queued job now records `selected_dataset_versions` independently of the full
+approved pool snapshot. Readiness and queue validation use that receipt, so
+selecting one dataset does not consume unselected datasets (even in the same
+language). No selection means all currently ready datasets. Retries preserve the
+original selected versions and language scope; changed approvals are rejected.
+Prior approved examples can still provide fitting/replay context in those languages.
+
+Older jobs did not record exact selections; their full pool snapshots cannot
+reconstruct which boxes were checked. They are kept unchanged and do not consume
+readiness, so previously trained datasets may also reappear. Select the intended
+datasets explicitly for the next run. An ambiguous old run cannot use automatic
+retry, which would silently broaden its scope. New tracked retries work normally.
+
+Offline SQL coverage (set `PGLITE_MODULE` when using an external PGlite install):
+
+```powershell
+node --test tests/database/sentimentDatasetSelection.postgres.mjs
+```
 
 Open **Sentiment Datasets** → approve → check **Automatic retraining**:
 

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -11,12 +11,16 @@ import {
   TouchableWithoutFeedback,
   Dimensions,
   RefreshControl,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect, router } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, router } from "expo-router";
+import { profileDetailsMissing } from "../../services/profileDetailsValidation";
+import { requestProfileDeviceLocation } from "../../services/profileDeviceLocation";
+import CredibilityAccessPanel from "../../components/CredibilityAccessPanel";
 
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
@@ -28,17 +32,17 @@ import { getCache, setCache, clearProfileCache } from "../../services/dataStore"
 import ToastProvider, { useToast } from "../../components/Toast";
 import {
   digitsOnly,
-  isValidPhone,
   passwordPolicyError,
 } from "../../services/validation";
 
 const COMMUNISHIELD_BLUE = "#294880";
+const MOBILE_FONT = Platform.select({ ios: "System", android: "sans-serif", default: "system-ui" });
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const scale = (size) => {
   const baseWidth = 375;
-  return Math.round((SCREEN_WIDTH / baseWidth) * size);
+  return Math.round((Math.min(SCREEN_WIDTH, 430) / baseWidth) * size);
 };
 
 const scaleVertical = (size) => {
@@ -105,7 +109,7 @@ const formatBirthdate = (date) => {
 };
 
 const parseBirthdate = (value) => {
-  if (!value) return new Date(2000, 0, 1);
+  if (!value) return null;
   if (value instanceof Date) return value;
 
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
@@ -114,7 +118,7 @@ const parseBirthdate = (value) => {
   }
 
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? new Date(2000, 0, 1) : date;
+  return Number.isNaN(date.getTime()) ? null : date;
 };
 
 const toDateString = (date) => {
@@ -252,6 +256,7 @@ const buildProfileDetails = (profile) => {
     birthdate: parseBirthdate(profile.birthdate),
     contactNumber: profile.phone ?? "",
     location: profile.location ?? "",
+    locationConfirmed: profile.location_confirmed === true,
     email: profile.email ?? "",
     credibilityStatus,
     credibilityScore,
@@ -268,6 +273,13 @@ const UserProfileSettingsWrapper = () => {
 
 const UserProfileSettings = () => {
   const toast = useToast();
+  const params = useLocalSearchParams();
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const [deviceCoordinates, setDeviceCoordinates] = useState(null);
+  const [showLocationConsent, setShowLocationConsent] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const locationLock = useRef(false);
   const [loading, setLoading] = useState(() => getCache("api:/profile") === undefined);
 
   const [fontsLoaded] = useFonts({
@@ -299,9 +311,10 @@ const UserProfileSettings = () => {
       middleName: "",
       lastName: "",
       username: "",
-      birthdate: new Date(2000, 0, 1),
+      birthdate: null,
       contactNumber: "",
       location: "",
+      locationConfirmed: false,
       email: "",
       credibilityStatus: 3,
       credibilityScore: 60,
@@ -384,6 +397,23 @@ const UserProfileSettings = () => {
     }, [loadProfile])
   );
 
+  const updateTempDetail = useCallback((key, value) => {
+    setTempDetails((prev) => ({
+      ...prev,
+      [key]: key === "contactNumber" ? digitsOnly(value) : value,
+    }));
+  }, []);
+
+  const handleAccessChange = useCallback(access => {
+    if (access?.exempt || !Number.isFinite(Number(access?.score))) return;
+    const score = Number(access.score);
+    const status = score === 100 ? 4 : score >= 60 ? 3 : score >= 40 ? 2 : score >= 20 ? 1 : 0;
+    const sync = previous => previous.credibilityScore === score && previous.credibilityStatus === status
+      ? previous : { ...previous, credibilityScore: score, credibilityStatus: status };
+    setUserDetails(sync);
+    setTempDetails(sync);
+  }, []);
+
   if (!fontsLoaded) {
     return null;
   }
@@ -407,7 +437,7 @@ const UserProfileSettings = () => {
       "location",
       "email",
     ];
-    return fields.some((field) => tempDetails[field] !== userDetails[field]);
+    return Boolean(deviceCoordinates) || fields.some((field) => tempDetails[field] !== userDetails[field]);
   };
 
   const handleEdit = () => {
@@ -416,16 +446,14 @@ const UserProfileSettings = () => {
   };
 
   const handleSave = async () => {
-    if (!tempDetails.firstName?.trim() || !tempDetails.lastName?.trim()) {
-      toast.error("First name and last name are required.");
+    if (saving || locating) return;
+    const missing = profileDetailsMissing({ ...tempDetails, locationConfirmed: Boolean(deviceCoordinates) || tempDetails.locationConfirmed }, toDateString);
+    if (missing.length) {
+      toast.error(`Please complete: ${missing.join(", ")}.`);
       return;
     }
 
-    if (tempDetails.contactNumber && !isValidPhone(tempDetails.contactNumber)) {
-      toast.error("Phone number must be exactly 11 digits.");
-      return;
-    }
-
+    setSaving(true);
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) {
@@ -433,6 +461,11 @@ const UserProfileSettings = () => {
         return;
       }
 
+      if (deviceCoordinates) {
+        await apiClient.put("/profile/location", { ...deviceCoordinates, address: tempDetails.location.trim() }, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
       await apiClient.put(
         "/profile",
         {
@@ -442,7 +475,6 @@ const UserProfileSettings = () => {
           user_name: tempDetails.username,
           phone: tempDetails.contactNumber,
           birthdate: toDateString(tempDetails.birthdate) || null,
-          location: tempDetails.location,
         },
         {
           headers: { Authorization: `Bearer ${token}` },
@@ -469,10 +501,12 @@ const UserProfileSettings = () => {
           : tempDetails.birthdate,
         contactNumber: profile.phone ?? tempDetails.contactNumber,
         location: profile.location ?? tempDetails.location,
+        locationConfirmed: profile.location_confirmed === true,
         email: profile.email ?? tempDetails.email,
       };
       setUserDetails(synced);
       setTempDetails(synced);
+      setDeviceCoordinates(null);
       toast.success("Profile updated successfully.");
     } catch (error) {
       console.warn(
@@ -483,10 +517,38 @@ const UserProfileSettings = () => {
         error.response?.data?.error ||
           "Could not save your profile. Please try again."
       );
-    }
+    } finally { setSaving(false); }
+  };
+
+  const handleAddressPress = () => {
+    if (!editMode || locationLock.current || saving || deviceCoordinates) return;
+    setShowLocationConsent(true);
+  };
+
+  const handleAllowLocation = async () => {
+    setShowLocationConsent(false);
+    if (!editMode || locationLock.current || saving) return;
+    if (deviceCoordinates) return;
+    locationLock.current = true;
+    setLocating(true);
+    setLocationError("");
+    try {
+      const token = await AsyncStorage.getItem("access_token");
+      if (!token) throw new Error("Please sign in again.");
+      const coordinates = await requestProfileDeviceLocation();
+      if (token !== await AsyncStorage.getItem("access_token")) return;
+      setDeviceCoordinates(coordinates);
+    } catch (error) {
+      const message = error.message || "Could not access location. Please try again.";
+      setLocationError(message);
+      toast.error(message);
+    } finally { locationLock.current = false; setLocating(false); }
   };
 
   const handleCancel = () => {
+    setShowLocationConsent(false);
+    setDeviceCoordinates(null);
+    setLocationError("");
     setTempDetails(userDetails);
     setEditMode(false);
     setShowBirthdatePicker(false);
@@ -567,13 +629,6 @@ const UserProfileSettings = () => {
     return !!(currentPassword || newPassword || confirmPassword);
   };
 
-  const updateTempDetail = useCallback((key, value) => {
-    setTempDetails((prev) => ({
-      ...prev,
-      [key]: key === "contactNumber" ? digitsOnly(value) : value,
-    }));
-  }, []);
-
   const updatePasswordDetail = (key, value) => {
     setPasswordDetails((prev) => {
       const next = { ...prev, [key]: value };
@@ -600,6 +655,9 @@ const UserProfileSettings = () => {
     }
   };
 
+  const missingDetails = profileDetailsMissing(editMode ? { ...tempDetails, locationConfirmed: Boolean(deviceCoordinates) || tempDetails.locationConfirmed } : userDetails, toDateString);
+  const savedComplete = profileDetailsMissing(userDetails, toDateString).length === 0;
+
   return (
     <ThemedView style={styles.container}>
       <KeyboardAvoidingView
@@ -623,58 +681,69 @@ const UserProfileSettings = () => {
               />
             }
           >
-            <Divboxwhite style={styles.detailsCard}>
-              <View style={styles.cardHeader}>
-                <ThemedHeader style={styles.cardTitle}>
-                  Profile Details
-                </ThemedHeader>
+            <Divboxwhite testID="profile-details-container" style={styles.detailsCard}>
+              <View style={[styles.cardHeader, styles.profileHeader, editMode && styles.profileHeaderEditing]}>
+                <View style={styles.profileHeading}>
+                  <ThemedHeader accessibilityRole="header" style={styles.profileTitle}>Profile Details</ThemedHeader>
+                  {savedComplete && missingDetails.length === 0 ? <View testID="profile-complete-badge" accessible accessibilityLabel="Profile complete" style={styles.completeBadge}><Ionicons name="checkmark-circle" size={19} color="#278363" /></View> : null}
+                </View>
 
                 {editMode ? (
-                  <View style={styles.editButtons}>
-                    <TouchableOpacity onPress={handleCancel}>
-                      <ThemedText style={styles.cancelText}>Cancel</ThemedText>
+                  <View style={[styles.editButtons, styles.profileActions]}>
+                    <TouchableOpacity accessibilityRole="button" style={styles.profileCancelButton} onPress={handleCancel} disabled={locating || saving}>
+                      <ThemedText style={[styles.cancelText, styles.profileActionText]}>Cancel</ThemedText>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                       onPress={handleSave}
-                      disabled={!hasChanges()}
-                      style={[styles.saveButton, !hasChanges() && styles.saveButtonDisabled]}
+                      disabled={!hasChanges() || saving || locating}
+                      style={[styles.saveButton, styles.profileSaveButton, !hasChanges() && styles.saveButtonDisabled]}
                     >
-                      <ThemedText style={[styles.saveText, !hasChanges() && styles.saveTextDisabled]}>Save</ThemedText>
+                      <ThemedText style={[styles.saveText, styles.profileSaveText]}>{saving ? "Saving…" : "Save"}</ThemedText>
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <TouchableOpacity onPress={handleEdit}>
-                    <ThemedText style={styles.editText}>Edit</ThemedText>
+                  <TouchableOpacity accessibilityRole="button" style={styles.profileEditButton} onPress={handleEdit}>
+                    <Ionicons name="create-outline" size={16} color={COMMUNISHIELD_BLUE} />
+                    <ThemedText style={[styles.editText, styles.profileActionText]}>Edit</ThemedText>
                   </TouchableOpacity>
                 )}
               </View>
 
+              {editMode ? <Text style={styles.profileSubtitle}>Make your changes, then tap Save.</Text> : null}
+              <View style={styles.profileSection}>
+                <View style={styles.sectionHeader}>
+                  <View style={styles.sectionIcon}><Ionicons name="person-outline" size={21} color={COMMUNISHIELD_BLUE} /></View>
+                  <View style={styles.sectionHeading}>
+                    <Text accessibilityRole="header" style={styles.sectionLabel}>Personal Information</Text>
+                    <Text style={styles.sectionHint}>Middle name is optional</Text>
+                  </View>
+                </View>
+                <View style={styles.sectionFields}>
               <DetailRow
-                icon="person-outline"
-                label="Firstname"
+                label="First name"
                 value={userDetails.firstName}
                 editValue={tempDetails.firstName}
                 placeholder="Enter firstname"
                 fieldKey="firstName"
+                required={missingDetails.includes("First name")}
                 editMode={editMode}
                 updateTempDetail={updateTempDetail}
               />
 
               <DetailRow
-                icon="person-outline"
-                label="Lastname"
+                label="Last name"
                 value={userDetails.lastName}
                 editValue={tempDetails.lastName}
                 placeholder="Enter lastname"
                 fieldKey="lastName"
+                required={missingDetails.includes("Last name")}
                 editMode={editMode}
                 updateTempDetail={updateTempDetail}
               />
 
               <DetailRow
-                icon="person-outline"
-                label="Middlename"
+                label="Middle name"
                 value={userDetails.middleName}
                 editValue={tempDetails.middleName}
                 placeholder="Enter middlename"
@@ -684,24 +753,20 @@ const UserProfileSettings = () => {
               />
 
               <DetailRow
-                icon="person-circle-outline"
                 label="Username"
                 value={userDetails.username}
                 editValue={tempDetails.username}
                 placeholder="Enter username"
                 fieldKey="username"
+                required={missingDetails.includes("Username")}
                 editMode={editMode}
                 updateTempDetail={updateTempDetail}
               />
 
-              <View style={styles.detailsRow}>
+              <View style={[styles.detailsRow, styles.noBorder]}>
                 <View style={styles.detailLabelWrap}>
-                  <Ionicons
-                    name="calendar-outline"
-                    size={18}
-                    color={COMMUNISHIELD_BLUE}
-                  />
                   <ThemedText style={styles.label}>Birthdate</ThemedText>
+                  {missingDetails.includes("Birthdate") ? <Text accessibilityLabel="Required" style={styles.requiredMark}>*</Text> : null}
                 </View>
 
                 {editMode ? (
@@ -711,7 +776,7 @@ const UserProfileSettings = () => {
                     onPress={() => setShowBirthdatePicker(true)}
                   >
                     <ThemedText style={styles.dateInputText}>
-                      {formatBirthdate(tempDetails.birthdate)}
+                      {formatBirthdate(tempDetails.birthdate) || "Choose your birthdate"}
                     </ThemedText>
 
                     <Ionicons
@@ -721,14 +786,17 @@ const UserProfileSettings = () => {
                     />
                   </TouchableOpacity>
                 ) : (
-                  <ThemedText style={styles.value}>
-                    {formatBirthdate(userDetails.birthdate)}
+                    <ThemedText style={[styles.value, missingDetails.includes("Birthdate") && styles.requiredValue]}>
+                      {formatBirthdate(userDetails.birthdate) || "Required"}
                   </ThemedText>
                 )}
               </View>
 
               {showBirthdatePicker && editMode ? (
-                <DateTimePicker
+                Platform.OS === "web" ? <input aria-label="Birthdate" type="date" min="1900-01-01"
+                  max={toDateString(new Date())} value={toDateString(tempDetails.birthdate)}
+                  onChange={event => updateTempDetail("birthdate", parseBirthdate(event.target.value))}
+                  style={{ padding: 12, borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 14, width: "100%", boxSizing: "border-box" }} /> : <DateTimePicker
                   value={tempDetails.birthdate || new Date()}
                   mode="date"
                   display={Platform.OS === "ios" ? "spinner" : "default"}
@@ -737,48 +805,66 @@ const UserProfileSettings = () => {
                 />
               ) : null}
 
+                </View>
+              </View>
+              <View style={[styles.profileSection, styles.contactSection]}>
+                <View style={[styles.sectionHeader, styles.contactSectionHeader]}>
+                  <View style={[styles.sectionIcon, styles.contactSectionIcon]}><Ionicons name="location-outline" size={21} color="#21675D" /></View>
+                  <View style={styles.sectionHeading}>
+                    <Text accessibilityRole="header" style={styles.sectionLabel}>Contact & Address</Text>
+                  </View>
+                </View>
+                <View style={styles.sectionFields}>
               <DetailRow
-                icon="call-outline"
-                label="Contact Number"
+                label="Contact no."
                 value={userDetails.contactNumber}
                 editValue={tempDetails.contactNumber}
                 placeholder="Enter contact number"
                 fieldKey="contactNumber"
+                required={missingDetails.includes("Contact number (11 digits)")}
                 keyboardType="phone-pad"
                 editMode={editMode}
                 updateTempDetail={updateTempDetail}
               />
 
-              <DetailRow
-                icon="location-outline"
-                label="Address"
-                value={userDetails.location}
-                editValue={tempDetails.location}
-                placeholder="Enter location"
-                fieldKey="location"
-                editMode={editMode}
-                updateTempDetail={updateTempDetail}
-              />
+              <View style={styles.addressRow}>
+              <View style={styles.detailsRow}>
+                <View style={styles.detailLabelWrap}><Text style={styles.label}>Address</Text>{missingDetails.includes("Address & location permission") ? <Text accessibilityLabel="Required" style={styles.requiredMark}>*</Text> : null}</View>
+                {!editMode ? <Text style={[styles.value, missingDetails.includes("Address & location permission") && styles.requiredValue]}>{userDetails.location || "Required"}</Text> : deviceCoordinates ? <TextInput accessibilityLabel="Address" autoFocus multiline maxLength={500} style={[styles.input, styles.addressInput]} value={tempDetails.location} onChangeText={value => updateTempDetail("location", value)} placeholder="Street, barangay, city / municipality" placeholderTextColor="#94A3B8" /> :
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel="Address" disabled={locating || saving} style={styles.addressBox} onPress={handleAddressPress}>
+                    <Text style={tempDetails.location ? styles.addressValue : styles.addressPlaceholder}>{locating ? "Requesting location access…" : (editMode ? tempDetails.location : userDetails.location) || "Tap to allow location & enter address"}</Text>
+                    <Ionicons name="create-outline" size={18} color={COMMUNISHIELD_BLUE} />
+                  </TouchableOpacity>}
+              </View>
+                {deviceCoordinates ? <Text style={styles.completionNote}>Location allowed. Enter your address above and save.</Text> : null}
+                {locationError ? <Text accessibilityRole="alert" style={styles.missingField}>{locationError}</Text> : null}
+              </View>
 
               <DetailRow
-                icon="mail-outline"
                 label="Email"
                 value={userDetails.email}
                 editValue={tempDetails.email}
                 placeholder="Enter email"
                 fieldKey="email"
+                required={missingDetails.includes("Email")}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 isLast
-                editMode={editMode}
+                editMode={false}
                 updateTempDetail={updateTempDetail}
               />
+                </View>
+              </View>
+              {savedComplete && params.completeProfile === "1" ? <TouchableOpacity accessibilityRole="button" style={styles.locationButton} onPress={() => {
+                if (router.canGoBack()) router.back(); else router.replace("/(tabs)/User_Home");
+              }}><Text style={styles.locationButtonText}>Continue to your previous page</Text></TouchableOpacity> : null}
             </Divboxwhite>
 
             <CredibilityScore
               statusIndex={userDetails.credibilityStatus}
               score={userDetails.credibilityScore}
             />
+            <CredibilityAccessPanel onAccessChange={handleAccessChange} />
 
             <Divboxwhite style={styles.termsCard}>
               <View style={styles.termsRow}>
@@ -812,7 +898,7 @@ const UserProfileSettings = () => {
                   ) : null}
                 </View>
 
-                <TouchableOpacity
+                  <TouchableOpacity
                   style={styles.termsButton}
                   onPress={() => router.push({ pathname: "/(auth)/TermsAndConditions", params: { viewOnly: "1" } })}
                   activeOpacity={0.7}
@@ -1005,11 +1091,68 @@ const UserProfileSettings = () => {
           </ScrollView>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
+      <Modal transparent visible={showLocationConsent && editMode} animationType="fade" onRequestClose={() => setShowLocationConsent(false)}>
+        <View style={styles.consentOverlay}>
+          <View style={styles.consentCard} accessibilityViewIsModal>
+            <View style={styles.summaryIcon}><Ionicons name="shield-checkmark-outline" size={24} color={COMMUNISHIELD_BLUE} /></View>
+            <Text style={styles.consentTitle}>Allow location access?</Text>
+            <Text style={styles.consentBody}>To complete your address, we need your permission to access your device location. You’ll then type your address yourself.</Text>
+            <Text style={styles.consentBody}>Your location is stored privately only when you save. It isn’t shared on reports or tracked in the background.</Text>
+            <Text style={styles.consentBody}>Without location access, you can’t complete a new address. A previously saved address won’t be changed.</Text>
+            <TouchableOpacity accessibilityRole="button" style={styles.locationButton} onPress={handleAllowLocation}>
+              <Text style={styles.locationButtonText}>Continue to permission</Text>
+            </TouchableOpacity>
+            <TouchableOpacity accessibilityRole="button" style={styles.consentCancel} onPress={() => setShowLocationConsent(false)}>
+              <Text style={styles.requirementsText}>Not now</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 };
 
 const styles = StyleSheet.create({
+  summaryIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: "#E7EEF8", alignItems: "center", justifyContent: "center" },
+  requirementsText: { fontFamily: "PoppinsMedium", color: "#294880", fontSize: 12 },
+  profileHeader: { width: "100%", gap: 10, paddingHorizontal: 2, paddingTop: 4, marginBottom: 0 },
+  profileHeaderEditing: { flexWrap: "wrap" },
+  profileActions: { flexShrink: 0, marginLeft: "auto" },
+  profileHeading: { flexGrow: 1, flexShrink: 1, flexBasis: 140, minWidth: 110, flexDirection: "row", alignItems: "center", gap: 5 },
+  profileTitle: { flexShrink: 1, fontFamily: MOBILE_FONT, fontWeight: "700", fontSize: 20, lineHeight: 26, color: "#20385F" },
+  completeBadge: { flexShrink: 0, justifyContent: "center" },
+  requiredMark: { color: "#B65F35", fontSize: 12, fontWeight: "600", marginLeft: 3 },
+  requiredValue: { color: "#A76A46", fontSize: 12, fontWeight: "400" },
+  profileSubtitle: { fontFamily: MOBILE_FONT, fontSize: 12, lineHeight: 18, color: "#64748B", marginTop: 2, marginBottom: 8, paddingHorizontal: 2 },
+  profileActionText: { fontFamily: MOBILE_FONT, fontWeight: "600", fontSize: 13 },
+  profileEditButton: { flexShrink: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, minHeight: 44, paddingHorizontal: 16, borderRadius: 22, backgroundColor: "#E7EEF8" },
+  profileCancelButton: { minHeight: 44, justifyContent: "center" },
+  profileSaveButton: { minHeight: 44, borderRadius: 22, backgroundColor: "#294880", paddingHorizontal: 20, justifyContent: "center" },
+  profileSaveText: { color: "#FFFFFF", fontFamily: MOBILE_FONT, fontWeight: "600", fontSize: 13 },
+  profileSection: { marginBottom: 0 },
+  contactSection: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#E5EAF2", marginTop: 6, paddingTop: 4 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 6, paddingBottom: 4 },
+  contactSectionHeader: { paddingTop: 8 },
+  sectionIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: "#EAF0FA", alignItems: "center", justifyContent: "center" },
+  contactSectionIcon: { backgroundColor: "#E8F3EE" },
+  sectionHeading: { flex: 1 },
+  sectionLabel: { fontFamily: MOBILE_FONT, fontWeight: "600", fontSize: 14, lineHeight: 21, color: "#20385F" },
+  sectionHint: { fontFamily: MOBILE_FONT, fontSize: 11, lineHeight: 16, color: "#52657D", marginTop: 1 },
+  sectionFields: { paddingBottom: 2 },
+  addressRow: { gap: 6 },
+  addressBox: { flex: 1, minWidth: 0, minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
+  addressValue: { flex: 1, color: "#1E293B", fontFamily: MOBILE_FONT, fontWeight: "500", fontSize: 13, lineHeight: 20, textAlign: "right" },
+  addressPlaceholder: { flex: 1, color: "#718096", fontFamily: MOBILE_FONT, fontSize: 12, lineHeight: 18, textAlign: "right" },
+  addressInput: { minHeight: 48, textAlignVertical: "center" },
+  consentOverlay: { flex: 1, backgroundColor: "rgba(15,23,42,0.45)", padding: 24, alignItems: "center", justifyContent: "center" },
+  consentCard: { width: "100%", maxWidth: 420, padding: 24, borderRadius: 20, backgroundColor: "#FFFFFF", gap: 14 },
+  consentTitle: { fontFamily: "PoppinsSemiBold", fontSize: 20, color: "#294880" },
+  consentBody: { fontFamily: "PoppinsRegular", fontSize: 13, lineHeight: 21, color: "#64748B" },
+  consentCancel: { minHeight: 44, alignItems: "center", justifyContent: "center" },
+  completionNote: { color: "#475569", fontSize: 12, lineHeight: 19 },
+  missingField: { color: "#9A3B25", fontSize: 12, lineHeight: 18 },
+  locationButton: { backgroundColor: "#294880", borderRadius: 9, padding: 13, minHeight: 46, alignItems: "center", justifyContent: "center" },
+  locationButtonText: { fontFamily: "PoppinsMedium", color: "#FFFFFF", fontSize: 13 },
   container: {
     flex: 1,
     backgroundColor: "#F3F6FB",
@@ -1024,15 +1167,24 @@ const styles = StyleSheet.create({
   },
 
   content: {
+    width: "100%",
+    maxWidth: 760,
+    alignSelf: "center",
     paddingHorizontal: moderateScale(16),
-    paddingTop: scaleVertical(12),
+    paddingTop: 10,
     paddingBottom: scaleVertical(40),
   },
 
   detailsCard: {
-    padding: moderateScale(16),
-    borderRadius: moderateScale(18),
-    marginBottom: moderateScale(14),
+    padding: 14,
+    margin: 0,
+    marginBottom: 16,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E5EAF2",
+    shadowOpacity: 0,
+    elevation: 0,
   },
 
   passwordCard: {
@@ -1050,7 +1202,7 @@ const styles = StyleSheet.create({
   },
 
   cardTitle: {
-    fontSize: moderateScale(20),
+    fontSize: moderateScale(17),
     fontFamily: "PoppinsSemiBold",
     color: COMMUNISHIELD_BLUE,
   },
@@ -1096,11 +1248,12 @@ const styles = StyleSheet.create({
 
   detailsRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: moderateScale(14),
+    minHeight: 44,
+    paddingVertical: 5,
+    gap: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E8EDF5",
+    borderBottomColor: "#EDF0F5",
   },
 
   noBorder: {
@@ -1108,51 +1261,65 @@ const styles = StyleSheet.create({
   },
 
   detailLabelWrap: {
-    flex: 1,
+    flexBasis: 120,
+    flexShrink: 1,
+    maxWidth: "48%",
     flexDirection: "row",
     alignItems: "center",
-    marginRight: moderateScale(10),
   },
 
   label: {
-    fontSize: moderateScale(14),
-    fontFamily: "PoppinsRegular",
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 20,
+    fontFamily: MOBILE_FONT,
     color: "#6B7280",
     marginLeft: moderateScale(8),
   },
 
   value: {
     flex: 1,
-    fontSize: moderateScale(14),
-    fontFamily: "PoppinsMedium",
+    minWidth: 0,
+    fontSize: 13,
+    lineHeight: 20,
+    fontFamily: MOBILE_FONT,
+    fontWeight: "500",
     color: "#111827",
     textAlign: "right",
+    paddingVertical: 3,
   },
 
   input: {
     flex: 1,
-    fontSize: moderateScale(14),
-    fontFamily: "PoppinsMedium",
+    minWidth: 0,
+    fontSize: 13,
+    fontFamily: MOBILE_FONT,
+    fontWeight: "500",
     color: "#111827",
     textAlign: "right",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COMMUNISHIELD_BLUE,
-    paddingVertical: moderateScale(4),
+    backgroundColor: "#F3F6FB",
+    borderRadius: 8,
+    minHeight: 48,
+    padding: 8,
   },
 
   dateInput: {
     flex: 1,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COMMUNISHIELD_BLUE,
-    paddingVertical: moderateScale(5),
+    minWidth: 0,
+    backgroundColor: "#F3F6FB",
+    borderRadius: 8,
+    minHeight: 48,
+    padding: 8,
     flexDirection: "row",
-    justifyContent: "flex-end",
+    justifyContent: "space-between",
     alignItems: "center",
   },
 
   dateInputText: {
-    fontSize: moderateScale(14),
-    fontFamily: "PoppinsMedium",
+    flex: 1,
+    fontSize: 13,
+    fontFamily: MOBILE_FONT,
+    fontWeight: "500",
     color: "#111827",
     marginRight: moderateScale(4),
     textAlign: "right",
@@ -1397,16 +1564,17 @@ const styles = StyleSheet.create({
   },
 });
 
-const DetailRow = React.memo(function DetailRow({ icon, label, value, editValue, placeholder, fieldKey, keyboardType = "default", autoCapitalize = "sentences", isLast = false, editMode, updateTempDetail }) {
+const DetailRow = React.memo(function DetailRow({ label, value, editValue, placeholder, fieldKey, keyboardType = "default", autoCapitalize = "sentences", isLast = false, editMode, updateTempDetail, required = false }) {
   return (
-    <View style={[styles.detailsRow, isLast && styles.noBorder]}>
+    <View testID={`profile-field-${fieldKey}`} style={[styles.detailsRow, isLast && styles.noBorder]}>
       <View style={styles.detailLabelWrap}>
-        <Ionicons name={icon} size={moderateScale(18)} color={COMMUNISHIELD_BLUE} />
         <ThemedText style={styles.label}>{label}</ThemedText>
+        {required ? <Text accessibilityLabel="Required" style={styles.requiredMark}>*</Text> : null}
       </View>
 
       {editMode ? (
         <TextInput
+          accessibilityLabel={label}
           style={styles.input}
           value={editValue}
           onChangeText={(text) => updateTempDetail(fieldKey, text)}
@@ -1417,7 +1585,7 @@ const DetailRow = React.memo(function DetailRow({ icon, label, value, editValue,
           blurOnSubmit={false}
         />
       ) : (
-        <ThemedText style={styles.value}>{value}</ThemedText>
+        <ThemedText style={[styles.value, required && styles.requiredValue]}>{value || (required ? "Required" : "Not provided")}</ThemedText>
       )}
     </View>
   );

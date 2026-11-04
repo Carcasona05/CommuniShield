@@ -129,7 +129,10 @@ class TrainingWorkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             data, models = self.make_baseline(root)
-            job = {"id": str(uuid4()), "lease_token": str(uuid4()), "base_job_id": None, "snapshot": {"datasets": [], "samples": [{"text": "new approved", "language": "cebuano", "label": "positive"}]}}
+            job = {"id": str(uuid4()), "lease_token": str(uuid4()), "base_job_id": None, "snapshot": {
+                "pool_protocol": 1, "admission": "independent-v1",
+                "builtin_hashes": {name: worker.sha256(models / name) for name in worker.FILES},
+                "datasets": [], "samples": [{"text": "new approved", "language": "cebuano", "label": "positive"}]}}
             cloud = FakeCloud()
 
             class Process:
@@ -140,16 +143,17 @@ class TrainingWorkerTests(unittest.TestCase):
                     destination.mkdir()
                     for language in worker.LANGUAGES:
                         (destination / f"sentiment_{language}.onnx").write_bytes(b"candidate")
+                        (destination / f"sentiment_{language}.joblib").write_bytes(b"training state")
 
                 def poll(self):
                     return 0
 
-            with patch.object(worker, "Lease", FakeLease), patch.object(worker.subprocess, "Popen", Process), patch.object(worker, "evaluate_bundle", return_value={"passed": passed, "languages": good_metrics(), "reasons": [] if passed else ["Test regression"]}):
+            with patch.object(worker, "Lease", FakeLease), patch.object(worker.subprocess, "Popen", Process), patch.object(worker, "evaluate_independent", return_value={"passed": passed, "languages": good_metrics(), "reasons": [] if passed else ["Test regression"]}):
                 worker.process_job(cloud, job, data, models, root / "runs")
             self.assertEqual(cloud.calls[0][0], "evaluating")
             self.assertEqual(cloud.calls[-1][0], "complete" if passed else "fail")
             self.assertNotIn("activate", [action for action, _ in cloud.calls])
-            self.assertEqual(len(cloud.uploads), 4 if passed else 0)
+            self.assertEqual(len(cloud.uploads), 7 if passed else 0)
             for path, _ in cloud.uploads:
                 self.assertTrue(path.startswith(f"{job['id']}/{job['lease_token']}/"))
             for name in worker.FILES:

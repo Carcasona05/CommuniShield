@@ -5,6 +5,7 @@ import {
   markModelExhausted,
 } from "./geminiRotation.js";
 import { validateImageAuthenticity } from "./imageValidation.js";
+import { cleanCredibilityReview } from "../utils/credibilityReview.js";
 
 const DEFAULT_GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const DEFAULT_MODEL = "gemini-3.6-flash";
@@ -191,7 +192,7 @@ SEVERITY — analyze based on threat level and language construction:
 - Medium: Incident happened but contained, no immediate danger, minor injury or property damage. Language is informational, reporting what happened.
 - Low: Minor issue, nuisance, suspicious activity with no direct threat. Phrases like "saw something strange", "noise complaint", "suspicious person loitering".
 
-Write the credibility_review as a direct, specific statement about THIS report. Do not use generic phrases. Base it on the actual data provided, including image count, similar post count, and location detail. Do not classify sentiment.`;
+Write the credibility_review as a direct, specific statement about THIS report. Do not use generic phrases. Base it on the actual data provided, including image count, similar post count, and location detail. Do not classify sentiment. Do not include image metadata or authenticity flag codes, or claim that metadata proves image authenticity.`;
 
 async function callGemini(
   prompt: string,
@@ -452,7 +453,7 @@ function parseAIResponse(response: string): AIAnalysisResult {
     severities.find((s) => s.toLowerCase() === String(parsed.severity || "").toLowerCase()) ||
     "Medium";
 
-  const credibility_review = String(parsed.credibility_review || "AI analysis completed").slice(
+  const credibility_review = cleanCredibilityReview(String(parsed.credibility_review || "AI analysis completed")).slice(
     0,
     500
   );
@@ -597,7 +598,6 @@ export const aiService = {
 
     // Validate images and apply penalties
     let totalPenalty = 0;
-    const allFlags: string[] = [];
 
     if (imageUrls.length > 0 && reportData.latitude != null && reportData.longitude != null) {
       const validationResults = await Promise.all(
@@ -606,21 +606,13 @@ export const aiService = {
 
       for (const vr of validationResults) {
         totalPenalty += vr.penalty;
-        allFlags.push(...vr.flags);
       }
     }
 
     // Apply penalty to AI score
     const penalizedScore = Math.max(0, result.ai_score - totalPenalty);
 
-    // Build credibility review with image flags
-    let credibilityReview = result.credibility_review;
-    if (allFlags.length > 0) {
-      const uniqueFlags = [...new Set(allFlags)];
-      credibilityReview += `\n\n Image authenticity flags: ${uniqueFlags.join(", ")}`;
-    } else if (imageUrls.length > 0) {
-      credibilityReview += "\n\n Images: No authenticity issues detected";
-    }
+    const credibilityReview = cleanCredibilityReview(result.credibility_review);
 
     // Store analysis in database
     const { error } = await supabaseAdmin

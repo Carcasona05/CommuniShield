@@ -27,6 +27,8 @@ import {
 import { authenticate, requireRole } from "../middlewares/authMiddleware.js";
 import { getHotspotClusters } from "../controllers/hotspotClusteringController.js";
 import { getRiskOutlook } from "../controllers/riskOutlookController.js";
+import { requireCompleteUserProfile } from "../controllers/profileCompletionController.js";
+import { getCredibilityAccess, requireCredibilityEditAccess, requireCredibilityWriteAccess } from "../controllers/credibilityController.js";
 
 const router = express.Router();
 const adminOnly = requireRole(["admin", "super_admin"]);
@@ -35,11 +37,11 @@ router.get("/reports", authenticate, getReports);
 router.get("/reports/mine", authenticate, getMyReports);
 router.get("/reports/:id", authenticate, getReport);
 router.get("/reports/:id/comments", authenticate, getComments);
-router.post("/reports/:id/comments", authenticate, addComment);
+router.post("/reports/:id/comments", authenticate, requireCompleteUserProfile, requireCredibilityWriteAccess("comment"), addComment);
 router.post("/reports/:id/like", authenticate, toggleLike);
-router.post("/reports/:id/status", authenticate, adminOnly, validateReport);
-router.post("/reports", authenticate, createReport);
-router.put("/reports/:id", authenticate, updateReport);
+router.post("/reports/:id/status", authenticate, adminOnly, requireCredibilityEditAccess, validateReport);
+router.post("/reports", authenticate, requireCompleteUserProfile, requireCredibilityWriteAccess("report"), createReport);
+router.put("/reports/:id", authenticate, requireCompleteUserProfile, requireCredibilityEditAccess, updateReport);
 router.delete("/reports/:id", authenticate, deleteReport);
 router.get("/incidents/options", authenticate, getIncidentOptions);
 router.get("/admin/posts", authenticate, adminOnly, getAdminPosts);
@@ -56,5 +58,6 @@ router.post("/admin/announcements", authenticate, adminOnly, createAdminAnnounce
 router.put("/admin/announcements/:id", authenticate, adminOnly, updateAdminAnnouncement);
 router.delete("/admin/announcements/:id", authenticate, adminOnly, deleteAdminAnnouncement);
 router.get("/admin/logs", authenticate, adminOnly, getAdminLogs);
+router.get("/credibility/access", authenticate, getCredibilityAccess);
 
 export default router;

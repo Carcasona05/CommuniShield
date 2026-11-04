@@ -78,3 +78,10 @@ test("dataset approval messaging does not claim that training was automatically 
   assert.doesNotMatch(manager, /Dataset approved\. Training queued\.|Approve these examples and queue retraining/);
   assert.match(manager, /Dataset approved\. Review the collected examples in Training\./);
 });
+
+test("dataset selection distinguishes exact receipts from the full historical pool", () => {
+  assert.match(source, /job\.selected_dataset_versions/);
+  assert.match(source, /Unselected datasets remain ready to queue/);
+  assert.match(source, /sentiment_training_dataset_selection\.sql/);
+  assert.match(source, /Exact selection was not recorded for this older run/);
+});

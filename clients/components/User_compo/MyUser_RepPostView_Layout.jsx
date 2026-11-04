@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
+import { ensureCompleteProfile, ensureNotSuspended } from "../../services/profileCompletion";
 import formatRelativeTime from "../../services/formatRelativeTime";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
 import censorText from "../../services/censorText";
@@ -35,6 +36,7 @@ const FONT = {
 const COMMENT_WINDOW = 10;
 
 const MyUser_RepPostView_Layout = ({ report }) => {
+  const commentInputRef = useRef(null);
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const [commentText, setCommentText] = useState("");
@@ -188,6 +190,7 @@ const MyUser_RepPostView_Layout = ({ report }) => {
         toast.error("Please sign in to comment.");
         return;
       }
+      if (!await ensureCompleteProfile("comment")) return;
       await apiClient.post(
         `/reports/${report.id}/comments`,
         { content: commentText.trim() },
@@ -203,6 +206,13 @@ const MyUser_RepPostView_Layout = ({ report }) => {
       toast.error(error.response?.data?.error || "Could not add comment.");
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleCommentPress = async () => {
+    if (!await ensureNotSuspended()) {
+      commentInputRef.current?.blur();
+      Keyboard.dismiss();
     }
   };
 
@@ -383,14 +393,14 @@ const MyUser_RepPostView_Layout = ({ report }) => {
             <Text style={styles.summaryText}>{likeState.count} Likes</Text>
           </TouchableOpacity>
 
-          <View style={styles.summaryItem}>
+          <TouchableOpacity style={styles.summaryItem} onPress={handleCommentPress}>
             <Ionicons
               name="chatbubble-ellipses-outline"
               size={18}
               color={PRIMARY}
             />
             <Text style={styles.summaryText}>{comments.length} Comments</Text>
-          </View>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -461,6 +471,8 @@ const MyUser_RepPostView_Layout = ({ report }) => {
     >
       <View style={styles.commentInputRow}>
         <TextInput
+          ref={commentInputRef}
+          onPressIn={handleCommentPress}
           style={styles.commentInput}
           value={commentText}
           onChangeText={setCommentText}

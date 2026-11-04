@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import itertools
 import json
 import re
 from datetime import datetime, timezone
@@ -8,6 +10,7 @@ from pathlib import Path
 from typing import Any, TypedDict, cast
 
 import joblib
+import numpy as np
 import onnx
 import pandas as pd
 import sklearn
@@ -23,10 +26,22 @@ from sklearn.pipeline import FeatureUnion, Pipeline
 RANDOM_STATE = 42
 LABELS = ("negative", "neutral", "positive")
 CANDIDATES = (0.5, 1.0, 2.0, 4.0)
+LOGIT_OFFSETS = (-0.3, -0.15, 0.0, 0.15, 0.3, 0.45, 0.6, 0.8)
 DATASET_DIR = Path(__file__).resolve().parent / "processed"
 MODEL_DIR = Path(__file__).resolve().parent / "models"
 REQUIRED_COLUMNS = {"text", "language", "label", "split"}
 ZERO_DIVISION = cast(Any, 0)
+
+
+class TrainingQualityError(ValueError):
+    """Expected validation rejection, not a crashed training process."""
+
+    def __init__(self, language, reasons):
+        self.language = language
+        self.reasons = reasons
+        super().__init__(f"{language}: {'; '.join(reasons)}")
+
+
 PLACEHOLDER_PATTERN = re.compile(
     r"sample\s+training\s+phrase\s+\d+|prototype\s+dataset\s+\d+|"
     r"synthetic\s+(?:negative|positive|neutral)\s+safety\s+wording",
@@ -55,12 +70,17 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path, default=DATASET_DIR)
     parser.add_argument("--output-dir", type=Path, default=MODEL_DIR)
+    parser.add_argument("--baseline-model-dir", type=Path)
+    parser.add_argument("--independent-quality", action="store_true")
+    parser.add_argument("--validation-only", action="store_true",
+                        help="Do not load or score test.csv")
+    parser.add_argument("--languages", nargs="+", choices=("cebuano", "english", "filipino"))
     return parser.parse_args()
 
 
-def load_splits(data_dir: Path) -> dict[str, pd.DataFrame]:
+def load_splits(data_dir: Path, include_test: bool = True) -> dict[str, pd.DataFrame]:
     frames: dict[str, pd.DataFrame] = {}
-    for split in ("train", "validation", "test"):
+    for split in (("train", "validation", "test") if include_test else ("train", "validation")):
         path = data_dir / f"{split}.csv"
         if not path.is_file():
             raise FileNotFoundError(path)
@@ -83,8 +103,11 @@ def load_splits(data_dir: Path) -> dict[str, pd.DataFrame]:
         if not bool(frame["label"].isin(LABELS).all()):
             raise ValueError(f"{path} contains unsupported sentiment labels")
         frames[split] = frame.reset_index(drop=True)
+        frames[split].attrs["source_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
 
     for left, right in (("train", "validation"), ("train", "test"), ("validation", "test")):
+        if left not in frames or right not in frames:
+            continue
         left_keys = set(frames[left]["language"] + "\0" + frames[left]["text"])
         right_keys = set(frames[right]["language"] + "\0" + frames[right]["text"])
         overlap = left_keys.intersection(right_keys)
@@ -93,13 +116,13 @@ def load_splits(data_dir: Path) -> dict[str, pd.DataFrame]:
     return frames
 
 
-def build_vectorizer() -> FeatureUnion:
+def build_vectorizer(word_max_ngram: int = 2) -> FeatureUnion:
     transformers: list[tuple[str, Any]] = [
         (
             "word",
             TfidfVectorizer(
                 analyzer="word",
-                ngram_range=(1, 2),
+                ngram_range=(1, word_max_ngram),
                 min_df=2,
                 max_df=0.995,
                 max_features=120_000,
@@ -226,12 +249,89 @@ def evaluate(y_true: pd.Series, y_pred: pd.Series) -> EvaluationMetrics:
     )
 
 
+def baseline_validation_metrics(model: Path, frame: pd.DataFrame) -> EvaluationMetrics:
+    # Use recorded pre-refit validation metrics paired with the exact ONNX file.
+    # Re-predicting a legacy train+validation model would contaminate the target.
+    for folder in dict.fromkeys([model.parent, MODEL_DIR]):
+        metadata = folder / "baseline_metrics.json"
+        paired = folder / model.name
+        if not metadata.is_file() or not paired.is_file():
+            continue
+        manifest = json.loads(metadata.read_text(encoding="utf-8"))
+        if hashlib.sha256(paired.read_bytes()).digest() != hashlib.sha256(model.read_bytes()).digest():
+            continue
+        expected_hash = manifest.get("onnx_hashes", {}).get(model.name)
+        if expected_hash and expected_hash != hashlib.sha256(model.read_bytes()).hexdigest():
+            continue
+        language = model.stem.removeprefix("sentiment_")
+        entry = next((item for item in manifest.get("models", []) if item.get("language") == language), None)
+        if entry and entry.get("validation_metrics"):
+            metrics = entry["validation_metrics"]
+            if metrics.get("samples") != len(frame):
+                raise ValueError(f"{language}: validation size differs from the baseline metadata.")
+            if any(metrics["per_label"][label]["support"] != int(frame["label"].eq(label).sum()) for label in LABELS):
+                raise ValueError(f"{language}: validation class counts differ from the baseline metadata.")
+            expected_validation = manifest.get("input_split_hashes", {}).get("validation")
+            if expected_validation and expected_validation != frame.attrs.get("source_sha256"):
+                raise ValueError(f"{language}: validation file changed since baseline training.")
+            return metrics
+    raise ValueError(f"Recorded validation metadata matching {model.name} is missing. Provision the matching ONNX bundle and metadata; do not substitute test metrics.")
+
+
+def select_validation_offsets(decisions, classes, labels, reference=None, independent_quality=False):
+    """Select class intercepts on validation only, with existing quality floors."""
+    if independent_quality and reference is not None:
+        raise ValueError("Independent selection must not use a built-in metric reference")
+    classes = [str(label) for label in classes]
+    if set(classes) != set(LABELS):
+        raise ValueError("Classifier must contain all three sentiment classes")
+    decisions = np.asarray(decisions, dtype=float)
+    labels = list(labels)
+    if decisions.shape != (len(labels), 3) or not np.isfinite(decisions).all():
+        raise ValueError("Invalid validation decision scores")
+    expected = np.array([classes.index(label) for label in labels])
+    support = np.bincount(expected, minlength=3)
+    if not support.all():
+        raise ValueError("Validation must contain all three sentiment classes")
+    floors = np.array([max(0.0, reference["per_label"][label]["recall"] - 0.02)
+                       for label in classes]) if reference else np.full(3, 0.5 if independent_quality else 0.0)
+    minimum_f1 = max(0.6, reference["macro_f1"] - 0.01) if reference else (0.6 if independent_quality else 0.0)
+    if independent_quality and (support < 10).any():
+        return None
+    offsets = itertools.product(LOGIT_OFFSETS, repeat=2) if reference or independent_quality else [(0.0, 0.0)]
+    best = None
+    for negative, positive in offsets:
+        bias = np.array([negative if label == "negative" else positive if label == "positive" else 0.0
+                         for label in classes])
+        predicted = (decisions + bias).argmax(axis=1)
+        confusion = np.bincount(expected * 3 + predicted, minlength=9).reshape(3, 3)
+        tp = confusion.diagonal()
+        recall = tp / support
+        predicted_counts = confusion.sum(axis=0)
+        precision = np.divide(tp, predicted_counts, out=np.zeros(3), where=predicted_counts > 0)
+        score = float(np.mean(2 * tp / (support + predicted_counts)))
+        if score < minimum_f1 or np.any(recall + 1e-12 < floors):
+            continue
+        if independent_quality and np.any(precision < 0.5):
+            continue
+        rank = (score, -float(np.abs(bias).sum()))
+        if best is None or rank > best["rank"]:
+            best = {"rank": rank, "offsets": dict(zip(classes, bias.tolist())),
+                    "macro_f1": score, "recall_floors": dict(zip(classes, floors.tolist())),
+                    "precision_floors": dict.fromkeys(classes, 0.5) if independent_quality else None}
+    return best
+
+
 def train_language(
     language: str,
     train: pd.DataFrame,
     validation: pd.DataFrame,
     test: pd.DataFrame,
     output_dir: Path,
+    baseline_model_dir: Path | None = None,
+    word_max_ngram: int = 2,
+    independent_quality: bool = False,
+    evaluate_test: bool = True,
 ) -> dict[str, object]:
     from training_progress import write_fit_progress
     if independent_quality and baseline_model_dir is not None:
@@ -240,18 +340,19 @@ def train_language(
     validation_frame: pd.DataFrame = validation.loc[validation["language"].eq(language)].reset_index(
         drop=True
     )
-    test_frame: pd.DataFrame = test.loc[test["language"].eq(language)].reset_index(drop=True)
-    if train_frame.empty or validation_frame.empty or test_frame.empty:
+    test_frame = test.loc[test["language"].eq(language)].reset_index(drop=True) if evaluate_test else None
+    evaluated_frames = [train_frame, validation_frame] + ([test_frame] if test_frame is not None else [])
+    if any(frame.empty for frame in evaluated_frames):
         raise ValueError(f"{language} requires nonempty train, validation, and test data")
     if any(
-        not bool(frame["label"].isin(LABELS).all())
-        for frame in (train_frame, validation_frame, test_frame)
+        set(frame["label"]) != set(LABELS)
+        for frame in evaluated_frames
     ):
         raise ValueError(f"{language} splits must contain all {len(LABELS)} labels")
 
     print(
         f"\n{language}: {len(train_frame):,} train / {len(validation_frame):,} validation / "
-        f"{len(test_frame):,} test"
+        f"{f'{len(test_frame):,} test' if test_frame is not None else 'test deferred (validation-only)'}"
     )
     configurations = [(c, weight) for c in CANDIDATES for weight in (('balanced', None) if independent_quality else ('balanced',))]
     write_fit_progress(0, len(configurations) + 2)
@@ -262,10 +363,14 @@ def train_language(
 
     best_candidate = CANDIDATES[0]
     best_score = -1.0
-    best_validation: EvaluationMetrics | None = None
+    best_classifier = None
+    best_selection = None
+    best_class_weight = "balanced"
+    reference = baseline_validation_metrics(baseline_model_dir / f"sentiment_{language}.onnx", validation_frame) if baseline_model_dir else None
     validation_labels = cast(pd.Series, validation_frame["label"])
     for configuration_index, (candidate, class_weight) in enumerate(configurations):
         classifier = build_classifier(candidate)
+        classifier.set_params(estimator__class_weight=class_weight)
         classifier.fit(train_features, train_frame["label"])
         selection = select_validation_offsets(classifier.decision_function(validation_features),
                                                classifier.classes_, validation_labels, reference, independent_quality)
@@ -278,31 +383,47 @@ def train_language(
         if score > best_score:
             best_candidate = candidate
             best_score = score
-            best_validation = metrics
+            best_classifier = classifier
+            best_selection = selection
+            best_class_weight = class_weight
 
-    combined = pd.concat([train_frame, validation_frame], ignore_index=True)
+    if best_classifier is None or best_selection is None:
+        raise TrainingQualityError(language, [
+            "No fitted candidate meets validation macro-F1 and per-class precision/recall floors. Review training labels and class coverage."
+        ])
+    for index, label in enumerate(best_classifier.classes_):
+        best_classifier.estimators_[index].intercept_ += best_selection["offsets"][label]
     pipeline = Pipeline(
         [
-            ("features", build_vectorizer()),
-            ("classifier", build_classifier(best_candidate)),
+            ("features", vectorizer),
+            ("classifier", best_classifier),
         ]
     )
-    pipeline.fit(combined["text"], combined["label"])
-    test_predictions = pipeline.predict(test_frame["text"])
+    # Keep the exact validation-selected model; never refit on held-out rows.
+    best_validation = evaluate(validation_labels, pd.Series(pipeline.predict(validation_frame["text"])))
+    test_predictions = pipeline.predict(test_frame["text"]) if test_frame is not None else None
     test_metrics = evaluate(
         cast(pd.Series, test_frame["label"]),
         pd.Series(cast(Any, test_predictions), index=test_frame.index),
-    )
+    ) if test_frame is not None else None
     metadata: dict[str, object] = {
         "artifact_version": 1,
         "model_type": "word_character_tfidf_logistic_regression",
         "language": language,
         "labels": list(LABELS),
         "best_c": best_candidate,
+        "word_max_ngram": word_max_ngram,
+        "class_weight": best_class_weight,
+        "test_evaluated": evaluate_test,
         "random_state": RANDOM_STATE,
         "sklearn_version": sklearn.__version__,
         "trained_at": datetime.now(timezone.utc).isoformat(),
-        "training_samples": int(len(combined)),
+        "training_samples": int(len(train_frame)),
+        "fit_splits": ["train"],
+        "calibration": {"selection_split": "validation", "logit_offsets": best_selection["offsets"],
+                        "recall_floors": best_selection["recall_floors"], "baseline_validation": reference,
+                        "precision_floors": best_selection["precision_floors"],
+                        "selection_policy": "independent-quality-v2" if independent_quality else "legacy"},
         "validation_metrics": best_validation,
         "test_metrics": test_metrics,
     }
@@ -312,12 +433,10 @@ def train_language(
     write_fit_progress(len(configurations) + 2, len(configurations) + 2)
     metadata["artifact_path"] = str(artifact_path)
     metadata["onnx_artifact"] = onnx_metadata
-    test_macro = test_metrics["macro_f1"]
-    test_accuracy = test_metrics["accuracy"]
-    print(
-        f"  selected C={best_candidate:g}; test macro_f1={test_macro:.4f}, "
-        f"accuracy={test_accuracy:.4f}"
-    )
+    if test_metrics is not None:
+        print(f"  selected C={best_candidate:g}; test macro_f1={test_metrics['macro_f1']:.4f}, accuracy={test_metrics['accuracy']:.4f}")
+    else:
+        print(f"  selected C={best_candidate:g}; test not read or scored")
     print(f"  saved {artifact_path} and {onnx_metadata['artifact_path']}")
     return metadata
 
@@ -331,24 +450,35 @@ def discover_languages(frames: dict[str, pd.DataFrame]) -> tuple[str, ...]:
 
 def main() -> None:
     args = parse_args()
-    frames = load_splits(args.data_dir.resolve())
-    languages = discover_languages(frames)
+    frames = load_splits(args.data_dir.resolve(), include_test=not args.validation_only)
+    languages = tuple(sorted(set(args.languages))) if args.languages else discover_languages(frames)
     print(f"languages: {', '.join(languages)}")
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    results = [
-        train_language(
-            language,
-            frames["train"],
-            frames["validation"],
-            frames["test"],
-            args.output_dir.resolve(),
-        )
-        for language in languages
-    ]
+    results = []
+    for language in languages:
+        try:
+            results.append(train_language(
+                language, frames["train"], frames["validation"], frames.get("test", pd.DataFrame()),
+                args.output_dir.resolve(),
+                args.baseline_model_dir.resolve() if args.baseline_model_dir else None,
+                independent_quality=args.independent_quality,
+                word_max_ngram=3 if args.independent_quality else 2,
+                evaluate_test=not args.validation_only,
+            ))
+        except TrainingQualityError as error:
+            failure = {"kind": "validation_quality", "language": error.language,
+                       "reasons": error.reasons, "completed_languages": [r["language"] for r in results],
+                       "requested_languages": list(languages), "test_used_for_selection": False}
+            (args.output_dir / "training_failure.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+            print(f"Validation quality checks failed: {error}", flush=True)
+            raise SystemExit(2) from None
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "python_model_family": "word-character TF-IDF with logistic regression",
         "models": results,
+        "input_split_hashes": {split: hashlib.sha256((args.data_dir / f"{split}.csv").read_bytes()).hexdigest()
+                               for split in frames},
+        "trainer_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
     }
     manifest_path = args.output_dir.resolve() / "baseline_metrics.json"
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

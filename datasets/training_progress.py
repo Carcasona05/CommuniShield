@@ -23,25 +23,42 @@ def write_fit_progress(completed: int, total: int) -> None:
         pass  # Optional telemetry must not affect fitting or quality decisions.
 
 
+class TrainingLeaseLost(RuntimeError):
+    """Terminal fencing rejection, not an optional telemetry outage."""
+
+
 class TrainingProgress:
     def __init__(self, cloud, job, languages, clock=time.monotonic):
         self.cloud, self.job, self.languages, self.clock = cloud, job, list(languages), clock
         self.total = 3 + 2 * len(self.languages)  # prepare, fit/check each language, upload, register
         self.sequence, self.completed, self.last_sent = 0, 0.0, float("-inf")
         self.warned = False
+        self.failures, self.next_attempt = 0, float("-inf")
+        self.lease_lost = False
 
     def emit(self, completed, stage, language=None, force=True):
+        if self.lease_lost:
+            raise TrainingLeaseLost("Training lease was already rejected; this job must stop.")
         if getattr(self.cloud, "progress_enabled", False) is not True:
             return
         if not math.isfinite(completed) or not self.completed <= completed < self.total:
             raise ValueError("Invalid or backwards training progress")
-        if not force and self.clock() - self.last_sent < 5:
+        now = self.clock()
+        if now < self.next_attempt or (not force and now - self.last_sent < 5):
             return
         self.sequence += 1
+        # Failed attempts must be throttled too; the trainer polls this every second.
+        self.last_sent = now
         try:
             self.cloud.report_progress(self.job, self.sequence, completed, self.total, stage, language)
-            self.completed, self.last_sent = completed, self.clock()
-        except Exception:
+            self.completed = completed
+            self.failures, self.next_attempt = 0, float("-inf")
+        except Exception as error:
+            if getattr(error, "api_code", None) == "40001":
+                self.lease_lost = True
+                raise TrainingLeaseLost("Training lease rejected; stopping this job without publishing a candidate.") from None
+            self.failures += 1
+            self.next_attempt = self.clock() + min(60, 5 * 2 ** min(self.failures - 1, 4))
             if not self.warned:
                 print("Training progress reporting unavailable; training and lease checks continue.", flush=True)
                 self.warned = True

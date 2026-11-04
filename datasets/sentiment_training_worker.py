@@ -24,13 +24,13 @@ from pathlib import Path
 from uuid import UUID
 
 from import_approved_sentiment import COLUMNS, LABELS, LANGUAGES, select_examples, text_key
-from builtin_sentiment_examples import REPORTED_CASES
 from supporting_routing import evaluate_pool
 from independent_support import evaluate as evaluate_independent
-from training_progress import TrainingProgress
+from training_progress import TrainingProgress, TrainingLeaseLost
 
 BASE = Path(__file__).resolve().parent
 FILES = ["sentiment_english.onnx", "sentiment_filipino.onnx", "sentiment_cebuano.onnx", "language_id.onnx"]
+TRAINING_FILES = [f"sentiment_{language}.joblib" for language in sorted(LANGUAGES)]
 LABEL_ORDER = ["negative", "neutral", "positive"]
 REGRESSIONS = {
     "english": [("Wonderful", "positive"), ("Terrible", "negative"), ("There is a meeting tomorrow", "neutral")],
@@ -41,6 +41,52 @@ REGRESSIONS = {
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def build_claim_payload(model_dir: Path) -> dict:
+    hashes = {}
+    for name in FILES:
+        path = model_dir / name
+        if not path.is_file() or path.stat().st_size == 0:
+            raise ValueError(f"Built-in model missing or empty: {name}. Check --baseline-model-dir before starting the worker.")
+        hashes[name] = sha256(path)
+    return {"pool_protocol": 1, "worker_protocol": "supporting-pool-v2",
+            "admission_protocol": "independent-v1", "language_scope_protocol": 1,
+            "builtin_hashes": hashes}
+
+
+class CloudRequestError(RuntimeError):
+    def __init__(self, status: int, api_code: str | None = None):
+        self.status = status
+        self.api_code = api_code
+        if status == 503 and api_code == "PGRST002":
+            message = "Supabase database API cannot load its schema cache (HTTP 503/PGRST002). Check the project's database health in Supabase."
+        elif api_code == "40001":
+            message = "Training lease is stale or invalid; this worker must stop the current job."
+        else:
+            message = f"Supabase request failed (HTTP {status}{'/' + api_code if api_code else ''})"
+        super().__init__(message)
+
+
+def wait_for_capabilities(cloud, once: bool = False):
+    """Retry only the read-only startup probe, never claim/complete or uploads."""
+    delay = 5
+    while True:
+        try:
+            return cloud.capabilities()
+        except CloudRequestError as error:
+            if error.api_code == "PGRST202" or error.status in (400, 404, 409):
+                raise ValueError("Training RPC unavailable. Check the supporting-model database migrations before starting this worker.") from None
+            if error.status not in (429, 502, 503, 504) or once:
+                raise
+            message = str(error)
+        except (urllib.error.URLError, TimeoutError):
+            if once:
+                raise RuntimeError("Supabase could not be reached. Check your connection and retry.") from None
+            message = "Supabase could not be reached. Check your connection."
+        print(f"{message} Startup will retry in {delay}s; no training job has been claimed. Press Ctrl+C to stop.", flush=True)
+        time.sleep(delay)
+        delay = min(delay * 2, 30)
 
 
 class Cloud:
@@ -61,8 +107,19 @@ class Cloud:
                     raise ValueError("Cloud response exceeds 100 MB")
                 return result
         except urllib.error.HTTPError as error:
-            # Do not print response bodies, headers, credentials, or sample text.
-            raise RuntimeError(f"Supabase request failed (HTTP {error.code})") from None
+            # Only retain bounded, known error codes. Never log sample text,
+            # response bodies, headers, credentials or automatic write retries.
+            api_code = None
+            try:
+                payload = json.loads(error.read(8192))
+                if isinstance(payload, dict) and payload.get("code") in (
+                    "PGRST002", "PGRST202", "PGRST203", "PGRST204", "40001", "22023",
+                    "22P02", "42501", "42703", "42883", "42P01", "23502", "23514",
+                ):
+                    api_code = payload["code"]
+            except (ValueError, OSError):
+                pass
+            raise CloudRequestError(error.code, api_code) from None
 
     def rpc(self, action: str, job: dict | None = None, payload: dict | None = None):
         body = {"p_action": action, "p_job": job["id"] if job else None, "p_lease": job["lease_token"] if job else None, "p_payload": payload or {}}
@@ -87,12 +144,13 @@ class Cloud:
 
     def download_bundle(self, job_id: str, destination: Path) -> None:
         UUID(job_id)
-        rows = json.loads(self.request(f"/rest/v1/sentiment_training_jobs?id=eq.{job_id}&select=artifact_manifest,status&limit=1"))
+        rows = json.loads(self.request(f"/rest/v1/sentiment_training_jobs?id=eq.{job_id}&select=artifact_manifest,status,snapshot,metrics&limit=1"))
         if not rows or rows[0]["status"] != "ready":
             raise ValueError("Active baseline manifest unavailable")
-        files = rows[0]["artifact_manifest"]["files"]
+        files = {**rows[0]["artifact_manifest"]["files"],
+                 **rows[0]["artifact_manifest"].get("training_files", {})}
         destination.mkdir(parents=True, exist_ok=False)
-        for name in FILES:
+        for name in [*FILES, *TRAINING_FILES]:
             artifact = files[name]
             parts = artifact["path"].split("/")
             if len(parts) != 3 or parts[0] != job_id or parts[2] != name:
@@ -102,6 +160,11 @@ class Cloud:
             if len(data) != artifact["size"] or hashlib.sha256(data).hexdigest() != artifact["sha256"]:
                 raise ValueError("Baseline checksum mismatch")
             (destination / name).write_bytes(data)
+        training = dict(rows[0].get("metrics", {}).get("training", {}))
+        training["onnx_hashes"] = {name: files[name]["sha256"] for name in FILES}
+        (destination / "baseline_metrics.json").write_text(json.dumps(training), encoding="utf-8")
+        (destination / "approved_snapshot.json").write_text(
+            json.dumps(rows[0].get("snapshot", {"samples": []})), encoding="utf-8")
 
     def upload(self, path: str, file: Path) -> None:
         self.request("/storage/v1/object/sentiment-models/" + path, "POST", file.read_bytes(), "application/octet-stream")
@@ -149,7 +212,10 @@ class Lease:
             try:
                 self.cloud.rpc("heartbeat", self.job)
                 failures = 0
-            except Exception:
+            except Exception as error:
+                if getattr(error, "api_code", None) == "40001":
+                    self.lost.set()
+                    return
                 failures += 1
                 if failures >= 2:
                     self.lost.set()
@@ -157,7 +223,7 @@ class Lease:
 
     def check(self) -> None:
         if self.lost.is_set():
-            raise RuntimeError("Training lease lost; candidate will not be published")
+            raise TrainingLeaseLost("Training lease lost; candidate will not be published")
 
     def __enter__(self):
         self.thread.start()
@@ -219,6 +285,9 @@ def build_snapshot(baseline: Path, snapshot: dict, destination: Path) -> dict:
         writer.writerows(splits["train"] + accepted)
     for split in ("validation", "test"):
         shutil.copyfile(baseline / f"{split}.csv", destination / f"{split}.csv")
+    # Continued training must only learn approved rows actually admitted here.
+    (destination / "approved_training_samples.json").write_text(
+        json.dumps(accepted, ensure_ascii=False), encoding="utf-8")
     return {**counts, "baseline_train_holdout_excluded": original_train_count - len(splits["train"]),
             "heldout_conflicting_keys": sum(len(labels) > 1 for labels in heldout_labels.values()),
             "baseline_hashes": {split: sha256(baseline / f"{split}.csv") for split in splits}}
@@ -268,7 +337,10 @@ def evaluation_gate(languages: dict, regressions: list[dict], minimum_f1: float 
             reasons.append(f"{language}: macro-F1 gate failed")
         for label in LABEL_ORDER:
             if not math.isfinite(new["per_class"][label]["recall"]) or new["per_class"][label]["support"] < minimum_support or new["per_class"][label]["recall"] + recall_tolerance < old["per_class"][label]["recall"]:
-                reasons.append(f"{language}/{label}: support or recall gate failed")
+                if new["per_class"][label]["support"] < minimum_support:
+                    reasons.append(f"{language}/{label}: test support {new['per_class'][label]['support']} is below {minimum_support}")
+                else:
+                    reasons.append(f"{language}/{label}: recall {new['per_class'][label]['recall']:.4f}, baseline {old['per_class'][label]['recall']:.4f}; minimum {old['per_class'][label]['recall'] - recall_tolerance:.4f}")
     for item in regressions:
         if item["baseline"] == item["expected"] and item["candidate"] != item["expected"]:
             reasons.append(f"{item['language']}: known regression phrase became incorrect")
@@ -367,7 +439,8 @@ def run_scoped_training(command, candidate, requested, directory, lease, progres
     return failures
 
 
-def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, runs: Path) -> None:
+def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, runs: Path,
+                bootstrap_state_dir: Path | None = None) -> None:
     UUID(job["id"])
     UUID(job["lease_token"])
     directory = runs / job["id"]
@@ -396,7 +469,22 @@ def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, r
         merged = build_snapshot(data_dir, job["snapshot"], directory / "data")
         progress.emit(1, 'preparing')
         candidate = directory / "candidate"
-        command = [sys.executable, str(BASE / "train_sentiment.py"), "--data-dir", str(directory / "data"), "--output-dir", str(candidate)]
+        if mode == "fresh":
+            command = [sys.executable, "-u", str(BASE / "train_sentiment.py"),
+                       "--data-dir", str(directory / "data"), "--output-dir", str(candidate)]
+            if independent:
+                command.append("--independent-quality")
+            else:
+                command += ["--baseline-model-dir", str(baseline)]
+        else:
+            command = [sys.executable, "-u", str(BASE / "continue_sentiment.py"),
+                       "--data-dir", str(directory / "data"), "--output-dir", str(candidate),
+                       "--baseline-model-dir", str(baseline),
+                       "--snapshot-file", str(directory / "approved_snapshot.json")]
+            if independent:
+                command.append("--independent-quality")
+            if bootstrap_state_dir is not None:
+                command += ["--bootstrap-state-dir", str(bootstrap_state_dir.resolve())]
         started = time.monotonic()
         training_failures = run_scoped_training(command, candidate, requested, directory, lease, progress) if scoped else {}
         with (directory / "training.log").open("a" if scoped else "w", encoding="utf-8") as log:
@@ -404,15 +492,28 @@ def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, r
             log.flush()
             process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT) if not scoped else None
             try:
-                while process.poll() is None:
+                while process is not None and process.poll() is None:
                     lease.check()
                     if time.monotonic() - started > 7200:
                         raise RuntimeError("Training exceeded the two-hour limit")
                     time.sleep(1)
-                if process.returncode != 0:
+                if process is not None and process.returncode != 0:
+                    failure = training_quality_failure(candidate) if independent else None
+                    if failure:
+                        language, reasons, completed = failure
+                        metrics = {"passed": False, "admission": "independent-v1",
+                                   "pool_protocol": 1, "training_mode": mode, "data": merged,
+                                   "failure_stage": "validation_selection", "failed_language": language,
+                                   "completed_languages": completed,
+                                   "reasons": [f"{language}: {reason}" for reason in reasons]}
+                        (directory / "evaluation.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+                        completed_text = f" {', '.join(completed)} finished fitting, but has not independently qualified for enabling." if completed else ""
+                        cloud.rpc("fail", job, {"metrics": metrics, "error":
+                            f"Validation quality checks failed for {language}.{completed_text} No supporting model was registered; built-ins are unchanged."})
+                        return
                     raise RuntimeError("Training command failed. Inspect the private worker training.log.")
             finally:
-                if process.poll() is None:
+                if process is not None and process.poll() is None:
                     process.terminate()
                     try:
                         process.wait(timeout=10)
@@ -438,10 +539,14 @@ def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, r
         metrics["training_mode"] = mode
         metrics["data"] = merged
         metrics["base_model_hashes"] = {name: sha256(baseline / name) for name in FILES}
+        training_metadata = candidate / "baseline_metrics.json"
+        if training_metadata.is_file():
+            metrics["training"] = json.loads(training_metadata.read_text(encoding="utf-8"))
         (directory / "evaluation.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
         lease.check()
         if not metrics["passed"]:
-            cloud.rpc("fail", job, {"error": "Evaluation gate failed; the active model is unchanged.", "metrics": metrics})
+            details = "; ".join(metrics.get("reasons", []))[:850]
+            cloud.rpc("fail", job, {"error": f"Evaluation gate failed: {details}. The active model is unchanged.", "metrics": metrics})
             return
         existing = []
         for row in ([] if independent else job["snapshot"].get("supporting_models", [])):
@@ -479,6 +584,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=BASE / "processed")
     parser.add_argument("--baseline-model-dir", type=Path, default=BASE.parent / "server" / "models")
+    parser.add_argument("--bootstrap-state-dir", type=Path,
+                        help="Trusted joblib/ONNX pairs for continued training; defaults to datasets/models")
     parser.add_argument("--runs-dir", type=Path, default=BASE / "training-runs")
     parser.add_argument("--once", action="store_true", help="Process at most one available job, then exit")
     parser.add_argument("--env-file", type=Path, help="Optional private .env file (e.g. server/.env)")
@@ -507,14 +614,22 @@ def main() -> None:
     else:
         print("Fresh challengers unavailable until DB_Schema/migrations/sentiment_fresh_candidates.sql is applied.", flush=True)
     print('Independent held-out quality enabled. Passing candidates stay disabled for super-admin review; no built-in score comparison.', flush=True)
+    claim_payload = build_claim_payload(args.baseline_model_dir.resolve())
     print("Supporting-model worker started. Built-ins are permanent; candidates never replace older models.", flush=True)
+    failure_delay = 5
     while True:
         job = None
+        sleep_delay = 5
         try:
-            job = cloud.rpc("claim")
+            job = cloud.rpc("claim", payload=claim_payload)
+            failure_delay = 5
             if job:
                 print(f"Processing job {job['id']}", flush=True)
-                process_job(cloud, job, args.data_dir.resolve(), args.baseline_model_dir.resolve(), args.runs_dir.resolve())
+                if args.bootstrap_state_dir is None:
+                    process_job(cloud, job, args.data_dir.resolve(), args.baseline_model_dir.resolve(), args.runs_dir.resolve())
+                else:
+                    process_job(cloud, job, args.data_dir.resolve(), args.baseline_model_dir.resolve(), args.runs_dir.resolve(),
+                                bootstrap_state_dir=args.bootstrap_state_dir.resolve())
                 print(f"Finished job {job['id']}; check the evaluation status in the admin UI.", flush=True)
             elif args.once:
                 print("No claimable job yet. Approvals use a 30-second batching window.", flush=True)
@@ -526,14 +641,19 @@ def main() -> None:
         except Exception as error:
             message = f"{type(error).__name__}: {error}"[:1000]
             print(message, flush=True)
-            if job:
+            if job is None and isinstance(error, CloudRequestError) and 400 <= error.status < 500 and error.status not in (408, 429):
+                raise ValueError("Job claim was rejected. Worker stopped instead of repeating the request; check the protocol, database migrations and safe error code above.") from None
+            if job is None:
+                sleep_delay = failure_delay
+                failure_delay = min(failure_delay * 2, 60)
+            if job and not isinstance(error, TrainingLeaseLost) and getattr(error, "api_code", None) != "40001":
                 try:
                     cloud.rpc("fail", job, {"error": message})
                 except Exception:
                     print("Could not record failure; lease expiry will mark the job failed.", flush=True)
         if args.once:
             return
-        time.sleep(5)
+        time.sleep(sleep_delay)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
 import censorText from "../../services/censorText";
+import { ensureNotSuspended } from "../../services/profileCompletion";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -102,7 +103,9 @@ const User_RepPost_Layout = ({
         <TouchableOpacity
           style={styles.actionButton}
           activeOpacity={0.75}
-          onPress={onComment}
+          onPress={async () => {
+            if (await ensureNotSuspended()) onComment?.();
+          }}
         >
           <Ionicons name="chatbubble-outline" size={19} color={COMMUNISHIELD_BLUE} />
           <Text style={styles.actionText}>{comments} Comments</Text>

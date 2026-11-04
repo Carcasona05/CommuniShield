@@ -534,7 +534,8 @@ const User_NotificationInner = () => {
                 item={item}
                 onPress={() => {
                   markAsRead(item.id);
-                  openReportPost(item.reportId, true);
+                  if (item.route === "/(tabs)/User_ProfileSettings") router.push(item.route);
+                  else openReportPost(item.reportId, true);
                 }}
               />
             ))
