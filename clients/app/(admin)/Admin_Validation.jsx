@@ -20,7 +20,6 @@ import {
   BatchFilterDropdown,
 } from "../../components/Admin_compo/AdminBatchFilters";
 import apiClient from "../../services/apiClient";
-import { getSentimentRetryCommentIds } from "../../services/sentimentReanalysis";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { getCache, setCache } from "../../services/dataStore";
@@ -707,8 +706,6 @@ function Admin_Validation() {
       if (!token) return;
       const headers = { Authorization: `Bearer ${token}` };
 
-      const commentIdsToRetry = getSentimentRetryCommentIds(targetReports);
-
       const calls = [];
       for (const item of targetReports) {
         calls.push(apiClient.post(`/ai/analyze/${item.id}`, {}, { headers }));
@@ -721,19 +718,11 @@ function Admin_Validation() {
         );
       }
 
-      if (commentIdsToRetry.length > 0) {
-        calls.push(
-          apiClient.post(
-            "/ai/sentiment/reanalyze",
-            { subject_type: "comment", ids: commentIdsToRetry },
-            { headers }
-          )
-        );
-      }
-
       const results = await Promise.allSettled(calls);
       const succeeded = results.filter(
-        (result) => result.status === "fulfilled"
+        (result) => result.status === "fulfilled" &&
+          Object.values({ ...result.value.data?.results, ...result.value.data?.commentResults })
+            .every(analysis => analysis.status === "succeeded")
       ).length;
 
       await loadValidation();
@@ -744,13 +733,13 @@ function Admin_Validation() {
         );
         toast.error(
           failure?.reason?.response?.data?.error ||
-            "Could not re-run AI analysis."
+              "Could not complete reanalysis for all posts and comments."
         );
       } else if (succeeded < results.length) {
         toast.success("AI re-analysis completed with partial results.");
       } else {
         toast.success(
-          `AI re-analysis completed for ${targetReports.length} post(s).`
+          `AI re-analysis completed for ${targetReports.length} post(s) and their comments.`
         );
       }
     } catch (error) {

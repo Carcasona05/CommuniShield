@@ -41,7 +41,7 @@ test("selection deduplicates IDs and tolerates missing comments and malformed en
 for (const role of ["admin", "sadmin"]) {
   const source = readFileSync(new URL(`../../clients/app/(${role})/${role === "admin" ? "Admin" : "SAdmin"}_Validation.jsx`, import.meta.url), "utf8");
   const match = /const handleReanalyze = async \(group\) => \{([\s\S]*?)\n  \};/.exec(source);
-  async function run(group) {
+  async function run(group, payload = {}) {
     assert.ok(match, "reanalysis handler must exist");
     const state = { calls: [], busy: [], refreshed: false, messages: [] };
     const context = {
@@ -52,7 +52,7 @@ for (const role of ["admin", "sadmin"]) {
       apiClient: { post: async (path, body, options) => {
         assert.equal(options.headers.Authorization, "Bearer token");
         state.calls.push({ path, body: JSON.parse(JSON.stringify(body)) });
-        return { data: {} };
+        return { data: payload };
       } },
       loadValidation: async () => { await Promise.resolve(); state.refreshed = true; },
       toast: { success: message => { assert.equal(state.refreshed, true); state.messages.push(message); },
@@ -61,26 +61,31 @@ for (const role of ["admin", "sadmin"]) {
     await vm.runInNewContext(`(async (group) => {${match[1]}})`, context)(group);
     return state;
   }
-  test(`${role} Re-Analyze sends unclear and no-data comments alongside post analyses`, async () => {
+  test(`${role} Re-Analyze delegates all comment reanalysis to the report endpoint`, async () => {
     const unclear = comment("unclear", "succeeded", { id: "unclear" });
     const state = await run({ reports: [
       { id: "post-1", comments: [comment("positive"), unclear, { id: "missing" }, comment(null, "unavailable", { id: "unavailable" })] },
       { id: "post-2", comments: [unclear, comment("negative", "failed", { id: "failed" })] },
     ] });
-    const comments = state.calls.find(call => call.path === "/ai/sentiment/reanalyze");
-    assert.deepEqual(comments.body, { subject_type: "comment", ids: ["unclear", "missing", "unavailable", "failed"] });
-    assert.equal(state.calls.length, 5);
+    assert.ok(state.calls.every(call => call.path !== "/ai/sentiment/reanalyze"));
+    assert.equal(state.calls.length, 4);
     for (const id of ["post-1", "post-2"]) {
       assert.ok(state.calls.some(call => call.path === `/ai/analyze/${id}`));
       assert.ok(state.calls.some(call => call.path === `/ai/sentiment/reanalyze/report/${id}`));
     }
     assert.deepEqual(state.busy, [true, false]);
-    assert.match(source, /getSentimentRetryCommentIds.*from "\.\.\/\.\.\/services\/sentimentReanalysis"/);
+    assert.doesNotMatch(source, /getSentimentRetryCommentIds/);
   });
-  test(`${role} leaves clear successful comment analyses untouched`, async () => {
+  test(`${role} also invokes thread reanalysis when all comments already have successful labels`, async () => {
     const state = await run({ reports: [{ id: "post-1", comments: [comment("positive"), comment("neutral"), comment("negative"), comment("mixed")] }] });
     assert.equal(state.calls.length, 2);
     assert.ok(state.calls.every(call => call.path !== "/ai/sentiment/reanalyze"));
+    assert.ok(state.calls.some(call => call.path === "/ai/sentiment/reanalyze/report/post-1"));
+    assert.match(state.messages[0], /and their comments/);
+  });
+  test(`${role} does not claim success when comment analyses return failed statuses`, async () => {
+    const state = await run({ reports: [{ id: "post-1" }] }, { results: { "post-1": { status: "succeeded" } }, commentResults: { comment: { status: "failed" } } });
+    assert.match(state.messages[0], /Could not complete reanalysis/);
   });
 }
 

@@ -281,6 +281,7 @@ const UserProfileSettings = () => {
   const [saving, setSaving] = useState(false);
   const locationLock = useRef(false);
   const [loading, setLoading] = useState(() => getCache("api:/profile") === undefined);
+  const [profileLoadError, setProfileLoadError] = useState("");
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -357,12 +358,15 @@ const UserProfileSettings = () => {
       if (!token) return;
 
       const res = await apiClient.get("/profile", {
+        cacheMode: "network",
         headers: { Authorization: `Bearer ${token}` },
       });
 
+      if (token !== await AsyncStorage.getItem("access_token")) return;
       const profile = res.data ?? {};
       setCache("api:/profile", profile);
       applyProfile(profile);
+      setProfileLoadError("");
 
       try {
         const termsRes = await apiClient.get("/terms/status", {
@@ -374,8 +378,10 @@ const UserProfileSettings = () => {
       } catch {
         // terms status fetch is best-effort
       }
-    } catch {
-      // profile fetch failed; keep empty defaults
+    } catch (error) {
+      if (error.code !== "ERR_CANCELED") {
+        setProfileLoadError(error.response?.data?.error || "Could not load your profile. Please retry to see your registered email and username.");
+      }
     } finally {
       setLoading(false);
     }
@@ -682,6 +688,12 @@ const UserProfileSettings = () => {
             }
           >
             <Divboxwhite testID="profile-details-container" style={styles.detailsCard}>
+              {profileLoadError ? <View>
+                <Text accessibilityRole="alert" style={styles.missingField}>{profileLoadError}</Text>
+                <TouchableOpacity accessibilityRole="button" onPress={loadProfile}>
+                  <ThemedText style={styles.editText}>Retry loading profile</ThemedText>
+                </TouchableOpacity>
+              </View> : null}
               <View style={[styles.cardHeader, styles.profileHeader, editMode && styles.profileHeaderEditing]}>
                 <View style={styles.profileHeading}>
                   <ThemedHeader accessibilityRole="header" style={styles.profileTitle}>Profile Details</ThemedHeader>

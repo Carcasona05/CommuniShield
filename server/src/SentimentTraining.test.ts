@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Request, Response } from "express";
 import type { User } from "@supabase/supabase-js";
-import { getActiveModelBundle, MODEL_FILES, modelRegistryDependencies as deps, prepareModelBundle, validateManifest } from "./services/sentimentModelRegistry.js";
+import { getActiveModelBundle, MODEL_FILES, modelRegistryDependencies as deps, prepareModelBundle, prepareSupportingModelBundle, validateManifest, validateSupportingManifest } from "./services/sentimentModelRegistry.js";
 import { getSentimentTraining, manageSentimentTraining } from "./controllers/sentimentTrainingController.js";
 import { sentimentTrainingService as service } from "./services/sentimentTrainingService.js";
 
@@ -48,6 +48,49 @@ test("versioned downloads verify every file, run ONNX checks, and deduplicate co
   assert.deepEqual(bundles[0], bundles[1]);
   assert.equal(download.mock.callCount(), 4); assert.equal(smoke.mock.callCount(), 4);
   for (const filename of MODEL_FILES) assert.deepEqual(await readFile(join(bundles[0]!.directory, filename)), bytes);
+});
+
+test("Cebuano-only supporting bundles load without English or Filipino artifacts", async t => {
+  const directory = await temporary();
+  setEnv(t, "SENTIMENT_MODEL_CACHE_DIR", directory);
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const bytes = Buffer.from("qualified-cebuano-support");
+  const id = randomUUID();
+  const full = manifest(id, bytes);
+  const scoped = { languages: ["cebuano"], files: Object.fromEntries(Object.entries(full.files).filter(([name]) => ["language_id.onnx", "sentiment_cebuano.onnx"].includes(name))) };
+  const download = t.mock.method(deps, "download", async () => bytes);
+  const smoke = t.mock.method(deps, "smokeTest", async () => {});
+  const bundle = await prepareSupportingModelBundle(id, scoped);
+  assert.equal(download.mock.callCount(), 2);
+  assert.equal(smoke.mock.callCount(), 2);
+  for (const name of Object.keys(scoped.files)) assert.deepEqual(await readFile(join(bundle.directory, name)), bytes);
+  assert.throws(() => validateManifest(id, scoped), /Invalid model file/);
+});
+
+test("supporting manifests enforce their exact qualified languages and retain integrity checks", () => {
+  const id = randomUUID(), full = manifest(id, Buffer.from("model"));
+  const scoped = { languages: ["cebuano"], files: Object.fromEntries(Object.entries(full.files).filter(([name]) => ["language_id.onnx", "sentiment_cebuano.onnx"].includes(name))) };
+  assert.equal(Object.keys(validateSupportingManifest(id, scoped).files).length, 2);
+  assert.equal(Object.keys(validateSupportingManifest(id, full).files).length, 4);
+  for (const bad of [
+    { ...scoped, languages: [] }, { ...scoped, languages: ["cebuano", "cebuano"] },
+    { ...scoped, languages: ["unsupported"] }, { ...scoped, languages: ["english"] },
+    { ...scoped, files: full.files },
+    { ...scoped, files: { ...scoped.files, "sentiment_cebuano.onnx": { ...scoped.files["sentiment_cebuano.onnx"], path: "../../model.onnx" } } },
+    { ...scoped, files: { ...scoped.files, "sentiment_cebuano.onnx": { ...scoped.files["sentiment_cebuano.onnx"], sha256: "" } } },
+  ]) assert.throws(() => validateSupportingManifest(id, bad));
+});
+
+test("scoped supporting bundles reject corrupted downloaded artifacts", async t => {
+  const directory = await temporary();
+  setEnv(t, "SENTIMENT_MODEL_CACHE_DIR", directory);
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const id = randomUUID(), full = manifest(id, Buffer.from("expected"));
+  const scoped = { languages: ["cebuano"], files: Object.fromEntries(Object.entries(full.files).filter(([name]) => ["language_id.onnx", "sentiment_cebuano.onnx"].includes(name))) };
+  t.mock.method(deps, "download", async () => Buffer.from("corrupt"));
+  const smoke = t.mock.method(deps, "smokeTest", async () => {});
+  await assert.rejects(prepareSupportingModelBundle(id, scoped), /checksum mismatch/);
+  assert.equal(smoke.mock.callCount(), 0);
 });
 
 test("checksum failures never publish a bundle and failed downloads can be retried", async (t) => {

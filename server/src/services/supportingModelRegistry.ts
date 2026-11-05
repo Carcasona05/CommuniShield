@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { InferenceSession, Tensor } from "onnxruntime-node";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
-import { MODEL_FILES, prepareModelBundle, supportingModelsEnabled } from "./sentimentModelRegistry.js";
+import { MODEL_FILES, prepareSupportingModelBundle, supportingModelsEnabled } from "./sentimentModelRegistry.js";
 import { needsSupport, ranked, validRule, validIndependentPolicy, type PoolPolicy, type Scores, type SupportProposal } from "./supportingModelRouting.js";
 
 type Record = { id: string; artifact_manifest: unknown; routing_policy: PoolPolicy };
@@ -74,7 +74,7 @@ export async function supportingProposals(directory: string, language: string, t
     const key = `${row.id}:${language}`;
     let entry = sessions.get(key);
     if (!entry) {
-      entry = { users: 0, retired: false, promise: prepareModelBundle(row.id, row.artifact_manifest)
+      entry = { users: 0, retired: false, promise: prepareSupportingModelBundle(row.id, row.artifact_manifest)
         .then((bundle) => InferenceSession.create(join(bundle.directory, `sentiment_${language}.onnx`))) };
       sessions.set(key, entry);
     }

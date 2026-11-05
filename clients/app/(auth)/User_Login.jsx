@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Platform,
   Modal,
   KeyboardAvoidingView,
+  Keyboard,
   ScrollView,
   useWindowDimensions,
   ActivityIndicator,
@@ -44,6 +45,28 @@ function UserLoginInner() {
 
   const isSmallPhone = width < 360;
   const isShortScreen = height < 700;
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const scrollRef = useRef(null);
+  const revealFocusedInput = useCallback(() => {
+    if (Platform.OS === "web") return;
+    const focusedInput = TextInput.State.currentlyFocusedInput();
+    if (focusedInput) scrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(focusedInput, 16, true);
+  }, []);
+
+  useEffect(() => {
+    if (!keyboardVisible) return;
+    const frame = requestAnimationFrame(revealFocusedInput);
+    return () => cancelAnimationFrame(frame);
+  }, [keyboardVisible, revealFocusedInput]);
+
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => {
+      setKeyboardVisible(false);
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+    });
+    return () => { show.remove(); hide.remove(); };
+  }, []);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -192,7 +215,7 @@ function UserLoginInner() {
       <LoginVerificationModal {...verificationModalProps} />
       <KeyboardAvoidingView
         style={styles.keyboardView}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <View style={styles.container}>
           <Image
@@ -210,11 +233,13 @@ function UserLoginInner() {
           />
 
           <ScrollView
+            ref={scrollRef}
+            bounces={false}
             style={styles.scroll}
             contentContainerStyle={[
               styles.scrollContent,
               {
-                paddingTop:
+                paddingTop: keyboardVisible ? 12 :
                   Platform.OS === "android"
                     ? isShortScreen
                       ? 18
@@ -222,7 +247,8 @@ function UserLoginInner() {
                     : isShortScreen
                       ? 10
                       : 20,
-                paddingBottom: isShortScreen ? 40 : 90,
+                paddingBottom: keyboardVisible ? 16 : isShortScreen ? 40 : 90,
+                justifyContent: keyboardVisible ? "flex-start" : "center",
               },
             ]}
             keyboardShouldPersistTaps="handled"
@@ -238,6 +264,7 @@ function UserLoginInner() {
             >
               <TouchableOpacity
                 activeOpacity={1}
+                style={keyboardVisible ? { display: "none" } : undefined}
                 onPress={handleHiddenAdminTap}
               >
                 <Image
@@ -272,6 +299,7 @@ function UserLoginInner() {
 
                 <TextInput
                   style={styles.input}
+                  onFocus={() => keyboardVisible && requestAnimationFrame(revealFocusedInput)}
                   placeholder="Email Address"
                   placeholderTextColor="#6E7FA5"
                   value={email}
@@ -294,6 +322,7 @@ function UserLoginInner() {
 
                 <TextInput
                   style={styles.input}
+                  onFocus={() => keyboardVisible && requestAnimationFrame(revealFocusedInput)}
                   placeholder="Password"
                   placeholderTextColor="#6E7FA5"
                   value={password}
@@ -328,7 +357,7 @@ function UserLoginInner() {
                 style={[
                   styles.loginButton,
                   {
-                    marginBottom: isShortScreen ? 26 : 36,
+                    marginBottom: keyboardVisible ? 12 : isShortScreen ? 26 : 36,
                     opacity: loading ? 0.6 : 1,
                   },
                 ]}
@@ -353,6 +382,8 @@ function UserLoginInner() {
                 </View>
 
                 <TouchableOpacity
+                  accessibilityRole="link"
+                  style={styles.signupLinkButton}
                   onPress={() => router.push("/(auth)/User_Register")}
                 >
                   <Text style={styles.signupLink}>Sign Up</Text>
@@ -562,8 +593,21 @@ const styles = StyleSheet.create({
   signupQuestion: {
     marginHorizontal: 10,
     fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    flexShrink: 1,
     color: "#6C7B9D",
+    textShadowColor: "#ffffffff",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 3,
     textAlign: "center",
+  },
+
+  signupLinkButton: {
+    width: "100%",
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   signupLink: {

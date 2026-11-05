@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
-import { ensureCompleteProfile, ensureNotSuspended } from "../../services/profileCompletion";
+import { ensureCompleteProfile, ensureParticipationReady } from "../../services/profileCompletion";
 import formatRelativeTime from "../../services/formatRelativeTime";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
 import censorText from "../../services/censorText";
@@ -208,7 +208,7 @@ const User_RepPostView_Layout = ({ post }) => {
   };
 
   const handleCommentPress = async () => {
-    if (!await ensureNotSuspended()) {
+    if (!await ensureParticipationReady()) {
       commentInputRef.current?.blur();
       Keyboard.dismiss();
     }

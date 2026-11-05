@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Platform,
   ScrollView,
   KeyboardAvoidingView,
+  Keyboard,
   useWindowDimensions,
   ActivityIndicator,
 } from "react-native";
@@ -48,6 +49,29 @@ function RegisterInner() {
   const { width, height } = useWindowDimensions();
   const isSmallPhone = width < 360;
   const isShortScreen = height < 720;
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const scrollRef = useRef(null);
+  const compactLayout = isShortScreen || keyboardVisible;
+  const revealFocusedInput = useCallback(() => {
+    if (Platform.OS === "web") return;
+    const focusedInput = TextInput.State.currentlyFocusedInput();
+    if (focusedInput) scrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(focusedInput, 16, true);
+  }, []);
+
+  useEffect(() => {
+    if (!keyboardVisible) return;
+    const frame = requestAnimationFrame(revealFocusedInput);
+    return () => cancelAnimationFrame(frame);
+  }, [keyboardVisible, revealFocusedInput]);
+
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => {
+      setKeyboardVisible(false);
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+    });
+    return () => { show.remove(); hide.remove(); };
+  }, []);
 
   const [userName, setUserName] = useState("");
   const [email, setEmail] = useState("");
@@ -213,7 +237,7 @@ function RegisterInner() {
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         style={styles.keyboardView}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <View style={styles.container}>
           <Image
@@ -231,19 +255,17 @@ function RegisterInner() {
           />
 
           <ScrollView
+            ref={scrollRef}
             style={styles.scroll}
+            scrollEnabled={keyboardVisible}
+            bounces={false}
+            overScrollMode="never"
             contentContainerStyle={[
               styles.scrollContent,
               {
-                paddingTop:
-                  Platform.OS === "android"
-                    ? isShortScreen
-                      ? 14
-                      : 26
-                    : isShortScreen
-                      ? 8
-                      : 18,
-                paddingBottom: isShortScreen ? 42 : 90,
+                paddingTop: compactLayout ? 8 : 16,
+                paddingBottom: compactLayout ? 8 : 16,
+                justifyContent: keyboardVisible ? "flex-start" : "center",
               },
             ]}
             keyboardShouldPersistTaps="handled"
@@ -263,8 +285,9 @@ function RegisterInner() {
                   styles.logo,
                   {
                     width: isSmallPhone ? 290 : Math.min(width * 0.9, 410),
-                    height: isShortScreen ? 135 : isSmallPhone ? 150 : 170,
-                    marginBottom: isShortScreen ? -5 : 5,
+                    height: isShortScreen ? 64 : 110,
+                    marginBottom: 0,
+                    display: keyboardVisible ? "none" : "flex",
                   },
                 ]}
               />
@@ -274,20 +297,21 @@ function RegisterInner() {
                   styles.title,
                   {
                     fontSize: isSmallPhone ? 22 : 24,
-                    marginBottom: isShortScreen ? 18 : 24,
+                    marginBottom: compactLayout ? 8 : 16,
                   },
                 ]}
               >
                 Register
               </Text>
 
-              <View style={styles.inputWrapper}>
+              <View style={[styles.inputWrapper, compactLayout && styles.compactInputWrapper]}>
                 <View style={styles.iconBox}>
                   <MaterialIcons name="person" size={20} color="#2F4F8F" />
                 </View>
 
                 <TextInput
                   style={styles.input}
+                  onFocus={() => keyboardVisible && requestAnimationFrame(revealFocusedInput)}
                   placeholder="Username"
                   placeholderTextColor="#6E7FA5"
                   value={userName}
@@ -296,13 +320,14 @@ function RegisterInner() {
                 />
               </View>
 
-              <View style={styles.inputWrapper}>
+              <View style={[styles.inputWrapper, compactLayout && styles.compactInputWrapper]}>
                 <View style={styles.iconBox}>
                   <MaterialIcons name="email" size={20} color="#2F4F8F" />
                 </View>
 
                 <TextInput
                   style={styles.input}
+                  onFocus={() => keyboardVisible && requestAnimationFrame(revealFocusedInput)}
                   placeholder="Email Address"
                   placeholderTextColor="#6E7FA5"
                   value={email}
@@ -316,6 +341,7 @@ function RegisterInner() {
               <View
                 style={[
                   styles.inputWrapper,
+                  compactLayout && styles.compactInputWrapper,
                   passwordError && styles.inputWrapperError,
                 ]}
               >
@@ -325,6 +351,7 @@ function RegisterInner() {
 
                 <TextInput
                   style={styles.input}
+                  onFocus={() => keyboardVisible && requestAnimationFrame(revealFocusedInput)}
                   placeholder="Password"
                   placeholderTextColor="#6E7FA5"
                   value={password}
@@ -351,6 +378,7 @@ function RegisterInner() {
               <View
                 style={[
                   styles.inputWrapper,
+                  compactLayout && styles.compactInputWrapper,
                   confirmPasswordError && styles.inputWrapperError,
                 ]}
               >
@@ -360,6 +388,7 @@ function RegisterInner() {
 
                 <TextInput
                   style={styles.input}
+                  onFocus={() => keyboardVisible && requestAnimationFrame(revealFocusedInput)}
                   placeholder="Confirm Password"
                   placeholderTextColor="#6E7FA5"
                   value={confirmPassword}
@@ -386,7 +415,7 @@ function RegisterInner() {
               ) : null}
 
               <TouchableOpacity
-                style={styles.termsWrapper}
+                style={[styles.termsWrapper, compactLayout && styles.compactTermsWrapper]}
                 onPress={() => {
                   if (termsAccepted) {
                     setTermsAccepted(false);
@@ -422,7 +451,7 @@ function RegisterInner() {
                 style={[
                   styles.loginButton,
                   {
-                    marginBottom: isShortScreen ? 26 : 36,
+                    marginBottom: compactLayout ? 12 : 16,
                     opacity: loading ? 0.6 : 1,
                   },
                 ]}
@@ -447,6 +476,8 @@ function RegisterInner() {
                 </View>
 
                 <TouchableOpacity
+                  accessibilityRole="link"
+                  style={styles.signupLinkButton}
                   onPress={() => router.push("/(auth)/User_Login")}
                 >
                   <Text style={styles.signupLink}>Sign In</Text>
@@ -581,15 +612,40 @@ const styles = StyleSheet.create({
 
   signupQuestion: {
     marginHorizontal: 10,
-    fontSize: 12,
-    color: "#6C7B9D",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
+    flexShrink: 1,
+    color: "#ffffffff",
+    textShadowColor: "#000000ff",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
     textAlign: "center",
   },
 
+  compactInputWrapper: {
+    marginBottom: 10,
+  },
+
+  compactTermsWrapper: {
+    marginBottom: 10,
+    marginTop: 0,
+  },
+
+  signupLinkButton: {
+    width: "100%",
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   signupLink: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "700",
-    color: "#294880",
+    color: "#FFFFFF",
+    textShadowColor: "#142C52",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
     textDecorationLine: "underline",
   },
 

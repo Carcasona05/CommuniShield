@@ -266,6 +266,7 @@ test("a verification-storage outage fails closed instead of admitting a password
 
 test("registration never issues a password-only access token", async (t) => {
   t.mock.method(supabaseAdmin.auth.admin, "createUser", async () => ({ data: { user: { id: "user-1" } }, error: null }));
+  t.mock.method(profileService, "ensureProfile", async () => {});
   t.mock.method(profileService, "recordTermsAcceptance", async () => ({ error: null }));
   const { res, result } = response();
   await register({ body: { userName: "Test User", email: "person@example.com", password: "Strong!Pass123", termsVersion: "1.0" } } as Request, res);

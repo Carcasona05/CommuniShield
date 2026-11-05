@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
-import { modelRegistryEnabled, prepareModelBundle } from "./sentimentModelRegistry.js";
+import { modelRegistryEnabled, prepareSupportingModelBundle } from "./sentimentModelRegistry.js";
 import { builtinModelHashes, invalidateSupportingRegistry } from "./supportingModelRegistry.js";
 import { validRule, validIndependentPolicy } from "./supportingModelRouting.js";
 
@@ -47,7 +47,7 @@ export const supportingModelService = {
           return { data: null, error: { code: '22023', message: 'Bundle languages do not match qualified languages.' } };
         }
       }
-      await prepareModelBundle(id!, row.artifact_manifest);
+      await prepareSupportingModelBundle(id!, row.artifact_manifest);
     }
     const result = await supabaseAdmin.rpc("manage_sentiment_supporting_model", {
       p_actor: actor, p_action: action, p_model: id, p_generation: generation, p_payload: payload,

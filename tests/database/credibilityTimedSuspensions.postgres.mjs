@@ -28,7 +28,8 @@ test('standalone timed suspensions, +15 verification and protected daily limits'
     // Seed a pre-policy reward, without installing an obsolete policy first.
     await db.query('update reports set is_verified=true where id=$1',[oldReport]);
     await db.query("insert into credibility_events(user_id,event_type,points,reason,report_id) values($1,'report_verified',5,'Historical verification',$2)",[historical,oldReport]);
-    const migration=await readFile(new URL('../../DB_Schema/migrations/credibility_timed_suspensions.sql',import.meta.url),'utf8');
+    const migration=(await readFile(new URL('../../DB_Schema/migrations/credibility_timed_suspensions.sql',import.meta.url),'utf8'))+
+      '\n'+(await readFile(new URL('../../DB_Schema/migrations/credibility_all_good_unlimited.sql',import.meta.url),'utf8'));
     await db.exec(migration);
     const access=async(u=user)=>(await db.query('select credibility_access($1) a',[u])).rows[0].a;
     const setScore=async(value,u=user)=>db.query('update user_credibility set score=$1 where user_id=$2',[value,u]);
@@ -43,11 +44,32 @@ test('standalone timed suspensions, +15 verification and protected daily limits'
       return id;
     };
     await t.test('standalone setup enforces every score boundary and Philippine reset time',async()=>{
-      for(const [score,reports,comments] of [[0,0,0],[19,0,0],[20,1,0],[39,1,0],[40,1,3],[59,1,3],[60,3,10],[99,3,10],[100,10,100]]){
+      for(const [score,reports,comments] of [[0,0,0],[19,0,0],[20,1,0],[39,1,0],[40,1,3],[59,1,3],[60,3,10],[99,3,10],[100,null,null]]){
         const id=await newUser(score),a=await access(id);
         assert.equal(a.policyVersion,'timed-v1');assert.equal(a.reportLimit,reports);assert.equal(a.commentLimit,comments);
+        assert.equal(a.unlimited,score===100);
         assert.equal(new Date(a.resetsAt).getUTCHours(),16);
       }
+    });
+    await t.test('All good permits reports and comments beyond the old limits, with quotas restored below 100',async()=>{
+      const id=await newUser(100);
+      const rows=await db.query('insert into reports(user_id) select $1 from generate_series(1,12) returning id',[id]);
+      await db.query('insert into report_comments(user_id,report_id) select $1,$2 from generate_series(1,105)',[id,rows.rows[0].id]);
+      let a=await access(id);
+      assert.equal(a.unlimited,true);assert.equal(a.reportAllowed,true);assert.equal(a.commentAllowed,true);
+      assert.equal(a.reportsUsed,12);assert.equal(a.commentsUsed,105);
+      await setScore(99,id);a=await access(id);
+      assert.equal(a.unlimited,false);assert.equal(a.reportLimit,3);assert.equal(a.commentLimit,10);
+      assert.equal(a.reportAllowed,false);assert.equal(a.commentAllowed,false);
+      await assert.rejects(db.query('insert into reports(user_id) values($1)',[id]),/CREDIBILITY_DAILY_LIMIT/);
+      await assert.rejects(db.query('insert into report_comments(user_id,report_id) values($1,$2)',[id,rows.rows[0].id]),/CREDIBILITY_DAILY_LIMIT/);
+    });
+    await t.test('a score of 100 does not override an active suspension',async()=>{
+      const id=await newUser(10);await setScore(100,id);
+      const a=await access(id);
+      assert.equal(a.suspended,true);assert.equal(a.unlimited,false);
+      assert.equal(a.reportLimit,0);assert.equal(a.commentLimit,0);
+      await assert.rejects(db.query('insert into reports(user_id) values($1)',[id]),/CREDIBILITY_SUSPENDED/);
     });
     await t.test('standalone database protects concurrent quotas and deletion cannot refund them',async()=>{
       const id=await newUser(40);

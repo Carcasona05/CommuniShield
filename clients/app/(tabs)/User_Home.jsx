@@ -22,7 +22,7 @@ import useScrollToTop from "../../hooks/useScrollToTop";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
 import { publishNavVisibility, subscribeNavVisibility } from "../../services/navBus";
-import { getCache, setCache, patchCachedReports } from "../../services/dataStore";
+import { getCachedPage, patchCachedReports } from "../../services/dataStore";
 import { SkeletonFeed } from "../../components/SkeletonCard";
 import { buildNearbySafety, formatSafetyReportAge, SAFETY_RADIUS_KM } from "../../services/safetyTips";
 
@@ -328,16 +328,14 @@ const User_Home = () => {
   const [selectedSource, setSelectedSource] = useState("All");
   const [openDropdown, setOpenDropdown] = useState(null);
   const [reports, setReports] = useState(() => {
-    const cachedReports = getCache("api:/reports");
-    const cachedAdmin = getCache("api:/admin/posts");
-    return (cachedReports !== undefined || cachedAdmin !== undefined)
-      ? mapFeed(cachedReports, cachedAdmin)
-      : [];
+    const cached = getCachedPage("/reports", { period: "24h" });
+    return cached ? mapFeed(cached, cached) : [];
   });
   const [loading, setLoading] = useState(() => {
-    return getCache("api:/reports") === undefined && getCache("api:/admin/posts") === undefined;
+    return getCachedPage("/reports", { period: "24h" }) === undefined;
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -345,42 +343,42 @@ const User_Home = () => {
   const [arrowReady, setArrowReady] = useState(false);
   const scrollRef = useScrollToTop();
   const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
+  const feedRequest = useRef(0);
 
   const loadReports = useCallback(async ({ force = false } = {}) => {
+    const request = ++feedRequest.current;
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      const cachedReports = getCache("api:/reports");
-      const cachedAdmin = getCache("api:/admin/posts");
-      if (cachedReports !== undefined || cachedAdmin !== undefined) {
-        setReports(mapFeed(cachedReports, cachedAdmin));
-      }
+      const params = { period: selectedTimeRange === "Past 7 Days" ? "7d" : "24h" };
+      const cached = getCachedPage("/reports", params);
+      if (cached) setReports(mapFeed(cached, cached));
+      else setLoading(true);
+      const { data } = await apiClient.get("/reports", {
+        params,
+        ...(force ? { cacheMode: "network" } : {}),
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-      const [reportsRes, adminRes] = await Promise.all([
-        apiClient.get("/reports", {
-          ...(force ? { cacheMode: "network" } : {}),
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        apiClient.get("/admin/posts", {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
-
-      setCache("api:/reports", reportsRes.data ?? {});
-      setCache("api:/admin/posts", adminRes.data ?? {});
-      setReports(mapFeed(reportsRes.data, adminRes.data));
-    } catch {
-      // keep empty feed on failure
+      if (request !== feedRequest.current || token !== await AsyncStorage.getItem("access_token")) return;
+      setReports(mapFeed(data, data));
+      setLoadError(data?.postsUnavailable ? "Admin posts could not be loaded. Please retry." : "");
+    } catch (error) {
+      if (request === feedRequest.current && error.code !== "ERR_CANCELED") setLoadError("Could not load reports. Please retry.");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (request === feedRequest.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, []);
+  }, [selectedTimeRange]);
+
+  useEffect(() => { loadReports(); return () => { feedRequest.current++; }; }, [loadReports]);
 
   useAutoRefresh(loadReports, 60000);
 
-  useEffect(() => subscribeRefresh(loadReports), [loadReports]);
+  useEffect(() => subscribeRefresh(() => loadReports({ force: true })), [loadReports]);
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
@@ -576,6 +574,10 @@ const User_Home = () => {
         </View>
 
         <View style={styles.feedList}>
+          {loadError ? <View style={styles.emptyCard}>
+            <ThemedText accessibilityRole="alert" style={styles.emptyText}>{loadError}</ThemedText>
+            <TouchableOpacity accessibilityRole="button" onPress={handleRefresh}><ThemedText style={styles.viewMoreText}>Retry loading reports</ThemedText></TouchableOpacity>
+          </View> : null}
           {visibleReports.map((report, index) => {
             const cardSpacing =
               index !== visibleReports.length - 1
@@ -643,7 +645,7 @@ const User_Home = () => {
 
           {loading && filteredReports.length === 0 ? (
             <SkeletonFeed count={3} />
-          ) : filteredReports.length === 0 ? (
+          ) : !loadError && filteredReports.length === 0 ? (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIcon}>
                 <Ionicons name="search-outline" size={24} color="#9CA3AF" />

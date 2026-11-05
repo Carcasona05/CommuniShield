@@ -192,6 +192,7 @@ export const prefetchAllData = () => {
     const plan = prefetchPlan(session.role).map(url => ({ url }));
     // Match the default filter-specific snapshots consumed by these pages.
     for (const request of plan) {
+      if (request.url === "/reports") request.params = { period: "24h" };
       if (request.url === "/admin/clusters") request.params = { period: "30d" };
       if (request.url === "/sentiment/datasets") request.params = { status: "all", page: 1 };
       if (request.url === "/sentiment/supporting-models") request.params = { page: 1 };

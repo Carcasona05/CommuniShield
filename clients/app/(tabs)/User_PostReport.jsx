@@ -28,6 +28,7 @@ import apiClient from "../../services/apiClient";
 import { ensureCompleteProfile } from "../../services/profileCompletion";
 import { uploadImages } from "../../services/imageUpload";
 import { getCache, setCache } from "../../services/dataStore";
+import { triggerRefresh } from "../../services/refreshBus";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -428,6 +429,7 @@ function UserPostReportInner() {
         }
       );
       posted = true;
+      triggerRefresh();
       setSubmitStage("Report posted");
 
       resetForm();

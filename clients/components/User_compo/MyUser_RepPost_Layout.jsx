@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ensureNotSuspended } from "../../services/profileCompletion";
+import { ensureParticipationReady } from "../../services/profileCompletion";
 import {
   View,
   Text,
@@ -365,7 +365,7 @@ const MyUser_RepPost_Layout = ({
           style={styles.actionButton}
           activeOpacity={0.8}
           onPress={async () => {
-            if (await ensureNotSuspended()) onComment?.();
+            if (await ensureParticipationReady()) onComment?.();
           }}
         >
           <Ionicons

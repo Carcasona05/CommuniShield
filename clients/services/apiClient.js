@@ -2,6 +2,7 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { sessionData } from "./sessionData";
+import { notifyProfileRequirement } from "./profileRequirementEvents";
 
 const BASE_URL =  
   Platform.OS === "web"
@@ -78,6 +79,10 @@ apiClient.interceptors.response.use(
   async (error) => {
     const status = error.response?.status;
     const message = error.response?.data?.error || "";
+    if (status === 403 && error.response?.data?.code === "PROFILE_INCOMPLETE" &&
+      error.config?.sessionToken === sessionData.session()?.token && sessionData.current(error.config?.sessionEpoch)) {
+      notifyProfileRequirement(error.response.data.missing);
+    }
 
     if (status === 403 && /disabled/i.test(message)) {
       if (error.config?.sessionToken && error.config.sessionToken === sessionData.session()?.token && sessionData.current(error.config.sessionEpoch)) {

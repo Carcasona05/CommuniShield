@@ -56,6 +56,7 @@ export const register = async (req: Request, res: Response) => {
 
     const userId = created.user?.id;
     if (userId) {
+      await profileService.ensureProfile(userId);
       await profileService.recordTermsAcceptance(userId, termsVersion);
     }
 
@@ -224,11 +225,12 @@ export const getProfile = async (
   const user = req.user;
   if (!user || !req.token) return res.status(401).json({ error: "Unauthorized" });
 
-  const { data } = await profileService.getProfile(user.id);
+  const { data, error: profileError } = await profileService.getProfile(user.id);
+  if (profileError) return res.status(503).json({ error: "Could not load your profile. Please try again." });
 
   const meta = user.user_metadata ?? {};
   const completion = data ? await profileCompletionService.check(user.id, data, user.email) : null;
-  const fallbackName = meta.userName ?? meta.name ?? user.email ?? "";
+  const fallbackName = meta.userName?.trim() || meta.name?.trim() || user.email || "";
 
   let credibilityScore = 60;
   let credibilityStatus = 3;
@@ -246,7 +248,7 @@ export const getProfile = async (
 
   res.json({
     name: data?.fullname ?? fallbackName,
-    user_name: data?.user_name ?? fallbackName,
+    user_name: data?.user_name?.trim() || fallbackName,
     first_name: data?.first_name ?? meta.firstName ?? "",
     middle_name: data?.middle_name ?? meta.middleName ?? "",
     last_name: data?.last_name ?? meta.lastName ?? "",

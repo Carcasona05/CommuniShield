@@ -16,8 +16,12 @@ export const profileService = {
       .eq("id", userId)
       .maybeSingle();
 
-    if (!result.data) {
+    if (result.error) return result;
+
+    if (!result.data || !result.data.user_name?.trim()) {
       await this.ensureProfile(userId);
+    } else {
+      return result;
     }
 
     return await supabaseAdmin

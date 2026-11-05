@@ -24,5 +24,8 @@ export async function manageSupportingModel(req: AuthRequest, res: Response) {
     if (result.error) return res.status(result.error.code === "42501" ? 403 : result.error.code === "40001" ? 409 : result.error.code === "22023" ? 400 : 503)
       .json({ error: ["40001", "22023"].includes(result.error.code || "") ? result.error.message : "Supporting model action failed." });
     return res.json({ ...result.data, message: "Supporting model pool updated. Built-in models are unchanged." });
-  } catch { return res.status(503).json({ error: "Model action could not be verified. Built-in models are unchanged." }); }
+  } catch (error) {
+    console.error("[Supporting model action failed]", error instanceof Error ? error.message : "Unknown error");
+    return res.status(503).json({ error: "Model action could not be verified. Built-in models are unchanged." });
+  }
 }

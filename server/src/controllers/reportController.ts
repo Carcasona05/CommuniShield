@@ -281,12 +281,20 @@ const createReportImpl = async (req: AuthRequest, res: Response) => {
 };
 
 export const getReports = async (req: AuthRequest, res: Response) => {
+  const period = req.query.period ?? "24h";
+  if (period !== "24h" && period !== "7d") return res.status(400).json({ error: "Report period must be 24h or 7d." });
+  const now = Date.now();
+  const window = { from: new Date(now - (period === "7d" ? 7 * 24 : 24) * 60 * 60 * 1000).toISOString(), to: new Date(now).toISOString() };
   try {
-    const { data, error } = await reportService.listReports(req.user?.id);
+    const [{ data, error }, posts] = await Promise.all([
+      reportService.listReports(req.user?.id, window),
+      reportService.listAdminPosts(window),
+    ]);
 
     if (error) return res.status(500).json({ error });
 
-    res.json({ reports: data });
+    // Admin posts are public feed content, not access to admin management routes.
+    res.json({ reports: data, posts: posts.data || [], postsUnavailable: Boolean(posts.error) });
   } catch {
     res.status(500).json({ error: "Internal server error" });
   }

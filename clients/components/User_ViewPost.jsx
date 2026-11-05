@@ -18,7 +18,7 @@ import { useFonts } from "expo-font";
 import censorText from "../services/censorText";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../services/apiClient";
-import { ensureCompleteProfile, ensureNotSuspended } from "../services/profileCompletion";
+import { ensureCompleteProfile, ensureParticipationReady } from "../services/profileCompletion";
 
 const PRIMARY = "#294880";
 
@@ -45,7 +45,7 @@ const User_ViewPost = ({ post, onBack }) => {
   const [newComment, setNewComment] = useState("");
   const commentInputRef = useRef(null);
   const handleCommentPress = async () => {
-    if (!await ensureNotSuspended()) commentInputRef.current?.blur();
+    if (!await ensureParticipationReady()) commentInputRef.current?.blur();
   };
 
   const loadComments = useCallback(async () => {

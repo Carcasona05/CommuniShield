@@ -1,0 +1,16 @@
+# Local Python environment and offline training data (not production models).
+.venv-data/
+datasets/
+artifacts/
+
+# Dependencies are installed by Vercel; omit local build/cache files.
+**/node_modules/
+**/__pycache__/
+**/.expo/
+**/dist/
+**/*.log
+**/*.tsbuildinfo
+
+# Configure production secrets in Vercel, never upload local env files.
+**/.env
+**/.env.*

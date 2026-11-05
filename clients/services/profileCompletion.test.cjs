@@ -11,7 +11,7 @@ function setup(access, options = {}) {
   const source = readFileSync(path.join(__dirname, "profileCompletion.js"), "utf8")
     .replace(/^import .*;\r?\n/gm, "")
     .replace(/export async function /g, "async function ");
-  const guards = runInNewContext(`${source}\n({ ensureNotSuspended, ensureCompleteProfile });`, {
+  const guards = runInNewContext(`${source}\n({ ensureNotSuspended, ensureParticipationReady, ensureCompleteProfile });`, {
     AsyncStorage: { getItem: async () => token },
     apiClient: { get: async (url, config) => {
       requests.push({ url, config });
@@ -69,4 +69,41 @@ test("stale access responses cannot affect another session", async () => {
   const gate = setup({ suspended: true }, { switchSession: true });
   assert.equal(await gate.ensureNotSuspended(), false);
   assert.equal(gate.notices.length, 0);
+});
+
+test("incomplete personal details block every participation tap and list missing requirements", async () => {
+  const gate = setup({ suspended: false, reportAllowed: true, commentAllowed: true }, { complete: false });
+  for (let i = 0; i < 3; i++) assert.equal(await gate.ensureParticipationReady(), false);
+  assert.equal(gate.notices.length, 3);
+  assert.deepEqual(gate.notices[0].missing, ["First name"]);
+  for (const action of ["report", "comment"]) assert.equal(await gate.ensureCompleteProfile(action), false);
+});
+
+test("completed personal details permit entry without changing quota checks at submission", async () => {
+  const gate = setup({ suspended: false, reportAllowed: false, commentAllowed: false });
+  assert.equal(await gate.ensureParticipationReady(), true);
+  assert.equal(await gate.ensureCompleteProfile("report"), false);
+  assert.match(gate.notices[0], /daily allowance/);
+});
+
+test("suspended users still receive the suspension disclaimer before the personal details check", async () => {
+  const gate = setup({ suspended: true }, { complete: false });
+  assert.equal(await gate.ensureParticipationReady(), false);
+  assert.equal(gate.notices[0].title, "Account suspended");
+  assert.equal(gate.requests.length, 1);
+});
+
+test("All good users can post and comment beyond the old daily quotas", async () => {
+  const gate = setup({ score: 100, unlimited: true, suspended: false, reportLimit: null, commentLimit: null,
+    reportsUsed: 12, commentsUsed: 105, reportAllowed: true, commentAllowed: true });
+  assert.equal(await gate.ensureCompleteProfile("report"), true);
+  assert.equal(await gate.ensureCompleteProfile("comment"), true);
+  assert.equal(gate.notices.length, 0);
+});
+
+test("unlimited access still requires completed personal details", async () => {
+  const gate = setup({ score: 100, unlimited: true, suspended: false, reportAllowed: true, commentAllowed: true }, { complete: false });
+  assert.equal(await gate.ensureCompleteProfile("report"), false);
+  assert.equal(await gate.ensureCompleteProfile("comment"), false);
+  assert.deepEqual(gate.notices[0].missing, ["First name"]);
 });

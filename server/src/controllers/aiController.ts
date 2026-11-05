@@ -214,7 +214,8 @@ export const reanalyzeSentiment = async (req: AuthRequest, res: Response) => {
     }
 
     const prior = await priorSentiment(subjectType, ids);
-    const results = await sentimentService.analyzeMany(subjectType, ids, { force: true });
+    const thread = subjectType === "report" ? await sentimentService.reanalyzeReportsWithComments(ids) : null;
+    const results = thread?.results ?? await sentimentService.analyzeMany(subjectType, ids, { force: true });
     const auditLog: {
       actorId: string;
       actorName: string;
@@ -229,7 +230,7 @@ export const reanalyzeSentiment = async (req: AuthRequest, res: Response) => {
       actorName: profile?.fullname || "Admin",
       actionType: "AI Analysis Completed",
       title: `${subjectType} sentiment reanalysis`,
-      details: `Reanalyzed ${ids.length} ${subjectType} record(s): ${toReportCode(ids[0])}.`,
+      details: `Reanalyzed ${ids.length} ${subjectType} record(s)${thread ? ` and ${thread.commentCount} comment(s)` : ""}: ${toReportCode(ids[0])}.`,
       oldValue: summarizeSentiment(prior),
       newValue: summarizeSentiment(
         ids.map((id) => ({
@@ -242,7 +243,7 @@ export const reanalyzeSentiment = async (req: AuthRequest, res: Response) => {
     if (subjectType === "report" && ids[0]) auditLog.reportId = ids[0];
     await reportService.insertAuditLog(auditLog).catch(() => {});
 
-    res.json({ results });
+    res.json({ results, ...(thread ? { commentResults: thread.commentResults, commentCount: thread.commentCount } : {}) });
   } catch (error) {
     console.error("Sentiment reanalysis error:", error);
     res.status(500).json({ error: "Internal server error" });

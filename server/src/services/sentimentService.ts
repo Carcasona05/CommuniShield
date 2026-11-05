@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { InferenceSession, Tensor } from "onnxruntime-node";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { getActiveModelBundle } from "./sentimentModelRegistry.js";
+import { supportingProposals } from "./supportingModelRegistry.js";
+import { routeSupportingModels, type Scores } from "./supportingModelRouting.js";
 import {
   GeminiClientError,
   candidateModels,
@@ -215,6 +217,14 @@ const loadLocalSession = async (
   return loading;
 };
 
+const localPredictionDependencies = {
+  supportingProposals,
+  async recordSupportUsage(ids: string[]) {
+    const { error } = await supabaseAdmin.rpc("record_sentiment_support_usage", { p_ids: ids });
+    if (error) throw new Error("Could not record supporting model usage");
+  },
+};
+
 const runLocalPrediction = async (
   language: LocalModelLanguage,
   text: string
@@ -236,7 +246,7 @@ const runLocalPrediction = async (
   const label = labels[bestIndex];
   if (!label) throw new Error("Local sentiment model returned an invalid label");
 
-  return {
+  const builtin: SentimentPrediction = {
     label,
     confidence: clamp(Number(probabilities[bestIndex])),
     language,
@@ -245,6 +255,32 @@ const runLocalPrediction = async (
     input_hash: sentimentInputHash(text),
     source_text: text,
   };
+  // Supporting policies are qualified against the immutable bundled models,
+  // never against an unrelated legacy activated bundle.
+  if (version !== "bundled") return builtin;
+  const scores: Scores = {
+    negative: Number(probabilities[0]), neutral: Number(probabilities[1]), positive: Number(probabilities[2]),
+  };
+  try {
+    const proposals = await localPredictionDependencies.supportingProposals(modelDirectory, language, text, scores);
+    const decision = routeSupportingModels(scores, proposals);
+    if (proposals.length) {
+      // Telemetry must not turn a successful prediction into a failed analysis.
+      await localPredictionDependencies.recordSupportUsage([...new Set(proposals.map(proposal => proposal.id))])
+        .catch(error => console.error("[Sentiment support usage]", asErrorMessage(error)));
+    }
+    if (decision.origin === "builtin") return builtin;
+    return {
+      ...builtin,
+      label: decision.label,
+      confidence: decision.confidence,
+      provider: "ensemble",
+      model: `cascade:${decision.origin}|${decision.reason}|builtin:${version}|support:${decision.ids.join(",")}`,
+    };
+  } catch (error) {
+    console.error("[Sentiment supporting fallback]", asErrorMessage(error));
+    return builtin;
+  }
 };
 
 const loadSentimentSettings = async (): Promise<Record<string, string>> => {
@@ -629,6 +665,8 @@ const predict = async (
 };
 
 export const __testing = {
+  runLocalPrediction,
+  localPredictionDependencies,
   fuseLocalWithGeminiAssist,
   LOW_LOCAL_CONFIDENCE,
   SHORT_INPUT_TOKENS,
@@ -977,6 +1015,25 @@ const loadSubjectText = async (
 };
 
 export const sentimentService = {
+  async reanalyzeReportsWithComments(reportIds: string[]) {
+    const ids = [...new Set(reportIds)];
+    const commentIds = new Set<string>();
+    // Read authoritative comments, not just unresolved comments visible in the UI.
+    // Bound both URL size and database response size for large threads/groups.
+    for (let offset = 0; offset < ids.length; offset += 100) {
+      for (let from = 0; ; from += 500) {
+        const { data, error } = await supabaseAdmin.from("report_comments").select("id")
+          .in("report_id", ids.slice(offset, offset + 100)).order("id").range(from, from + 499);
+        if (error) throw new Error("Could not load report comments for reanalysis.");
+        for (const row of data || []) commentIds.add(row.id);
+        if (!data || data.length < 500) break;
+      }
+    }
+    const results = await this.analyzeMany("report", ids, { force: true });
+    const commentResults = await this.analyzeMany("comment", [...commentIds], { force: true });
+    return { results, commentResults, commentCount: commentIds.size };
+  },
+
   async analyze(
     subjectType: SentimentSubjectType,
     subjectId: string,

@@ -13,15 +13,32 @@ const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export const modelRegistryEnabled = () => process.env.SENTIMENT_MODEL_REGISTRY_ENABLED === "true";
 export const supportingModelsEnabled = () => modelRegistryEnabled() && process.env.SENTIMENT_SUPPORT_ENABLED === "true";
 
-export function validateManifest(jobId: string, manifest: unknown): ModelManifest {
+function validateFiles(jobId: string, manifest: unknown, names: readonly string[]): ModelManifest {
   if (!uuid.test(jobId) || !manifest || typeof manifest !== "object") throw new Error("Invalid model manifest");
   const files = (manifest as ModelManifest).files;
-  for (const name of MODEL_FILES) {
+  for (const name of names) {
     const file = files?.[name];
     const parts = typeof file?.path === "string" ? file.path.split("/") : [];
     if (!file || parts.length !== 3 || parts[0] !== jobId || !uuid.test(parts[1] || "") || parts[2] !== name || !/^[a-f0-9]{64}$/.test(file.sha256 || "") || !Number.isInteger(file.size) || file.size < 1 || file.size > 104857600) throw new Error("Invalid model file metadata");
   }
   return { files };
+}
+
+export function validateManifest(jobId: string, manifest: unknown): ModelManifest {
+  return validateFiles(jobId, manifest, MODEL_FILES);
+}
+
+export function validateSupportingManifest(jobId: string, manifest: unknown): ModelManifest {
+  const languages = (manifest as { languages?: unknown } | null)?.languages;
+  if (languages === undefined) return validateManifest(jobId, manifest);
+  if (!Array.isArray(languages) || !languages.length || languages.length > 3 || new Set(languages).size !== languages.length ||
+      languages.some(language => !["english", "filipino", "cebuano"].includes(language))) throw new Error("Invalid supporting model languages");
+  const names = ["language_id.onnx", ...languages.map(language => `sentiment_${language}.onnx`)];
+  const validated = validateFiles(jobId, manifest, names);
+  if (Object.keys(validated.files).length !== names.length || Object.keys(validated.files).some(name => !names.includes(name))) {
+    throw new Error("Supporting model files do not match qualified languages");
+  }
+  return validated;
 }
 
 export const modelRegistryDependencies = {
@@ -54,6 +71,15 @@ export const modelRegistryDependencies = {
 const materializing = new Map<string, Promise<ModelBundle>>();
 export async function prepareModelBundle(jobId: string, rawManifest: unknown): Promise<ModelBundle> {
   const manifest = validateManifest(jobId, rawManifest);
+  return materializeModelBundle(jobId, manifest, MODEL_FILES);
+}
+
+export async function prepareSupportingModelBundle(jobId: string, rawManifest: unknown): Promise<ModelBundle> {
+  const manifest = validateSupportingManifest(jobId, rawManifest);
+  return materializeModelBundle(jobId, manifest, Object.keys(manifest.files).filter(name => MODEL_FILES.includes(name as typeof MODEL_FILES[number])));
+}
+
+async function materializeModelBundle(jobId: string, manifest: ModelManifest, names: readonly string[]): Promise<ModelBundle> {
   const fingerprint = createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
   const version = `${jobId}-${fingerprint.slice(0, 12)}`;
   const cached = materializing.get(version);
@@ -61,7 +87,7 @@ export async function prepareModelBundle(jobId: string, rawManifest: unknown): P
   const work = (async () => {
     const directory = join(process.env.SENTIMENT_MODEL_CACHE_DIR || join(tmpdir(), "communishield-models"), version);
     await mkdir(directory, { recursive: true });
-    for (const name of MODEL_FILES) {
+    for (const name of names) {
       const file = manifest.files[name]!;
       const target = join(directory, name);
       let bytes: Buffer | undefined;

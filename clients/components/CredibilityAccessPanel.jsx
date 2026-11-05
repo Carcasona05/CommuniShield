@@ -34,7 +34,7 @@ export default function CredibilityAccessPanel({ onAccessChange }) {
         <View style={s.headerIcon}><Ionicons name="key-outline" size={21} color="#294880" /></View>
         <View style={s.heading}>
           <Text style={s.title}>Your access</Text>
-          <Text style={s.note}>Your daily activity allowance</Text>
+          <Text style={s.note}>{access?.unlimited && !access.suspended ? "Unlimited reports and comments" : "Your daily activity allowance"}</Text>
         </View>
         <TouchableOpacity accessibilityRole="button" accessibilityLabel="Refresh account access" style={s.refresh} onPress={load}>
           <Ionicons name="refresh-outline" size={20} color="#294880" />
@@ -49,10 +49,10 @@ export default function CredibilityAccessPanel({ onAccessChange }) {
           </View>
         </View>
         <View style={s.allowances}>
-          <AllowanceRow label="Reports" limit={access.reportLimit} used={access.reportsUsed} />
-          <AllowanceRow label="Comments" limit={access.commentLimit} used={access.commentsUsed} />
+          <AllowanceRow label="Reports" limit={access.reportLimit} used={access.reportsUsed} unlimited={access.unlimited === true && !access.suspended} />
+          <AllowanceRow label="Comments" limit={access.commentLimit} used={access.commentsUsed} unlimited={access.unlimited === true && !access.suspended} />
         </View>
-        <View style={s.resetRow}><Ionicons name="time-outline" size={14} color="#7D899B" /><Text style={s.caption}>Resets at midnight · Philippine time</Text></View>
+        {!access.unlimited || access.suspended ? <View style={s.resetRow}><Ionicons name="time-outline" size={14} color="#7D899B" /><Text style={s.caption}>Resets at midnight · Philippine time</Text></View> : null}
         {access.suspended ? <View style={s.suspension} testID="timed-suspension-details">
           <View style={s.noticeHeading}><Ionicons name="pause-circle-outline" size={21} color="#A75B2B" /><Text style={s.suspensionTitle}>Temporary suspension</Text></View>
           <Text style={s.note}>Posting and commenting are paused. Browsing and safety information remain available.</Text>
@@ -72,9 +72,9 @@ export default function CredibilityAccessPanel({ onAccessChange }) {
   );
 }
 
-function AllowanceRow({ label, limit = 0, used = 0 }) {
-  return <View accessible accessibilityLabel={`${label}: ${used} of ${limit} used today`} style={s.allowance}>
-    <Text style={[s.amount, used >= limit && s.zeroAmount]}>{used}/{limit}</Text>
+function AllowanceRow({ label, limit = 0, used = 0, unlimited = false }) {
+  return <View accessible accessibilityLabel={unlimited ? `${label}: Unlimited` : `${label}: ${used} of ${limit} used today`} style={s.allowance}>
+    <Text style={[s.amount, !unlimited && used >= limit && s.zeroAmount]}>{unlimited ? "∞" : `${used}/${limit}`}</Text>
     <Text style={s.activityLabel}>{label}</Text>
   </View>;
 }

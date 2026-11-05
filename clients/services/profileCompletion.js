@@ -36,6 +36,26 @@ export async function ensureNotSuspended() {
   }
 }
 
+async function hasRequiredPersonalDetails(token) {
+  const { data } = await apiClient.get("/profile/completion", { cacheMode: "network", timeout: 15000, headers: { Authorization: `Bearer ${token}` } });
+  if (token !== await AsyncStorage.getItem("access_token")) return false;
+  if (data?.complete === true) return true;
+  notifyProfileRequirement(data?.missing);
+  return false;
+}
+
+export async function ensureParticipationReady() {
+  try {
+    const token = await AsyncStorage.getItem("access_token");
+    if (!await ensureNotSuspended()) return false;
+    if (!token || token !== await AsyncStorage.getItem("access_token")) return false;
+    return await hasRequiredPersonalDetails(token);
+  } catch {
+    notifyCredibilityNotice("We could not verify your personal details. Please try again before posting or commenting.");
+    return false;
+  }
+}
+
 export async function ensureCompleteProfile(action = "report") {
   const token = await AsyncStorage.getItem("access_token");
   if (!token) throw new Error("Please sign in to post or comment.");
@@ -45,15 +65,12 @@ export async function ensureCompleteProfile(action = "report") {
     showSuspensionDisclaimer(access);
     return false;
   }
-  const { data } = await apiClient.get("/profile/completion", { cacheMode: "network", timeout: 15000, headers: { Authorization: `Bearer ${token}` } });
-  if (token !== await AsyncStorage.getItem("access_token")) return false;
-  if (data?.complete === true) {
+  if (await hasRequiredPersonalDetails(token)) {
     const key = action === "comment" ? "commentAllowed" : action === "edit" ? "editAllowed" : "reportAllowed";
     if (access?.[key] === true) return true;
     notifyCredibilityNotice(action === "comment" && access?.commentLimit === 0 ? "Commenting requires a credibility score of at least 40. Verified reports help you recover your score."
         : "You have reached your daily allowance. Limits reset at midnight Philippine time. Your draft has not been submitted.");
     return false;
   }
-  notifyProfileRequirement(data?.missing);
   return false;
 }

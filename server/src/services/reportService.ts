@@ -217,7 +217,7 @@ export const reportService = {
     };
   },
 
-  async listReports(viewerId?: string) {
+  async listReports(viewerId?: string, filters: { userId?: string; from?: string; to?: string } = {}) {
     const { data: types, error: typesError } = await supabaseAdmin
       .from("incident_types")
       .select("id, name, incident_categories(id, name)");
@@ -238,24 +238,25 @@ export const reportService = {
     });
 
     // Archived reports only live in the Logs archive view, never in feeds.
-    const { data: reports, error: reportError } = await supabaseAdmin
+    let reportsQuery = supabaseAdmin
       .from("reports")
       .select(
         "id, user_id, location, latitude, longitude, details, poster_name, display_name_type, status, is_verified, created_at, incident_type_id, role"
       )
-      .neq("status", "Archived")
-      .order("created_at", { ascending: false });
+      .neq("status", "Archived");
+    if (filters.userId) reportsQuery = reportsQuery.eq("user_id", filters.userId);
+    if (filters.from) reportsQuery = reportsQuery.gte("created_at", filters.from);
+    if (filters.to) reportsQuery = reportsQuery.lte("created_at", filters.to);
+    const { data: reports, error: reportError } = await reportsQuery.order("created_at", { ascending: false });
 
     if (reportError) return { data: null, error: reportError.message };
 
     const reportIds = (reports || []).map((r) => r.id);
 
-    const { data: analyses, error: analysisError } = reportIds.length
-      ? await supabaseAdmin
+    const { data: analyses, error: analysisError } = await loadDashboardRelations(reportIds, batch => supabaseAdmin
           .from("report_credibility_analysis")
           .select("report_id, ai_score, severity, credibility_review")
-          .in("report_id", reportIds)
-      : { data: [], error: null };
+          .in("report_id", batch));
 
     if (analysisError) return { data: null, error: analysisError.message };
 
@@ -282,26 +283,22 @@ export const reportService = {
       }
     );
 
-    const { data: sentimentRows, error: sentimentError } = reportIds.length
-      ? await supabaseAdmin
+    const { data: sentimentRows, error: sentimentError } = await loadDashboardRelations(reportIds, batch => supabaseAdmin
           .from("sentiment_analysis")
           .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
           .eq("subject_type", "report")
-          .in("subject_id", reportIds)
-      : { data: [], error: null };
+          .in("subject_id", batch));
     if (sentimentError) return { data: null, error: sentimentError.message };
     const sentimentMap = new Map<string, SentimentRow>();
     (sentimentRows || []).forEach((row: SentimentRow) => {
       sentimentMap.set(row.subject_id, row);
     });
 
-    const { data: images, error: imageError } = reportIds.length
-      ? await supabaseAdmin
+    const { data: images, error: imageError } = await loadDashboardRelations(reportIds, batch => supabaseAdmin
           .from("report_images")
           .select("report_id, image_url")
-          .in("report_id", reportIds)
-          .order("position", { ascending: true })
-      : { data: [], error: null };
+          .in("report_id", batch)
+          .order("position", { ascending: true }));
 
     if (imageError) return { data: null, error: imageError.message };
 
@@ -315,10 +312,10 @@ export const reportService = {
     const likesByReport = new Map<string, number>();
     const likedByUser = new Set<string>();
     if (reportIds.length > 0) {
-      const { data: likes, error: likeError } = await supabaseAdmin
+      const { data: likes, error: likeError } = await loadDashboardRelations(reportIds, batch => supabaseAdmin
         .from("report_likes")
         .select("report_id, user_id")
-        .in("report_id", reportIds);
+        .in("report_id", batch));
       if (likeError) return { data: null, error: likeError.message };
 
       (likes || []).forEach(
@@ -331,10 +328,10 @@ export const reportService = {
 
     const commentsByReport = new Map<string, number>();
     if (reportIds.length > 0) {
-      const { data: commentRows, error: commentError } = await supabaseAdmin
+      const { data: commentRows, error: commentError } = await loadDashboardRelations(reportIds, batch => supabaseAdmin
         .from("report_comments")
         .select("report_id")
-        .in("report_id", reportIds);
+        .in("report_id", batch));
       if (commentError) return { data: null, error: commentError.message };
 
       (commentRows || []).forEach((c: { report_id: string }) => {
@@ -388,12 +385,7 @@ export const reportService = {
   },
 
   async listMyReports(userId: string) {
-    const all = await this.listReports(userId);
-    if (all.error) return all;
-
-    const filtered = (all.data || []).filter((r) => r.user_id === userId);
-
-    return { data: filtered, error: null };
+    return this.listReports(userId, { userId });
   },
 
   async getReportById(viewerId: string | undefined, reportId: string) {
@@ -671,11 +663,13 @@ export const reportService = {
     return { data: options, error: null };
   },
 
-  async listAdminPosts() {
-    const { data, error } = await supabaseAdmin
-      .from("admin_posts")
-      .select("id, admin_id, type, location, details, pic_url, created_at")
-      .order("created_at", { ascending: false });
+  async listAdminPosts(filters: { from?: string; to?: string } = {}) {
+    let query = supabaseAdmin
+      .from("admin_announcement")
+      .select("id, admin_id, type, location, details, pic_url, created_at");
+    if (filters.from) query = query.gte("created_at", filters.from);
+    if (filters.to) query = query.lte("created_at", filters.to);
+    const { data, error } = await query.order("created_at", { ascending: false });
 
     if (error) return { data: null, error: error.message };
 

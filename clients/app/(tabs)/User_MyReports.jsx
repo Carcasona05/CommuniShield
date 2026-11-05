@@ -30,7 +30,7 @@ import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
-import { getCache, setCache, patchCachedReports, removeCachedReport } from "../../services/dataStore";
+import { getCache, getCachedPage, setCache, patchCachedReports, removeCachedReport } from "../../services/dataStore";
 
 const PRIMARY = "#294880";
 
@@ -590,7 +590,7 @@ const MyReportsInner = () => {
   const toast = useToast();
   const router = useRouter();
 
-  const [loading, setLoading] = useState(() => getCache("api:/reports/mine") === undefined);
+  const [loading, setLoading] = useState(() => getCachedPage("/reports/mine") === undefined);
 
   const [fontsLoaded] = useFonts({
     "Poppins-Regular": require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -601,10 +601,11 @@ const MyReportsInner = () => {
   const [selectedStatus, setSelectedStatus] = useState("All Status");
   const [openDropdown, setOpenDropdown] = useState(null);
   const [myReports, setMyReports] = useState(() => {
-    const cached = getCache("api:/reports/mine");
+    const cached = getCachedPage("/reports/mine");
     return Array.isArray(cached?.reports) ? mapMyReports(cached) : [];
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const scrollRef = useScrollToTop();
   const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -621,7 +622,7 @@ const MyReportsInner = () => {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      const cached = getCache("api:/reports/mine");
+      const cached = getCachedPage("/reports/mine");
       if (cached !== undefined) setMyReports(mapMyReports(cached));
 
       const res = await apiClient.get("/reports/mine", {
@@ -629,10 +630,11 @@ const MyReportsInner = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      setCache("api:/reports/mine", res.data ?? {});
+      if (token !== await AsyncStorage.getItem("access_token")) return;
       setMyReports(mapMyReports(res.data));
-    } catch {
-      // keep empty list on failure
+      setLoadError("");
+    } catch (error) {
+      if (error.code !== "ERR_CANCELED") setLoadError("Could not load your reports. Please retry.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -641,7 +643,7 @@ const MyReportsInner = () => {
 
   useAutoRefresh(loadMyReports, 60000);
 
-  useEffect(() => subscribeRefresh(loadMyReports), [loadMyReports]);
+  useEffect(() => subscribeRefresh(() => loadMyReports({ force: true })), [loadMyReports]);
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
@@ -898,7 +900,11 @@ const MyReportsInner = () => {
             />
           </View>
 
-          {filteredReports.length === 0 ? (
+          {loadError ? <View style={styles.emptyCard}>
+            <ThemedText accessibilityRole="alert" style={styles.emptySubtitle}>{loadError}</ThemedText>
+            <TouchableOpacity accessibilityRole="button" onPress={handleRefresh}><ThemedText style={styles.viewMoreText}>Retry loading reports</ThemedText></TouchableOpacity>
+          </View> : null}
+          {filteredReports.length === 0 && !loadError ? (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIcon}>
                 <Ionicons name="folder-open-outline" size={28} color="#9CA3AF" />
