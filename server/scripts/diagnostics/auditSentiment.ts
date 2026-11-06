@@ -9,7 +9,8 @@ import { InferenceSession, Tensor } from "onnxruntime-node";
 import { supabaseAdmin as db } from "../../src/config/supabaseAdmin.js";
 import { MODEL_FILES, modelRegistryEnabled, prepareModelBundle, supportingModelsEnabled } from "../../src/services/sentimentModelRegistry.js";
 import { builtinModelHashes, supportingProposals } from "../../src/services/supportingModelRegistry.js";
-import { ranked, routeSupportingModels, validIndependentPolicy, type Scores } from "../../src/services/supportingModelRouting.js";
+import { ranked, validIndependentPolicy, type Scores } from "../../src/services/supportingModelRouting.js";
+import { chooseRawConfidenceWinner, type ConfidenceCandidate } from "../../src/services/sentimentConfidenceRouting.js";
 
 type Analysis = { id: string; subject_type: string; subject_id: string; label: string; status: string;
   language: string; model: string; provider: string; error_code: string; analyzed_at: string | null };
@@ -67,10 +68,15 @@ async function probes(directory: string) {
       const values = Array.from(sentiment.probabilities!.data, Number);
       const primary: Scores = { negative: values[0]!, neutral: values[1]!, positive: values[2]! };
       const proposals = await supportingProposals(directory, name, text, primary);
+      const candidate = (id: string, source: ConfidenceCandidate["source"], scores: Scores): ConfidenceCandidate => {
+        const top = ranked(scores);
+        return { id, source, model: id, scores, label: top.margin === 0 ? "unclear" : top.label, confidence: top.score };
+      };
       result.push({ text, language: name, languageScores,
         primary: ranked(primary), supports: proposals.map(p => ({ id: p.id, prediction: ranked(p.scores),
           requiredConfidence: p.rule.support_confidence, requiredMargin: p.rule.support_margin })),
-        routed: routeSupportingModels(primary, proposals) });
+         routed: chooseRawConfidenceWinner([candidate(`builtin:${name}`, "builtin", primary),
+           ...proposals.map(proposal => candidate(proposal.id, "supporting", proposal.scores))]) });
     }
     return result;
   } finally { await Promise.all(sessions.map(session => session.release())); }

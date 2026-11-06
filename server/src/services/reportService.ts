@@ -923,11 +923,26 @@ export const reportService = {
       ),
     ];
     const reporterNameByUser = new Map<string, string>();
+    // These lookups depend only on the report snapshot, not on each other.
+    // Fetch together so hotspot/dashboard loads do not pay five network waits.
+    const [reporterResult, analysisResult, sentimentResult, commentsResult, imagesResult] = await Promise.all([
+      loadDashboardRelations(reporterIds, (batch) => supabaseAdmin
+        .from("profiles").select("id, fullname, user_name").in("id", batch)),
+      loadDashboardRelations(reportIds, (batch) => supabaseAdmin
+        .from("report_credibility_analysis").select("report_id, ai_score, severity, credibility_review").in("report_id", batch)),
+      loadDashboardRelations(reportIds, (batch) => supabaseAdmin
+        .from("sentiment_analysis")
+        .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
+        .eq("subject_type", "report").in("subject_id", batch)),
+      loadDashboardRelations(reportIds, (batch) => supabaseAdmin
+        .from("report_comments").select("id, report_id, user_id, content, created_at")
+        .in("report_id", batch).order("created_at", { ascending: true })),
+      loadDashboardRelations(reportIds, (batch) => supabaseAdmin
+        .from("report_images").select("report_id, image_url")
+        .in("report_id", batch).order("position", { ascending: true })),
+    ]);
     if (reporterIds.length > 0) {
-      const { data: reporterProfiles, error: profilesError } = await loadDashboardRelations(reporterIds, (batch) => supabaseAdmin
-        .from("profiles")
-        .select("id, fullname, user_name")
-        .in("id", batch));
+      const { data: reporterProfiles, error: profilesError } = reporterResult;
       if (profilesError) return { data: null, error: profilesError.message };
       (reporterProfiles || []).forEach(
         (p: { id: string; fullname: string | null; user_name: string | null }) => {
@@ -936,18 +951,11 @@ export const reportService = {
       );
     }
 
-    const { data: analyses, error: analysisError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
-          .from("report_credibility_analysis")
-          .select("report_id, ai_score, severity, credibility_review")
-          .in("report_id", batch));
+    const { data: analyses, error: analysisError } = analysisResult;
 
     if (analysisError) return { data: null, error: analysisError.message };
 
-    const { data: sentimentRows, error: sentimentError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
-          .from("sentiment_analysis")
-          .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
-          .eq("subject_type", "report")
-          .in("subject_id", batch));
+    const { data: sentimentRows, error: sentimentError } = sentimentResult;
     if (sentimentError) return { data: null, error: sentimentError.message };
     const sentimentMap = new Map<string, SentimentRow>();
     (sentimentRows || []).forEach((row: SentimentRow) => {
@@ -977,11 +985,7 @@ export const reportService = {
       }
     );
 
-    const { data: commentRows, error: commentsError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
-          .from("report_comments")
-          .select("id, report_id, user_id, content, created_at")
-          .in("report_id", batch)
-          .order("created_at", { ascending: true }));
+    const { data: commentRows, error: commentsError } = commentsResult;
 
     if (commentsError) return { data: null, error: commentsError.message };
 
@@ -1047,11 +1051,7 @@ export const reportService = {
       }
     );
 
-    const { data: images, error: imageError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
-          .from("report_images")
-          .select("report_id, image_url")
-          .in("report_id", batch)
-          .order("position", { ascending: true }));
+    const { data: images, error: imageError } = imagesResult;
 
     if (imageError) return { data: null, error: imageError.message };
 

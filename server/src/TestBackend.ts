@@ -452,7 +452,7 @@ const basePrediction = (
 });
 
 describe("sentimentService", () => {
-  test("fuse assist agrees: ensemble + averaged confidence", () => {
+  test("raw winner agrees: keep the highest confidence without averaging", () => {
     const { prediction, errorCode } =
       sentimentKit.fuseLocalWithGeminiAssist(
         basePrediction({ label: "positive", confidence: 0.8, provider: "local" }),
@@ -465,12 +465,12 @@ describe("sentimentService", () => {
       );
     assert.equal(errorCode, "");
     assert.equal(prediction.label, "positive");
-    assert.equal(prediction.provider, "ensemble");
-    assert.equal(prediction.confidence, 0.7);
-    assert.match(prediction.model, /^assist:agree\|/);
+    assert.equal(prediction.provider, "local");
+    assert.equal(prediction.confidence, 0.8);
+    assert.equal(prediction.decision?.policy, "raw-confidence-v1");
   });
 
-  test("fuse assist disagree: local wins when confident", () => {
+  test("raw winner disagrees: Gemini's higher score beats a confident local", () => {
     const { prediction } = sentimentKit.fuseLocalWithGeminiAssist(
       basePrediction({ label: "negative", confidence: 0.8, provider: "local" }),
       basePrediction({
@@ -480,10 +480,10 @@ describe("sentimentService", () => {
         model: "gemini-2.5-flash",
       })
     );
-    assert.equal(prediction.label, "negative");
-    assert.equal(prediction.provider, "ensemble");
-    assert.ok(prediction.confidence < 0.8);
-    assert.match(prediction.model, /^assist:local_wins\|/);
+    assert.equal(prediction.label, "positive");
+    assert.equal(prediction.provider, "gemini");
+    assert.equal(prediction.confidence, 0.9);
+    assert.equal(prediction.model, "gemini-2.5-flash");
   });
 
   test("fuse assist disagree: gemini rescues weak local", () => {
@@ -505,10 +505,10 @@ describe("sentimentService", () => {
       })
     );
     assert.equal(prediction.label, "negative");
-    assert.equal(prediction.provider, "ensemble");
+    assert.equal(prediction.provider, "gemini");
     assert.equal(prediction.input_hash, "abc");
     assert.equal(prediction.source_text, "kept");
-    assert.match(prediction.model, /^assist:gemini_rescue\|/);
+    assert.equal(prediction.model, "gemini-2.5-flash");
   });
 
   test("normalizeSentimentLabel accepts supported labels", () => {

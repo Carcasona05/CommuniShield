@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { randomUUID } from "node:crypto";
 import { __testing } from "./services/sentimentService.js";
-import { supportingRegistryDependencies, invalidateSupportingRegistry } from "./services/supportingModelRegistry.js";
+import { builtinModelHashes, supportingProposals, supportingRegistryDependencies, invalidateSupportingRegistry } from "./services/supportingModelRegistry.js";
+import { fileURLToPath } from "node:url";
 import type { RoutingRule, Scores, SupportProposal } from "./services/supportingModelRouting.js";
 
 const text = "walay suga sa tulay ug lisod kaayo motabok kon gabii.";
@@ -40,33 +41,34 @@ test("the production local prediction path consults supports and can correct the
   assert.equal(result.label, "negative");
   assert.equal(result.confidence, .8);
   assert.equal(result.provider, "ensemble");
-  assert.match(result.model, /^cascade:supporting\|validated_support\|builtin:bundled\|support:/);
+  assert.match(result.model, /^supporting:/);
+  assert.equal(result.decision?.policy, "raw-confidence-v1");
   assert.ok(result.model.includes(support.id));
   assert.equal(result.source_text, text);
   assert.deepEqual(usage.mock.calls[0]?.arguments[0], [support.id]);
 });
 
-test("supporting disagreement returns unclear instead of taking the largest confidence", async t => {
+test("supporting disagreement selects the largest eligible raw confidence", async t => {
   setup(t, [proposal(negative), proposal({ negative: .01, neutral: .01, positive: .98 })]);
   const result = await __testing.runLocalPrediction("cebuano", text);
-  assert.equal(result.label, "unclear");
-  assert.equal(result.confidence, 0);
-  assert.match(result.model, /cascade:unclear\|support_disagreement/);
+  assert.equal(result.label, "positive");
+  assert.equal(result.confidence, .98);
+  assert.equal(result.decision?.candidates.length, 3);
 });
 
-test("uncertain supporting results abstain rather than invent a correction", async t => {
+test("low-confidence supports do not discard an eligible built-in prediction", async t => {
   setup(t, [proposal({ negative: .34, neutral: .33, positive: .33 })]);
   const result = await __testing.runLocalPrediction("cebuano", text);
-  assert.equal(result.label, "unclear");
-  assert.match(result.model, /no_reliable_support/);
+  assert.equal(result.label, "neutral");
+  assert.equal(result.decision?.candidates.find(item => item.source === "supporting")?.eligible, false);
 });
 
-test("a built-in prediction meeting its policy thresholds is retained", async t => {
+test("old primary thresholds do not hide a higher-confidence support", async t => {
   setup(t, [proposal(positive, { primary_confidence: .4, primary_margin: .05 })]);
   const result = await __testing.runLocalPrediction("cebuano", text);
-  assert.equal(result.label, "neutral");
-  assert.equal(result.provider, "local");
-  assert.match(result.model, /@bundled$/);
+  assert.equal(result.label, "positive");
+  assert.equal(result.provider, "ensemble");
+  assert.equal(result.confidence, .8);
 });
 
 test("the newly supplied report stays protected at its real 91 percent built-in confidence", async t => {
@@ -83,12 +85,12 @@ test("the newly supplied report stays protected at its real 91 percent built-in 
   assert.ok(result.confidence >= .9);
 });
 
-test("agreeing supports are selected by validation precision, not raw confidence", async t => {
+test("agreeing supports are selected by raw confidence, not validation precision", async t => {
   setup(t, [proposal(negative, { validation_precision: .8 }),
     proposal({ negative: .65, neutral: .2, positive: .15 }, { validation_precision: .95 })]);
   const result = await __testing.runLocalPrediction("cebuano", text);
   assert.equal(result.label, "negative");
-  assert.equal(result.confidence, .65);
+  assert.equal(result.confidence, .8);
 });
 
 test("no enabled or qualifying supports preserves the original built-in result", async t => {
@@ -128,4 +130,43 @@ test("disabled serving never reads the supporting pool or changes built-in resul
   assert.equal(result.label, "neutral");
   assert.equal(result.provider, "local");
   assert.equal(read.mock.callCount(), 0);
+});
+
+test("registry evaluates validated enabled supports even when the primary is strong", async t => {
+  const oldRegistry = process.env.SENTIMENT_MODEL_REGISTRY_ENABLED;
+  const oldSupport = process.env.SENTIMENT_SUPPORT_ENABLED;
+  process.env.SENTIMENT_MODEL_REGISTRY_ENABLED = "true";
+  process.env.SENTIMENT_SUPPORT_ENABLED = "true";
+  invalidateSupportingRegistry();
+  t.after(() => {
+    if (oldRegistry === undefined) delete process.env.SENTIMENT_MODEL_REGISTRY_ENABLED;
+    else process.env.SENTIMENT_MODEL_REGISTRY_ENABLED = oldRegistry;
+    if (oldSupport === undefined) delete process.env.SENTIMENT_SUPPORT_ENABLED;
+    else process.env.SENTIMENT_SUPPORT_ENABLED = oldSupport;
+    invalidateSupportingRegistry();
+  });
+  const directory = fileURLToPath(new URL("../models", import.meta.url));
+  const hashes = await builtinModelHashes(directory);
+  const id = randomUUID();
+  const quality = { macro_f1: .8, per_class: Object.fromEntries(["negative", "neutral", "positive"].map(label => [label, { support: 30, precision: .8, recall: .8 }])) };
+  const policy = {
+    version: 2 as const, scope_version: 1, requested_languages: ["cebuano"], admission: "independent-v1", passed: true,
+    builtin_hashes: hashes, evaluated_pool_ids: [], languages: { cebuano: rule },
+    independent_test: { passed: true, languages: { cebuano: { passed: true, metrics: quality, validation_metrics: quality, precision: .8, support: 30 } } },
+  };
+  t.mock.method(supportingRegistryDependencies, "readEnabled", async () => [{ id, artifact_manifest: {}, routing_policy: policy }]);
+  const prepare = t.mock.method(supportingRegistryDependencies, "prepareBundle", async () => ({ version: id, directory }));
+  t.mock.method(supportingRegistryDependencies, "createSession", (async () => ({
+    run: async () => ({ probabilities: { data: [.98, .01, .01] } }), release: async () => {},
+  })) as never);
+  const results = await supportingProposals(directory, "cebuano", text, { negative: .01, neutral: .98, positive: .01 });
+  assert.equal(prepare.mock.callCount(), 1);
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.scores.negative, .98);
+  // A mismatched or unqualified support is still excluded before download.
+  invalidateSupportingRegistry();
+  t.mock.method(supportingRegistryDependencies, "readEnabled", async () => [{ id, artifact_manifest: {},
+    routing_policy: { ...policy, builtin_hashes: { ...hashes, "language_id.onnx": "wrong" } } }]);
+  assert.deepEqual(await supportingProposals(directory, "cebuano", text, negative), []);
+  assert.equal(prepare.mock.callCount(), 1);
 });

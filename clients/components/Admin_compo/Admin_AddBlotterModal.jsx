@@ -95,7 +95,7 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit, reco
             </View>
 
             <ScrollView style={styles.body} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-              <Text style={styles.help}>Enter the information from the official record. Fields marked * are required. Optional details left blank appear as placeholders in the certification.</Text>
+              <Text style={styles.help}>Enter the information from the official record. All editable fields are required and marked with a red <Text style={styles.requiredMark}>*</Text>.</Text>
               <Text style={styles.help}>Saved on this device for now. Issuance location: Argao, Cebu, Philippines.</Text>
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>AUTOMATIC RECORD NUMBERS</Text>
@@ -114,7 +114,7 @@ export default function Admin_AddBlotterModal({ visible, onClose, onSubmit, reco
                   {section.description ? <Text style={styles.help}>{section.description}</Text> : null}
                   {section.fields.map((field) => (
                     <View key={field.key} style={styles.field}>
-                      <Text style={styles.label}>{field.label}{field.required ? " *" : " (optional)"}</Text>
+                      <Text style={styles.label}>{field.label}<Text accessibilityLabel="Required" style={styles.requiredMark}> *</Text></Text>
                       {field.type === "date" || field.type === "datetime" ? <BlotterDateField
                         value={form[field.key]}
                         onChange={(value) => updateField(field.key, value)}
@@ -174,6 +174,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 14, color: BLUE, fontFamily: "PoppinsSemiBold", marginBottom: 12 },
   field: { marginBottom: 14 },
   label: { fontSize: 13, color: BLUE, fontFamily: "PoppinsSemiBold", marginBottom: 7 },
+  requiredMark: { color: "#C0392B" },
   input: { height: 48, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 10, paddingHorizontal: 14, fontSize: 14, fontFamily: "PoppinsRegular", backgroundColor: "#FFFFFF", color: "#111827" },
   systemValue: { padding: 14, borderRadius: 10, backgroundColor: "#F3F7FB", color: "#41536F", fontSize: 14, fontFamily: "PoppinsRegular" },
   textArea: { height: 140, paddingVertical: 12 },

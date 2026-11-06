@@ -4,19 +4,22 @@ import apiClient from "../services/apiClient";
 import { getCache, setCache } from "../services/dataStore";
 import { querySnapshotKey, retainUnchangedQueryData, usableQuerySnapshot } from "../services/querySnapshots";
 import useAutoRefresh from "./useAutoRefresh";
+import { sessionData } from "../services/sessionData";
 
-/** Short-lived, filter-specific stale-while-revalidate display. Shared auth
+/** Session-retained, filter-specific stale-while-revalidate display. Shared auth
  * logout clears dataStore. No tokens are stored in snapshot keys or values.
  * Never use a different filter's payload, an expired/previous-day forecast,
- * or cached results after an authorization error. */
+ * or cached results after an authorization error. Forecasts still expire. */
 export default function useRetainedApiQuery({ endpoint, params, validate, interval = 60000 }) {
-  const key = querySnapshotKey(endpoint, params);
+  const cacheKey = querySnapshotKey(endpoint, params);
+  const [epoch, setEpoch] = useState(() => sessionData.epoch());
+  const key = `${epoch}:${cacheKey}`;
   const validator = useRef(validate);
   validator.current = validate;
   const readSnapshot = useCallback(() => {
-    const cached = getCache(key);
+    const cached = getCache(cacheKey);
     return usableQuerySnapshot(cached) && validator.current(cached.data) ? cached : null;
-  }, [key]);
+  }, [cacheKey, epoch]);
   const [state, setState] = useState(() => ({ key, snapshot: readSnapshot(), error: "", fetching: false }));
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -25,19 +28,37 @@ export default function useRetainedApiQuery({ endpoint, params, validate, interv
   const sequence = useRef(0);
   const inFlight = useRef(null);
   const mounted = useRef(true);
+  const retryTimer = useRef(null);
   const serializedParams = JSON.stringify(params || {});
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; sequence.current++; };
+    const unsubscribe = sessionData.subscribe(event => {
+      if (event.type === "session" || event.type === "ready") setEpoch(sessionData.epoch());
+    });
+    return () => { mounted.current = false; sequence.current++; clearTimeout(retryTimer.current); unsubscribe(); };
   }, []);
 
-  const load = useCallback(({ force = false } = {}) => {
+  // Idle prefetches also update mounted pages, without clearing the map/list.
+  useEffect(() => sessionData.subscribe(event => {
+    if (!sessionData.current(epoch)) return;
+    if (event.type === "denied" && event.path === endpoint) {
+      setState({ key, snapshot: null, error: "Access denied. Please sign in with an administrator account.", fetching: false });
+    } else if (event.type === "snapshot" && event.key === cacheKey &&
+      usableQuerySnapshot(event.snapshot) && validator.current(event.snapshot.data)) {
+      setState(previous => ({ key, snapshot: event.snapshot, error: "",
+        fetching: previous.key === key && previous.fetching }));
+    }
+  }), [key, cacheKey, epoch, endpoint]);
+
+  const load = useCallback(({ force = false, cancelRetry = false } = {}) => {
+    if (sessionData.changing()) return Promise.resolve();
     if (inFlight.current?.key === key && inFlight.current.version === sequence.current) return inFlight.current.promise;
     const version = ++sequence.current;
     const previous = stateRef.current.key === key && usableQuerySnapshot(stateRef.current.snapshot) ? stateRef.current.snapshot : readSnapshot();
+    if (!force && previous && sessionData.fresh({ url: endpoint, params: JSON.parse(serializedParams) })) return Promise.resolve();
     setState({ key, snapshot: previous, error: "", fetching: true });
-    const current = () => mounted.current && activeKey.current === key && sequence.current === version;
+    const current = () => mounted.current && sessionData.current(epoch) && activeKey.current === key && sequence.current === version;
     const promise = (async () => {
       try {
         const token = await AsyncStorage.getItem("access_token");
@@ -48,19 +69,28 @@ export default function useRetainedApiQuery({ endpoint, params, validate, interv
         }
         const response = await apiClient.get(endpoint, {
           params: JSON.parse(serializedParams), headers: { Authorization: `Bearer ${token}` },
+          background: Boolean(previous),
           ...(force ? { cacheMode: "network" } : {}),
         });
         if (!current()) return;
         if (!validator.current(response.data)) throw new Error("The server returned incomplete page data.");
         const snapshot = { data: retainUnchangedQueryData(previous?.data, response.data),
           checkedAt: Number.isFinite(response.cacheCheckedAt) ? response.cacheCheckedAt : Date.now() };
-        setCache(key, snapshot);
+        setCache(cacheKey, snapshot);
         setState({ key, snapshot, error: "", fetching: false });
       } catch (error) {
         if (!current()) return;
+        if (error.code === "ERR_CANCELED" || error.__CANCEL__) {
+          setState({ key, snapshot: previous, error: cancelRetry ? "Data changed while loading. Please retry." : "", fetching: false });
+          if (!cancelRetry) {
+            clearTimeout(retryTimer.current);
+            retryTimer.current = setTimeout(() => { if (current()) load({ force: true, cancelRetry: true }); }, 100);
+          }
+          return;
+        }
         const status = error?.response?.status || error.status;
         const denied = status === 401 || status === 403;
-        if (denied) setCache(key, undefined);
+        if (denied) setCache(cacheKey, undefined);
         setState({ key, snapshot: denied ? null : previous,
           error: denied ? "Access denied. Please sign in with an administrator account." : error?.response?.data?.error || error.message || "Could not refresh this page.", fetching: false });
       } finally {
@@ -69,7 +99,7 @@ export default function useRetainedApiQuery({ endpoint, params, validate, interv
     })();
     inFlight.current = { key, version, promise };
     return promise;
-  }, [key, endpoint, serializedParams, readSnapshot]);
+  }, [key, cacheKey, epoch, endpoint, serializedParams, readSnapshot]);
 
   useAutoRefresh(load, interval);
   const previousKey = useRef(key);

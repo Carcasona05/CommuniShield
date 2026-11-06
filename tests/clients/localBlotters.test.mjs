@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createLocalBlotterStore } from "../utils/localBlotters.js";
-import { getBlotterFormValues, validateBlotterForm } from "../utils/blotterForm.js";
-import { getPoliceCertification } from "../utils/policeCertification.js";
+import { createLocalBlotterStore } from "../../clients/utils/localBlotters.js";
+import { BLOTTER_FORM_SECTIONS, getBlotterFormValues, validateBlotterForm } from "../../clients/utils/blotterForm.js";
+import { getPoliceCertification } from "../../clients/utils/policeCertification.js";
 
 const input = () => ({
   ...getBlotterFormValues(),
@@ -13,6 +13,11 @@ const input = () => ({
   blotterOfficer: "[Officer]",
   incidentDateTime: "2026-10-26T14:30",
   issuanceDate: "2026-10-26",
+  requestedBy: "[Concerned Person]",
+  certificationPurpose: "[Purpose]",
+  commanderName: "[Commander]",
+  commanderRank: "Police [Rank]",
+  commanderPosition: "[Position]",
 });
 const memoryStorage = () => {
   const values = new Map();
@@ -92,4 +97,18 @@ test("issuance is always Argao, Cebu and location inputs are not part of the for
   assert.equal(certificate.paragraphs.length, 2);
   assert.equal(certificate.fields[0][1], saved.blotter_no);
   assert.equal(certificate.fields[1][1], saved.page_number);
+});
+
+test("every editable field is required and blank or whitespace-only values cannot be saved", async () => {
+  const fields = BLOTTER_FORM_SECTIONS.flatMap(section => section.fields);
+  const store = createLocalBlotterStore(memoryStorage());
+  for (const field of fields) {
+    assert.equal(field.required, true, field.label);
+    for (const value of ["", "   "]) {
+      const form = { ...input(), [field.key]: value };
+      assert.match(validateBlotterForm(form)[field.key], /required/);
+      await assert.rejects(store.save(form), /required/);
+    }
+  }
+  assert.deepEqual(await store.list(), []);
 });

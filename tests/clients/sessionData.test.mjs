@@ -21,7 +21,8 @@ const response = (data = { reports: [] }) => ({ data, status: 200, headers: {} }
 test("preload permissions and priority are role-specific, never super-admin data for an admin", () => {
   assert.deepEqual(prefetchPlan(null), []);
   assert.deepEqual(prefetchPlan("unknown"), []);
-  assert.equal(prefetchPlan("admin")[0], "/admin/overview");
+  assert.equal(prefetchPlan("admin")[0], "/admin/dashboard");
+  assert.equal(prefetchPlan("admin").includes("/admin/overview"), false);
   assert.equal(prefetchPlan("user")[0], "/reports");
   assert.equal(prefetchPlan("admin").includes("/admin/accounts"), false);
   assert.equal(prefetchPlan("super_admin").includes("/admin/accounts"), true);
@@ -77,7 +78,7 @@ test("warm navigation uses recent data; elapsed TTL and explicit refresh actuall
   await data.run(config(), transport);
   assert.equal(count, 3);
   advance(PAGE_RETAIN_MS);
-  assert.equal(data.get("api:/admin/dashboard"), undefined);
+  assert.deepEqual(data.get("api:/admin/dashboard"), { count: 3 }, "retain display data even after network freshness expires");
 });
 
 test("background failures preserve usable page data; authorization denial removes it", async () => {

@@ -1,4 +1,4 @@
-import { querySnapshotKey } from "./querySnapshots.js";
+import { querySnapshotKey, retainUnchangedQueryData } from "./querySnapshots.js";
 
 // Only page data is cached. Auth challenges, exports and arbitrary GETs are not.
 const PAGE_PATHS = new Set([
@@ -38,6 +38,14 @@ export function requestPath(url = "") {
   return url.split("?")[0].replace(/\/$/, "") || "/";
 }
 
+export const isPageRequest = config => (config?.method || "get").toLowerCase() === "get" && PAGE_PATHS.has(requestPath(config?.url));
+
+export function cachedPagePath(key) {
+  if (typeof key !== "string") return null;
+  const path = key.startsWith("api:") ? key.slice(4) : key.match(/^query-snapshot:([^:]+):/)?.[1];
+  return PAGE_PATHS.has(path) ? path : null;
+}
+
 export function pageRequestKey(config) {
   // Keep URL queries distinct too; params order must not create duplicate reads.
   return `${config.url}:${JSON.stringify(Object.entries(config.params || {})
@@ -49,15 +57,15 @@ export function prefetchPlan(role) {
   const common = ["/profile", "/incidents/options"];
   if (role === "user") return ["/reports", ...common,
     "/reports/mine", "/notifications", "/notifications/login-activity", "/profile/notification-preferences"];
-  return ["/admin/overview", "/admin/dashboard", ...common, "/admin/notifications",
+  return ["/admin/dashboard", ...common, "/admin/notifications",
     ...(role === "super_admin" ? ["/admin/accounts"] : []),
     "/admin/analytics", "/admin/logs", "/admin/settings", "/admin/announcements",
     "/admin/blotters", "/admin/clusters", "/admin/risk-outlook",
     ...(role === "super_admin" ? ["/sentiment/datasets", "/sentiment/training", "/sentiment/supporting-models"] : [])];
 }
 
-// Sensitive page data/tokens stay in memory. A separate allowlisted preview cache
-// may persist non-personal counts after authoritative session verification.
+// Tokens and transport responses stay in memory. On web, browserPageCache may
+// restore allowlisted page values from this tab after authoritative verification.
 // Production uses the singleton; the factory permits deterministic transport tests.
 export function createSessionData({ now = () => Date.now() } = {}) {
   let session = null;
@@ -73,7 +81,10 @@ export function createSessionData({ now = () => Date.now() } = {}) {
   const notify = (event) => { for (const listener of listeners) listener(event); };
   const cancel = () => { for (const item of pending.values()) item.controller.abort(); pending.clear(); };
   const current = (ticket) => ticket === epoch;
-  const expired = (entry) => !entry || now() < entry.at || now() - entry.at >= PAGE_RETAIN_MS;
+  // Network freshness may expire without discarding an already loaded page.
+  // Private page data stays in bounded RAM, never across accounts or restarts.
+  const expired = (entry, key) => !entry || now() < entry.at ||
+    (key.startsWith("preview:") && now() - entry.at >= PAGE_RETAIN_MS);
   const set = (key, data, at = now()) => {
     if (!session) return;
     if (data === undefined) {
@@ -91,11 +102,12 @@ export function createSessionData({ now = () => Date.now() } = {}) {
       if (!values.has(key) && values.size >= 160) values.delete(values.keys().next().value);
       values.set(key, { data, at });
     }
+    notify({ type: "cache", key });
   };
   const get = (key) => {
     if (!session) return undefined;
     const entry = values.get(key);
-    if (expired(entry)) { values.delete(key); return undefined; }
+    if (expired(entry, key)) { values.delete(key); return undefined; }
     return entry.data;
   };
   const reset = (reason = "logout") => {
@@ -109,6 +121,7 @@ export function createSessionData({ now = () => Date.now() } = {}) {
     if (session?.token === token && session.role === role) return epoch;
     reset("begin");
     if (token && ["user", "admin", "super_admin"].includes(role)) session = { token, role };
+    if (session && transitions === 0) notify({ type: "ready" });
     return epoch;
   };
   const invalidate = ({ preserveProfile = false, paths = null } = {}) => {
@@ -146,8 +159,12 @@ export function createSessionData({ now = () => Date.now() } = {}) {
     }
     if (!data || typeof data !== "object") return;
     const path = requestPath(config.url);
+    const snapshotKey = querySnapshotKey(path, config.params);
+    data = retainUnchangedQueryData(get(snapshotKey)?.data, data);
     if (!config.url.includes("?") && !Object.values(config.params || {}).some(value => value !== undefined)) set(`api:${path}`, data);
-    set(querySnapshotKey(path, config.params), { data, checkedAt: now() });
+    const snapshot = { data, checkedAt: now() };
+    set(snapshotKey, snapshot);
+    notify({ type: "snapshot", key: snapshotKey, snapshot });
     if (!Object.values(config.params || {}).some(value => value !== undefined)) {
       values.delete(`preview:${path}`);
       notify({ type: "page", path, data, checkedAt: now() });
@@ -227,9 +244,30 @@ export function createSessionData({ now = () => Date.now() } = {}) {
     return promise;
   };
   return { begin, reset, invalidate, current, get, set, run, fresh,
+    pageEntries: () => [...values].filter(([key]) => cachedPagePath(key)),
+    restorePageEntries(entries) {
+      if (!session || !Array.isArray(entries)) return;
+      for (const [key, entry] of entries.slice(-160)) {
+        const path = cachedPagePath(key);
+        if (!path || !entry?.data || typeof entry.data !== "object" || !Number.isFinite(entry.at) || entry.at > now()) continue;
+        if (path === "/admin/accounts" && session.role !== "super_admin") continue;
+        if (path.startsWith("/admin/") && session.role === "user") continue;
+        if (path.startsWith("/sentiment/") && session.role !== "super_admin") continue;
+        set(key, entry.data, entry.at);
+      }
+    },
     foregroundBusy: () => foregroundRequests > 0,
     changing: () => transitions > 0,
-    pause() { transitions++; return () => { transitions--; }; },
+    pause() {
+      transitions++;
+      let resumed = false;
+      return () => {
+        if (resumed) return;
+        resumed = true;
+        transitions--;
+        if (transitions === 0 && session) notify({ type: "ready" });
+      };
+    },
     epoch: () => epoch, session: () => session,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); } };
 }

@@ -1,22 +1,27 @@
-import React, { useEffect } from "react";
-import { View, StyleSheet, ActivityIndicator, Platform } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, StyleSheet, ActivityIndicator, Platform, TouchableOpacity } from "react-native";
 import { router } from "expo-router";
 import ThemedView from "../components/ThemedView";
 import ThemedText from "../components/ThemedText";
-import { getAuth } from "../services/auth";
-import { prefetchAllData, hydrateCache, setCache } from "../services/dataStore";
-import apiClient from "../services/apiClient";
+import { restoreAuth } from "../services/auth";
 
 const LoadingScreen = () => {
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
 
     const init = async () => {
-      await hydrateCache();
-      const { token, role } = await getAuth();
+      let auth;
+      setError("");
+      try { auth = await restoreAuth(); }
+      catch (error) {
+        if (active) setError("Could not check your account. Check your connection and try again.");
+        return;
+      }
       if (!active) return;
 
-      if (!token) {
+      if (!auth) {
         if (Platform.OS === "web") {
           router.replace("/(auth)/Admin_Login");
         } else {
@@ -25,26 +30,7 @@ const LoadingScreen = () => {
         return;
       }
 
-      try {
-        const res = await apiClient.get("/profile", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setCache("api:/profile", res.data ?? {});
-      } catch {
-        const { clearAuth } = await import("../services/auth");
-        await clearAuth();
-        if (Platform.OS === "web") {
-          router.replace("/(auth)/Admin_Login");
-        } else {
-          router.replace("/(auth)/User_Login");
-        }
-        return;
-      }
-
-      if (!active) return;
-
-      prefetchAllData();
-
+      const { role } = auth;
       if (role === "super_admin") {
         router.replace("/(sadmin)/SAdmin_Dashboard");
       } else if (role === "admin") {
@@ -59,18 +45,19 @@ const LoadingScreen = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [attempt]);
 
   return (
     <ThemedView style={styles.container}>
       <View style={styles.content}>
-        <ActivityIndicator size="large" color="#007bff" />
+        {!error ? <ActivityIndicator size="large" color="#294880" /> : null}
         <ThemedText variant="title" style={styles.title}>
           CommuniShield
         </ThemedText>
         <ThemedText style={styles.subtitle}>
-          Loading your safety companion...
+          {error || "Loading your safety companion..."}
         </ThemedText>
+        {error ? <TouchableOpacity accessibilityRole="button" style={{ padding: 16 }} onPress={() => setAttempt(value => value + 1)}><ThemedText>Retry</ThemedText></TouchableOpacity> : null}
       </View>
     </ThemedView>
   );

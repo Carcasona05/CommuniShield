@@ -20,6 +20,7 @@ function storeFixture({ autoTimers = true } = {}) {
   let timer = 0;
   const context = vm.createContext({
     sessionData, prefetchPlan, querySnapshotKey, usableQuerySnapshot,
+    Platform: { OS: "android" },
     AsyncStorage: { removeItem: async key => storageRemoved.push(key) },
     apiRequest: config => sessionData.run({ ...config, sessionToken: sessionData.session()?.token, sessionEpoch: sessionData.epoch() },
       liveConfig => { calls.push(config); return transport(liveConfig); }),
@@ -43,7 +44,7 @@ test("preload does nothing before verified auth, then schedules only allowed rol
     assert.equal(f.intervals.size, 0);
     f.sessionData.begin("approved-token", role);
     await f.store.prefetchAllData();
-    assert.equal(f.calls[0].url, role === "user" ? "/reports" : "/admin/overview");
+    assert.equal(f.calls[0].url, role === "user" ? "/reports" : "/admin/dashboard");
     assert.equal(f.calls.some(c => c.url === "/admin/accounts"), role === "super_admin");
     assert.ok(f.calls.every(c => c.headers.Authorization === "Bearer approved-token"));
     assert.equal(f.intervals.size, 1);
@@ -127,7 +128,7 @@ test("foreground completion during the worker's idle delay prevents a duplicate 
   const f = storeFixture({ autoTimers: false });
   f.sessionData.begin("a", "admin");
   const warm = f.store.prefetchAllData();
-  await f.sessionData.run({ url: "/admin/overview", sessionToken: "a", sessionEpoch: f.sessionData.epoch() }, async () => ({ data: { summary: {} } }));
+  await f.sessionData.run({ url: "/admin/dashboard", sessionToken: "a", sessionEpoch: f.sessionData.epoch() }, async () => ({ data: { summary: {} } }));
   f.timeouts.shift()();
   for (let i = 0; i < 5; i++) await Promise.resolve();
   assert.equal(f.calls.length, 0, "the worker rechecks freshness after yielding");
@@ -140,26 +141,37 @@ test("restored sessions validate lightweight session before preloading and use t
   const sessionData = createSessionData();
   const stored = new Map([["access_token", "a"], ["user_role", "super_admin"]]);
   const gate = wait();
-  let prefetched = 0;
-  let activated = 0;
+  let prefetched = 0, verifiedHydrations = 0, probes = 0;
   const context = vm.createContext({
     sessionData, console,
     AsyncStorage: { getItem: async key => stored.get(key), setItem: async (key, value) => stored.set(key, value) },
-    hydrateCache: async () => {}, setCache: (key, value) => sessionData.set(key, value),
-    clearDataCache: () => sessionData.reset(), prefetchAllData: () => { prefetched++; },
-    apiClient: { defaults: { baseURL: "https://api.example/api" }, get: path => { assert.equal(path, "/session"); return gate.promise; } },
-    persistentPageCache: { activate: async identity => { assert.equal(identity.userId, "verified-user"); activated++; } },
+    hydrateCache: async verified => {
+      if (!verified) return;
+      assert.equal(verified.userId, "verified-user");
+      assert.equal(verified.role, "admin");
+      assert.equal(sessionData.session().role, "admin");
+      verifiedHydrations++;
+      sessionData.set("api:/admin/dashboard", { reports: [{ id: "restored" }] });
+    }, setCache: (key, value) => sessionData.set(key, value),
+    clearDataCache: () => sessionData.reset(), prefetchAllData: () => {
+      assert.equal(verifiedHydrations, 1, "hydrate saved display data before background warming");
+      prefetched++;
+    },
+    apiClient: { defaults: { baseURL: "https://api.example/api" }, get: path => { probes++; assert.equal(path, "/session"); return gate.promise; } },
   });
   vm.runInContext(`${source("services/auth.js")}\n globalThis.auth = { restoreAuth, clearAuth };`, context);
   const restored = context.auth.restoreAuth();
+  assert.equal(context.auth.restoreAuth(), restored, "startup guards share one authoritative verification");
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
   assert.equal(prefetched, 0);
+  assert.equal(verifiedHydrations, 0);
   gate.resolve({ data: { userId: "verified-user", role: "admin" } });
   assert.equal((await restored).role, "admin");
   assert.equal(stored.get("user_role"), "admin");
   assert.equal(prefetched, 1);
-  assert.equal(activated, 1);
   assert.equal(sessionData.session().role, "admin");
+  assert.equal(probes, 1);
+  assert.equal(sessionData.get("api:/admin/dashboard").reports[0].id, "restored");
 });
 
 test("real Axios transformation and adapter integration share GETs, preserve data shapes and invalidate after writes", async () => {
@@ -176,6 +188,7 @@ test("real Axios transformation and adapter integration share GETs, preserve dat
   const context = vm.createContext({
     axios: fakeAxios, sessionData, process: { env: { EXPO_PUBLIC_API_URL: "https://backend.example/api" } },
     Platform: { OS: "web" },
+    clearPageFailure() {}, recordPageFailure() {},
     AsyncStorage: { getItem: async key => storage.get(key) }, setTimeout, console,
   });
   vm.runInContext(code, context);
@@ -206,6 +219,7 @@ test("overlapping logout and sign-in serialize credential storage and keep the n
     sessionData, console,
     AsyncStorage: {
       setItem: async (key, value) => stored.set(key, value),
+      multiSet: async entries => { for (const [key, value] of entries) stored.set(key, value); },
       multiRemove: async keys => { await removing.promise; keys.forEach(key => stored.delete(key)); },
     },
     clearDataCache: () => sessionData.reset(),

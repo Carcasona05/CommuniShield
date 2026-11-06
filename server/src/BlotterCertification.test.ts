@@ -8,6 +8,13 @@ const certification = {
   incidentDescription: "[First paragraph]\n\n[Second paragraph]",
   actionTaken: "[Disposition]",
   blotterOfficer: "[Attending Officer]",
+  incidentDateTime: "2026-10-26T14:30",
+  requestedBy: "[Concerned Person]",
+  certificationPurpose: "[Purpose]",
+  issuanceDate: "2026-10-26",
+  commanderName: "[Commander]",
+  commanderRank: "Police [Rank]",
+  commanderPosition: "[Position]",
 };
 
 test("a certification can be created without unrelated legacy complaint fields", () => {
@@ -21,7 +28,7 @@ test("a certification can be created without unrelated legacy complaint fields",
   }
 });
 
-test("certification metadata persists and blank optional details become null", () => {
+test("required certification metadata persists while unrelated legacy fields can remain blank", () => {
   const result = buildBlotterUpdates({
     ...certification,
     requestedBy: "[Concerned Person]",
@@ -32,18 +39,19 @@ test("certification metadata persists and blank optional details become null", (
     commanderName: "[Commander]",
     commanderRank: "Police [Rank]",
     commanderPosition: "[Position]",
-    incidentDateTime: "",
+    respondent: "",
   }, true);
   assert.equal(result.error, undefined);
   assert.equal(result.updates?.requested_by, "[Concerned Person]");
   assert.equal(result.updates?.issuance_date, "2024-02-29");
   assert.equal(result.updates?.commander_name, "[Commander]");
-  assert.equal(result.updates?.incident_datetime, null);
+  assert.equal(result.updates?.incident_datetime, certification.incidentDateTime);
+  assert.equal(result.updates?.respondent, null);
 });
 
 test("metadata edits do not overwrite historical incident or people information", () => {
-  const result = buildBlotterUpdates({ certificationPurpose: " [Revised Purpose] ", commanderName: "" });
-  assert.deepEqual(result.updates, { certification_purpose: "[Revised Purpose]", commander_name: null });
+  const result = buildBlotterUpdates({ certificationPurpose: " [Revised Purpose] ", commanderName: "[Revised Commander]" });
+  assert.deepEqual(result.updates, { certification_purpose: "[Revised Purpose]", commander_name: "[Revised Commander]" });
   assert.equal(result.error, undefined);
 });
 
@@ -70,4 +78,16 @@ test("required incident details and malformed dates are rejected", () => {
   assert.ok(buildBlotterUpdates({ incidentDateTime: "2026-02-30T10:00" }).error);
   assert.ok(buildBlotterUpdates({ incidentDateTime: "2026-10-26T25:00" }).error);
   assert.equal(buildBlotterUpdates({ incidentDateTime: "2026-10-26T10:00:00.000Z" }).error, undefined);
+});
+
+test("every editable certification field is required for creation and cannot be cleared", () => {
+  for (const field of Object.keys(certification)) {
+    for (const empty of ["", "   "]) {
+      assert.ok(buildBlotterUpdates({ ...certification, [field]: empty }, true).error?.includes(field));
+      assert.ok(buildBlotterUpdates({ [field]: empty }).error?.includes(field));
+    }
+    const incomplete: Record<string, unknown> = { ...certification };
+    delete incomplete[field];
+    assert.ok(buildBlotterUpdates(incomplete, true).error?.includes(field));
+  }
 });

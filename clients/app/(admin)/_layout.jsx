@@ -1,11 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { Slot, useRouter } from "expo-router";
-import { Platform } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
+import useSessionEpoch from "../../hooks/useSessionEpoch";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ROLE_KEY } from "../../services/auth";
 import { getLastPage } from "../../services/lastPage";
+import BrowserSessionGate from "../../components/BrowserSessionGate";
 
 export default function AdminLayout() {
+  return <BrowserSessionGate><AdminLayoutInner /></BrowserSessionGate>;
+}
+
+function AdminLayoutInner() {
+  const epoch = useSessionEpoch();
   const router = useRouter();
   const [checked, setChecked] = useState(false);
 
@@ -49,7 +56,7 @@ export default function AdminLayout() {
     guard();
   }, []);
 
-  if (!checked) return null;
+  if (!checked) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><ActivityIndicator size="large" color="#294880" /></View>;
 
-  return <Slot />;
+  return <Slot key={epoch} />;
 }

@@ -2,10 +2,11 @@ import React, {
   useRef,
   useEffect,
   useCallback,
-  useState,
 } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
+import useMapReadiness from "../hooks/useMapReadiness";
+import MapLoadingOverlay from "./MapLoadingOverlay";
 
 const MAP_HTML = `
 <!DOCTYPE html>
@@ -68,10 +69,13 @@ body{background:#DCE7F3;}
       ],
       maxBoundsViscosity: 0.6,
     });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    // Remove Leaflet's documentation link; retain tile-provider attribution.
+    map.attributionControl.setPrefix(false);
+    var baseLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(map);
+    baseLayer.on("load", function () { sendToHost({ type: "map-ready" }); });
 
     var userMarker = L.marker([9.8816, 123.5953]).addTo(map);
     userMarker.bindPopup("Your current location");
@@ -157,6 +161,7 @@ body{background:#DCE7F3;}
     }
 
     window.__communishieldInit = function (cfg) {
+      if (!baseLayer.isLoading()) sendToHost({ type: "map-ready" });
       var c = cfg || {};
       setInteractive(c.interactive !== false);
       facilityLayer.clearLayers();
@@ -263,11 +268,12 @@ const MapView = React.forwardRef(
       onMarkerPress,
       onMapPress,
       onLocation,
+      loading = false,
     },
     ref
   ) => {
     const mapRef = useRef(null);
-    const [loaded, setLoaded] = useState(false);
+    const { loaded, ready, error, revision, markLoaded, markReady, markError, retry } = useMapReadiness();
     const isWeb = Platform.OS === "web";
 
     const positionRef = useRef(position);
@@ -357,6 +363,7 @@ const MapView = React.forwardRef(
         }
         try {
           const data = JSON.parse(e.data);
+          if (data.type === "map-ready") markReady();
           if (data.type === "markerPress") onMarkerPress?.(data.id);
           if (data.type === "mapPress") onMapPress?.();
           if (data.type === "location") onLocation?.([data.lat, data.lng]);
@@ -364,40 +371,49 @@ const MapView = React.forwardRef(
       };
       window.addEventListener("message", handler);
       return () => window.removeEventListener("message", handler);
-    }, [isWeb, onMarkerPress, onMapPress, onLocation]);
+    }, [isWeb, onMarkerPress, onMapPress, onLocation, markReady]);
 
     React.useImperativeHandle(ref, () => ({ recenter }));
 
     if (isWeb) {
       return (
+        <View style={[styles.fill, style]}>
         <iframe
+          key={revision}
           ref={mapRef}
           srcDoc={MAP_HTML}
-          style={{ ...IFRAME_STYLE, ...(style || {}) }}
-          onLoad={() => setLoaded(true)}
+          style={IFRAME_STYLE}
+          onLoad={markLoaded}
+          onError={markError}
         />
+        <MapLoadingOverlay visible={!ready || loading} loadingData={loading} error={error} onRetry={retry} />
+        </View>
       );
     }
 
     return (
       <View style={[styles.fill, style]}>
         <WebView
+          key={revision}
           ref={mapRef}
           source={{ html: MAP_HTML }}
           style={styles.fill}
           onMessage={(e) => {
             try {
               const data = JSON.parse(e.nativeEvent?.data);
+              if (data.type === "map-ready") markReady();
               if (data.type === "markerPress") onMarkerPress?.(data.id);
               if (data.type === "mapPress") onMapPress?.();
               if (data.type === "location") onLocation?.([data.lat, data.lng]);
             } catch {}
           }}
-          onLoadEnd={() => setLoaded(true)}
+          onLoadEnd={markLoaded}
+          onError={markError}
           geolocationEnabled
           javaScriptEnabled
           originWhitelist={["*"]}
         />
+        <MapLoadingOverlay visible={!ready || loading} loadingData={loading} error={error} onRetry={retry} />
       </View>
     );
   }

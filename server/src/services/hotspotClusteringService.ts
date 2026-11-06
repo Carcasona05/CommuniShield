@@ -68,7 +68,27 @@ export function clusterHotspots(reports: HotspotReport[], options: Options = {})
   }
   const points = [...pins.values()].sort((a, b) => a.latitude - b.latitude || a.longitude - b.longitude);
   const labels: (number | undefined)[] = Array(points.length).fill(undefined);
-  const neighbours = (index: number) => points.flatMap((point, j) => distanceMeters(points[index]!, point) <= epsMeters ? [j] : []);
+  // Latitude is sorted. A point outside this band cannot be within epsMeters,
+  // so skip it without changing the exact distance test or traversal order.
+  const latitudeBand = epsMeters / 6371008.8 * 180 / Math.PI + 1e-10;
+  const lowerBound = (latitude: number) => {
+    let low = 0, high = points.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (points[middle]!.latitude < latitude) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  };
+  const neighbours = (index: number) => {
+    const origin = points[index]!;
+    const nearby: number[] = [];
+    for (let j = lowerBound(origin.latitude - latitudeBand);
+      j < points.length && points[j]!.latitude <= origin.latitude + latitudeBand; j++) {
+      if (distanceMeters(origin, points[j]!) <= epsMeters) nearby.push(j);
+    }
+    return nearby;
+  };
   let nextLabel = 0;
   for (let i = 0; i < points.length; i++) {
     if (labels[i] !== undefined) continue;

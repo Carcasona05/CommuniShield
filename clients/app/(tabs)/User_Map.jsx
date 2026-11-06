@@ -18,7 +18,7 @@ import MapView from "../../components/MapView";
 import { MapSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
-import { getCache, setCache } from "../../services/dataStore";
+import { getCachedPage } from "../../services/dataStore";
 import {
   ARGAO_BARANGAYS,
   ARGAO_HELP_FACILITIES,
@@ -39,6 +39,11 @@ const clampToCebu = (lat, lng) => [
   Math.min(Math.max(lat, CEBU_BOUNDS.south), CEBU_BOUNDS.north),
   Math.min(Math.max(lng, CEBU_BOUNDS.west), CEBU_BOUNDS.east),
 ];
+
+const facilityParams = (position) => {
+  const anchor = position ? clampToCebu(position[0], position[1]) : [DEFAULT_ARGAO.lat, DEFAULT_ARGAO.lng];
+  return { lat: anchor[0], lng: anchor[1], radius: 8000 };
+};
 
 const haversineKm = (lat1, lng1, lat2, lng2) => {
   const R = 6371;
@@ -65,10 +70,10 @@ const UserMap = () => {
   const [showPanel, setShowPanel] = useState(false);
   const [selectedFacility, setSelectedFacility] = useState(null);
   const [facilities, setFacilities] = useState(() => {
-    const cached = getCache("api:/facilities/nearby");
+    const cached = getCachedPage("/facilities/nearby", facilityParams(null));
     return cached?.facilities || [];
   });
-  const [loading, setLoading] = useState(() => getCache("api:/facilities/nearby") === undefined);
+  const [loading, setLoading] = useState(() => getCachedPage("/facilities/nearby", facilityParams(null)) === undefined);
   const [facilitiesLoading, setFacilitiesLoading] = useState(false);
   const [userPosition, setUserPosition] = useState(null);
   const mapViewRef = useRef(null);
@@ -99,38 +104,38 @@ const UserMap = () => {
   }, []);
 
   const hasLoadedFacilitiesRef = useRef(false);
+  const facilitiesRequest = useRef(0);
 
   const loadFacilities = useCallback(async () => {
+    const request = ++facilitiesRequest.current;
     try {
       if (!hasLoadedFacilitiesRef.current) setFacilitiesLoading(true);
 
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      const cached = getCache("api:/facilities/nearby");
+      const params = facilityParams(userPosition);
+      const cached = getCachedPage("/facilities/nearby", params);
       if (cached !== undefined) {
         setFacilities(cached?.facilities ?? []);
       }
 
-      const anchor = userPosition
-        ? clampToCebu(userPosition[0], userPosition[1])
-        : [DEFAULT_ARGAO.lat, DEFAULT_ARGAO.lng];
-
       const res = await apiClient.get("/facilities/nearby", {
-        params: { lat: anchor[0], lng: anchor[1], radius: 8000 },
+        params,
         headers: { Authorization: `Bearer ${token}` },
         timeout: 20000,
       });
 
-      setCache("api:/facilities/nearby", res.data ?? {});
-
+      if (request !== facilitiesRequest.current || token !== await AsyncStorage.getItem("access_token")) return;
       setFacilities(res.data?.facilities ?? []);
     } catch (err) {
       console.warn("Failed to load facilities:", err.message);
     } finally {
-      hasLoadedFacilitiesRef.current = true;
-      setFacilitiesLoading(false);
-      setLoading(false);
+      if (request === facilitiesRequest.current) {
+        hasLoadedFacilitiesRef.current = true;
+        setFacilitiesLoading(false);
+        setLoading(false);
+      }
     }
   }, [userPosition]);
 

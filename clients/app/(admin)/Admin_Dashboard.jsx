@@ -81,8 +81,7 @@ export default function Admin_Dashboard() {
         }
       }
 
-      await Promise.allSettled([
-        apiClient.get("/admin/dashboard", { headers }).then((res) => {
+      await apiClient.get("/admin/dashboard", { headers }).then((res) => {
           setCache("api:/admin/dashboard", res.data ?? {});
           const data = res.data ?? {};
           if (data.summary) {
@@ -91,20 +90,7 @@ export default function Admin_Dashboard() {
           if (Array.isArray(data.reports)) {
             setReports(data.reports);
           }
-        }),
-        apiClient.get("/admin/analytics", { headers }).then((res) => {
-          setCache("api:/admin/analytics", res.data ?? {});
-        }),
-        apiClient.get("/admin/logs", { headers }).then((res) => {
-          setCache("api:/admin/logs", res.data ?? {});
-        }),
-        apiClient.get("/admin/notifications", { headers }).then((res) => {
-          setCache("api:/admin/notifications", res.data ?? {});
-        }),
-        apiClient.get("/admin/accounts", { headers }).then((res) => {
-          setCache("api:/admin/accounts", res.data ?? {});
-        }),
-      ]);
+        });
     } catch {
       // keep last loaded data on failure
     } finally {

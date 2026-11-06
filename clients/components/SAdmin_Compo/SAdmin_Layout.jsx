@@ -19,6 +19,7 @@ import { getCache, setCache } from "../../services/dataStore";
 import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
 import ErrorBoundary from "../../components/ErrorBoundary";
+import PageLoadNotice from "../PageLoadNotice";
 import { saveLastPage } from "../../services/lastPage";
 import { subscribeToAdminNotifications, subscribeToAccountStatusChanges } from "../../services/realtime";
 import { sessionData } from "../../services/sessionData";
@@ -858,6 +859,7 @@ function SAdmin_Layout({ children }) {
           style={[styles.pageContent, compactWorkspace && { padding: 12, minWidth: 0 }]}
           onPress={closeDropdowns}
         >
+          <PageLoadNotice />
           {children}
         </TouchableOpacity>
       </View>

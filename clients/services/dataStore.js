@@ -1,105 +1,48 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppState, Platform } from "react-native";
-import { apiRequest } from "./apiClient";
+import apiClient, { apiRequest } from "./apiClient";
 import { prefetchPlan, sessionData } from "./sessionData";
 import { querySnapshotKey, usableQuerySnapshot } from "./querySnapshots";
+import { createBrowserPageCache } from "./browserPageCache";
 
 const CACHE_KEY = "communishield_data_cache";
-const cache = new Map();
-let persistTimer = null;
-
 const isWeb = Platform.OS === "web";
-
-const readStorageSync = () => {
-  if (isWeb && typeof localStorage !== "undefined") {
-    try {
-      const raw = localStorage.getItem(CACHE_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
+// The transport, preloader and pages must use the same account-scoped cache.
+// Browser reloads may restore a tab-scoped snapshot, only after server auth.
+const tabPageCache = isWeb ? createBrowserPageCache({
+  sessionData, storage: () => globalThis.sessionStorage, backend: () => apiClient.defaults.baseURL,
+}) : null;
+export const isBrowserCacheVerified = () => !isWeb || Boolean(tabPageCache?.verified());
+if (isWeb && typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => tabPageCache.flush());
+  window.addEventListener("storage", event => {
+    if (event.key === null || ["access_token", "user_role"].includes(event.key)) {
+      tabPageCache.clear();
+      sessionData.reset("credentials-changed");
     }
-  }
-  return null;
-};
-
-const writeStorage = (obj) => {
-  try {
-    const json = JSON.stringify(obj);
-    if (isWeb && typeof localStorage !== "undefined") {
-      localStorage.setItem(CACHE_KEY, json);
-    }
-    AsyncStorage.setItem(CACHE_KEY, json).catch(() => {});
-  } catch {}
-};
-
-const persistCache = () => {
-  if (persistTimer) return;
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    flushCache();
-  }, 300);
-};
-
-const flushCache = () => {
-  if (persistTimer) {
-    clearTimeout(persistTimer);
-    persistTimer = null;
-  }
-  const obj = {};
-  cache.forEach((v, k) => {
-    obj[k] = v;
   });
-  writeStorage(obj);
-};
-
-export const setCache = (key, value) => {
-  cache.set(key, value);
-  persistCache();
-};
-
-export const getCache = (key) => (cache.has(key) ? cache.get(key) : undefined);
+}
+export const setCache = (key, value) => sessionData.set(key, value);
+export const getCache = (key) => sessionData.get(key);
 
 export const getCachedPage = (endpoint, params = {}) => {
   const snapshot = sessionData.get(querySnapshotKey(endpoint, params));
   return usableQuerySnapshot(snapshot) ? snapshot.data : undefined;
 };
 
-const hydrateFromStorage = () => {
-  const obj = readStorageSync();
-  if (obj) {
-    Object.entries(obj).forEach(([k, v]) => cache.set(k, v));
+export const hydrateCache = async (verifiedSession) => {
+  if (isWeb && typeof localStorage !== "undefined") {
+    try { localStorage.removeItem(CACHE_KEY); } catch {}
   }
-};
-
-if (isWeb) {
-  hydrateFromStorage();
-  if (typeof window !== "undefined") {
-    window.addEventListener("pagehide", flushCache);
-  }
-  if (typeof document !== "undefined") {
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") flushCache();
-    });
-  }
-}
-
-export const hydrateCache = async () => {
-  if (cache.size > 0) return;
-  try {
-    const raw = await AsyncStorage.getItem(CACHE_KEY);
-    if (raw) {
-      const obj = JSON.parse(raw);
-      Object.entries(obj).forEach(([k, v]) => cache.set(k, v));
-    }
-  } catch {}
+  await AsyncStorage.removeItem(CACHE_KEY).catch(() => {});
+  if (verifiedSession?.clear) tabPageCache?.clear();
+  else if (verifiedSession) await tabPageCache?.restore(verifiedSession);
 };
 
 export const clearDataCache = () => {
-  cache.clear();
-  if (isWeb && typeof localStorage !== "undefined") {
-    localStorage.removeItem(CACHE_KEY);
-  }
-  AsyncStorage.removeItem(CACHE_KEY).catch(() => {});
+  tabPageCache?.clear();
+  sessionData.reset("logout");
+  void hydrateCache();
 };
 
 const REPORT_CACHE_KEYS = ["api:/reports", "api:/reports/mine"];
@@ -193,6 +136,7 @@ export const prefetchAllData = () => {
     // Match the default filter-specific snapshots consumed by these pages.
     for (const request of plan) {
       if (request.url === "/reports") request.params = { period: "24h" };
+      if (request.url === "/admin/risk-outlook") request.params = { view: "current" };
       if (request.url === "/admin/clusters") request.params = { period: "30d" };
       if (request.url === "/sentiment/datasets") request.params = { status: "all", page: 1 };
       if (request.url === "/sentiment/supporting-models") request.params = { page: 1 };

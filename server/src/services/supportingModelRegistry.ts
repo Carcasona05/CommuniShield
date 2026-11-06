@@ -4,11 +4,13 @@ import { join } from "node:path";
 import { InferenceSession, Tensor } from "onnxruntime-node";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { MODEL_FILES, prepareSupportingModelBundle, supportingModelsEnabled } from "./sentimentModelRegistry.js";
-import { needsSupport, ranked, validRule, validIndependentPolicy, type PoolPolicy, type Scores, type SupportProposal } from "./supportingModelRouting.js";
+import { ranked, validRule, validIndependentPolicy, type PoolPolicy, type Scores, type SupportProposal } from "./supportingModelRouting.js";
 
 type Record = { id: string; artifact_manifest: unknown; routing_policy: PoolPolicy };
 export const supportingRegistryDependencies = {
   now: () => Date.now(),
+  prepareBundle: prepareSupportingModelBundle,
+  createSession: (path: string) => InferenceSession.create(path),
   async readEnabled(): Promise<Record[]> {
     const { data, error } = await supabaseAdmin.from("sentiment_supporting_models")
       .select("id, artifact_manifest, routing_policy").eq("status", "enabled").order("id").limit(4);
@@ -67,15 +69,17 @@ async function enabled(directory: string): Promise<Record[]> {
   try { return await loading; } finally { loading = null; }
 }
 
-export async function supportingProposals(directory: string, language: string, text: string, primary: Scores): Promise<SupportProposal[]> {
+export async function supportingProposals(directory: string, language: string, text: string, _primary: Scores): Promise<SupportProposal[]> {
   const models = await enabled(directory);
-  const candidates = models.filter((row) => validRule(row.routing_policy.languages?.[language]) && needsSupport(primary, row.routing_policy.languages[language]!));
+  // Evaluate every enabled, validated support for this language. A strong
+  // built-in must not hide a higher raw-score support under the new policy.
+  const candidates = models.filter((row) => validRule(row.routing_policy.languages?.[language]));
   const results = await Promise.all(candidates.map(async (row): Promise<SupportProposal | null> => {
     const key = `${row.id}:${language}`;
     let entry = sessions.get(key);
     if (!entry) {
-      entry = { users: 0, retired: false, promise: prepareSupportingModelBundle(row.id, row.artifact_manifest)
-        .then((bundle) => InferenceSession.create(join(bundle.directory, `sentiment_${language}.onnx`))) };
+      entry = { users: 0, retired: false, promise: supportingRegistryDependencies.prepareBundle(row.id, row.artifact_manifest)
+        .then((bundle) => supportingRegistryDependencies.createSession(join(bundle.directory, `sentiment_${language}.onnx`))) };
       sessions.set(key, entry);
     }
     entry.users++;

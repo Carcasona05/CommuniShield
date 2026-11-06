@@ -16,7 +16,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { MaterialIcons, FontAwesome, Ionicons } from "@expo/vector-icons";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import apiClient from "../../services/apiClient";
 import { saveAuth } from "../../services/auth";
 import { IMAGES } from "../../constants/assets";
@@ -41,6 +41,14 @@ export default function UserLogin() {
 
 function UserLoginInner() {
   const toast = useToast();
+  const { loggedOut } = useLocalSearchParams();
+  const logoutToastShown = useRef(false);
+  useEffect(() => {
+    if (loggedOut !== "1" || logoutToastShown.current) return;
+    logoutToastShown.current = true;
+    toast.success("You have been logged out successfully.");
+    router.setParams({ loggedOut: undefined });
+  }, [loggedOut, toast.success]);
   const { width, height } = useWindowDimensions();
 
   const isSmallPhone = width < 360;

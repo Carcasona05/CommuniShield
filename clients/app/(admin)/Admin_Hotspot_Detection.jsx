@@ -25,6 +25,7 @@ import { BatchFilterDropdown } from "../../components/Admin_compo/AdminBatchFilt
 import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
 import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
 import { getReportBarangay } from "../../services/argaoLocation";
+import { DEFAULT_HOTSPOT_SEVERITY, HOTSPOT_SEVERITY_OPTIONS, hotspotReportSeverity, matchesHotspotSeverity } from "../../services/hotspotSeverity";
 
 const EMPTY_REPORTS = [];
 const validHotspotResponse = (data) => Array.isArray(data?.reports) && Array.isArray(data?.clustering?.clusters);
@@ -226,6 +227,8 @@ export default function Admin_Hotspot_Detection() {
 
   const [selectedLevel, setSelectedLevel] =
     useState("All");
+  const [selectedSeverity, setSelectedSeverity] = useState(DEFAULT_HOTSPOT_SEVERITY);
+  const severityLabel = HOTSPOT_SEVERITY_OPTIONS.find(option => option.value === selectedSeverity)?.label || selectedSeverity;
 
   const [showAllHotspots, setShowAllHotspots] =
     useState(false);
@@ -380,6 +383,8 @@ export default function Admin_Hotspot_Detection() {
   // GROUP REPORTS INTO HOTSPOTS
   // =====================================================
 
+  const displayedReports = useMemo(() => filteredReports.filter(report => matchesHotspotSeverity(report, selectedSeverity)), [filteredReports, selectedSeverity]);
+
   const hotspots = useMemo(() => {
     const byId = new Map(filteredReports.map((report) => [report.id, report]));
     return (clustering?.clusters || []).map((cluster) => {
@@ -387,6 +392,7 @@ export default function Admin_Hotspot_Detection() {
       return {
         ...cluster,
         reports: members,
+        displayedReports: members.filter(report => matchesHotspotSeverity(report, selectedSeverity)),
         count: members.length,
         mappedCount: members.length,
         latestDate: getDate({ created_at: cluster.latestReportAt }),
@@ -394,13 +400,13 @@ export default function Admin_Hotspot_Detection() {
         level: getLevel(members.length),
       };
     });
-  }, [filteredReports, clustering]);
+  }, [filteredReports, clustering, selectedSeverity]);
 
   const visibleHotspots = useMemo(() => {
     return hotspots.filter(
       (hotspot) =>
-        selectedLevel === "All" ||
-        hotspot.level === selectedLevel
+        hotspot.displayedReports.length > 0 && (selectedLevel === "All" ||
+        hotspot.level === selectedLevel)
     );
   }, [hotspots, selectedLevel]);
 
@@ -420,14 +426,14 @@ export default function Admin_Hotspot_Detection() {
 
   const mapReports = useMemo(() => {
     if (selectedHotspot) {
-      return selectedHotspot.reports.filter(
+      return selectedHotspot.displayedReports.filter(
         hasCoordinates
       );
     }
 
     if (selectedLevel !== "All") {
       return visibleHotspots
-        .flatMap((hotspot) => hotspot.reports)
+        .flatMap((hotspot) => hotspot.displayedReports)
         .filter(hasCoordinates);
     }
 
@@ -435,15 +441,16 @@ export default function Admin_Hotspot_Detection() {
       ...(clustering?.noiseReportIds || []),
       ...hotspots.flatMap((hotspot) => hotspot.reportIds),
     ]);
-    return filteredReports.filter((report) => eligibleIds.has(report.id) && hasCoordinates(report));
+    return displayedReports.filter((report) => eligibleIds.has(report.id) && hasCoordinates(report));
   }, [
     selectedHotspot,
     selectedLevel,
     visibleHotspots,
-    filteredReports,
+    displayedReports,
     clustering,
     hotspots,
   ]);
+  const mapDisplayReports = useMemo(() => mapReports.map(report => ({ ...report, severity: hotspotReportSeverity(report) })), [mapReports]);
 
   // =====================================================
   // SUMMARY
@@ -451,21 +458,21 @@ export default function Admin_Hotspot_Detection() {
 
   const summary = useMemo(
     () => ({
-      totalReports: filteredReports.length,
-      locations: hotspots.length,
-      high: hotspots.filter(
+      totalReports: displayedReports.length,
+      locations: visibleHotspots.length,
+      high: visibleHotspots.filter(
         (item) =>
           item.level === "High" ||
           item.level === "Critical"
       ).length,
-      moderate: hotspots.filter(
+      moderate: visibleHotspots.filter(
         (item) => item.level === "Moderate"
       ).length,
-      unmapped: filteredReports.filter(
+      unmapped: displayedReports.filter(
         (report) => !hasCoordinates(report)
       ).length,
     }),
-    [filteredReports, hotspots]
+    [displayedReports, visibleHotspots]
   );
 
   // =====================================================
@@ -488,10 +495,12 @@ export default function Admin_Hotspot_Detection() {
   };
 
   const resetFilters = () => {
+    setSelectedLocation("All Locations");
     setSelectedCategory("All Categories");
     setSelectedType("All Incident Types");
     setPeriod("30d");
     setSelectedLevel("All");
+    setSelectedSeverity(DEFAULT_HOTSPOT_SEVERITY);
     setSelectedHotspotKey(null);
     setShowAllHotspots(false);
   };
@@ -588,7 +597,7 @@ export default function Admin_Hotspot_Detection() {
 
                 <Text style={styles.filterSubtitle}>
                   Filter incidents by category, type,
-                  date, and concentration level
+                  date, severity, and concentration level
                 </Text>
               </View>
             </View>
@@ -657,6 +666,14 @@ export default function Admin_Hotspot_Detection() {
             />
 
             <BatchFilterDropdown
+              label="REPORT SEVERITY"
+              compact
+              value={selectedSeverity}
+              options={HOTSPOT_SEVERITY_OPTIONS}
+              onChange={(value) => updateFilter(setSelectedSeverity, value)}
+            />
+
+            <BatchFilterDropdown
               label="CONCENTRATION LEVEL"
               compact
               value={selectedLevel}
@@ -677,7 +694,7 @@ export default function Admin_Hotspot_Detection() {
 
             <Text style={styles.filterResultsText}>
               Showing {displayedHotspots.length} of{" "}
-              {visibleHotspots.length} matching locations
+              {visibleHotspots.length} matching locations · {severityLabel} reports
             </Text>
           </View>
         </View>
@@ -705,13 +722,13 @@ export default function Admin_Hotspot_Detection() {
                 <Text style={styles.sectionTitle}>
                   {selectedHotspot
                     ? selectedHotspot.location
-                    : "Incident Concentration Map"}
+                    : selectedSeverity === DEFAULT_HOTSPOT_SEVERITY ? "High & Critical reports" : "Incident Concentration Map"}
                 </Text>
 
                 <Text style={styles.sectionSubtitle}>
                   {selectedHotspot
-                    ? `${selectedHotspot.count} reports · ${selectedHotspot.mappedCount} with coordinates`
-                    : `${mapReports.length} mapped reports matching filters`}
+                    ? `${selectedHotspot.displayedReports.length} shown · ${selectedHotspot.count} total cluster reports`
+                    : `${mapReports.length} mapped reports · ${severityLabel}`}
                 </Text>
               </View>
 
@@ -750,12 +767,7 @@ export default function Admin_Hotspot_Detection() {
                 </View>
               ) : mapReports.length > 0 ? (
                 <AdminHeatMap
-                  key={
-                    selectedHotspot
-                      ? `hotspot-${selectedHotspot.key}`
-                      : "all-hotspots"
-                  }
-                  reports={mapReports}
+                  reports={mapDisplayReports}
                   focusTarget={hotspotFocusTarget}
                   resetView={!selectedHotspot}
                   onReportSelect={(report) => {
@@ -789,12 +801,14 @@ export default function Admin_Hotspot_Detection() {
             </View>
 
             <View style={styles.legend}>
-              {[
+                {[
                 { label: "Critical", color: "#D94841" },
                 { label: "High", color: "#E66C00" },
-                { label: "Moderate", color: "#EAB308" },
-                { label: "Low", color: "#37956D" },
-              ].map((item) => (
+                  { label: "Medium", color: "#EAB308" },
+                  { label: "Low", color: "#37956D" },
+                  { label: "Not rated", value: "Unknown", color: "#64748B" },
+                ].filter(item => selectedSeverity === "All" || (selectedSeverity === DEFAULT_HOTSPOT_SEVERITY
+                  ? ["High", "Critical"].includes(item.label) : (item.value || item.label) === selectedSeverity)).map((item) => (
                 <View
                   key={item.label}
                   style={styles.legendItem}
@@ -819,9 +833,9 @@ export default function Admin_Hotspot_Detection() {
                 color="#71847D"
               />
 
-              <Text style={styles.mapHintText}>
-                Select a location from the list to focus
-                the map. Use Show all to reset the view.
+                <Text style={styles.mapHintText}>
+                  Select a location from the list to focus
+                  the map. Severity changes the displayed reports only; DBSCAN membership and concentration counts still use all qualifying reports.
               </Text>
             </View>
           </View>
@@ -842,7 +856,7 @@ export default function Admin_Hotspot_Detection() {
                 </Text>
 
                 <Text style={styles.sectionSubtitle}>
-                  Ranked by report count across distinct locations.
+                  {severityLabel} reports shown. Ranked using all qualifying cluster members.
                 </Text>
               </View>
 
@@ -878,11 +892,11 @@ export default function Admin_Hotspot_Detection() {
                   />
 
                   <Text style={styles.stateText}>
-                    No spatial hotspots detected
+                    No hotspots match the selected filters
                   </Text>
 
                   <Text style={styles.stateSubtext}>
-                    A hotspot requires at least 4 distinct locations within 300 m neighbourhoods. Repeated reports at one pin alone do not qualify.
+                    Try another severity or location filter. Hotspots still require at least 4 distinct locations within 300 m neighbourhoods; severity does not change that calculation.
                   </Text>
                 </View>
               ) : (
@@ -971,6 +985,7 @@ export default function Admin_Hotspot_Detection() {
                                     : "reports"}
                                   {" · "}
                                   {hotspot.uniqueLocationCount} distinct locations
+                                  {" · "}{hotspot.displayedReports.length} shown
                                 </Text>
 
                                 <View
@@ -1210,13 +1225,13 @@ export default function Admin_Hotspot_Detection() {
                                   <Text
                                     style={styles.detailsLabel}
                                   >
-                                    Reports in this hotspot (
-                                    {hotspot.reports.length})
+                                    Reports matching severity (
+                                    {hotspot.displayedReports.length} of {hotspot.count})
                                   </Text>
 
-                                  {hotspot.reports.length > 0 ? (
+                                  {hotspot.displayedReports.length > 0 ? (
                                     <View>
-                                      {hotspot.reports.map(
+                                      {hotspot.displayedReports.map(
                                         (
                                           report,
                                           reportIndex
@@ -1289,6 +1304,7 @@ export default function Admin_Hotspot_Detection() {
                                   )}
                                 </View>
 
+                                <Text style={styles.stateSubtext}>Cluster evidence below includes all qualifying members, not just the reports shown by the severity filter.</Text>
                                 <HotspotSentimentSummary
                                   evidence={hotspot.evidence}
                                 />

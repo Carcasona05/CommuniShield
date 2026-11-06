@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { test } from "node:test";
 import vm from "node:vm";
 import { createSessionData } from "../../clients/services/sessionData.js";
+import { resolveApiBaseUrl } from "../../clients/services/apiConfiguration.js";
 
 const require = createRequire(new URL("../../clients/package.json", import.meta.url));
 const axios = require("axios");
@@ -13,7 +14,8 @@ function fixture(transport) {
   const storage = new Map([["access_token", "a"], ["user_role", "admin"]]);
   const context = vm.createContext({
     axios: Object.assign((...args) => axios(...args), axios, { getAdapter: () => transport }),
-    sessionData, Platform: { OS: "web" }, process: { env: {} }, setTimeout,
+    sessionData, resolveApiBaseUrl, Platform: { OS: "web" }, process: { env: {} }, setTimeout,
+    clearPageFailure() {}, recordPageFailure() {},
     AsyncStorage: {
       getItem: async key => storage.get(key),
       setItem: async (key, value) => storage.set(key, value),

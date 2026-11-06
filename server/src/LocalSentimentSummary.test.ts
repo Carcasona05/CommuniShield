@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createLocalSentimentSummary, localSentimentOutcome, recordLocalSentimentResult } from "../../server/scripts/seed/localSentimentSummary.js";
+import { chooseRawConfidenceWinner } from "./services/sentimentConfidenceRouting.js";
 
 const result = (overrides = {}) => ({ status: "succeeded", provider: "local", label: "negative",
   model: "word-character-tfidf-logistic-regression-cebuano@bundled", error_code: "", ...overrides });
@@ -43,4 +44,16 @@ test("label and origin totals include built-in and supporting local predictions"
   assert.equal(summary.succeeded, 3);
   assert.deepEqual(summary.labels, { positive: 1, negative: 1, unclear: 1 });
   assert.deepEqual(summary.origins, { builtin: 1, supporting: 1, unresolved: 1 });
+});
+
+test("raw-policy traces count local supports and abstentions without counting Gemini evidence", () => {
+  const candidates = [{ id: "builtin", source: "builtin" as const, model: "builtin", label: "neutral" as const, confidence: .7 },
+    { id: "support", source: "supporting" as const, model: "support", label: "negative" as const, confidence: .9 }];
+  const summary = createLocalSentimentSummary(2);
+  recordLocalSentimentResult(summary, result({ provider: "ensemble", decision: chooseRawConfidenceWinner(candidates).decision }));
+  recordLocalSentimentResult(summary, result({ provider: "ensemble", label: "unclear", decision: chooseRawConfidenceWinner(candidates.map(candidate => ({ ...candidate, confidence: .4 }))).decision }));
+  assert.equal(summary.succeeded, 2);
+  assert.deepEqual(summary.origins, { builtin: 0, supporting: 1, unresolved: 1 });
+  const withGemini = chooseRawConfidenceWinner([...candidates, { id: "gemini", source: "gemini", model: "gemini", label: "positive", confidence: .8 }]).decision;
+  assert.equal(localSentimentOutcome(result({ decision: withGemini })), "failed");
 });

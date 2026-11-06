@@ -26,7 +26,8 @@ const BLOTTER_TEXT_FIELDS: Record<string, string> = {
 };
 
 // The database assigns entry/page numbers; office details are station-wide.
-const REQUIRED_FIELDS = ["location", "incidentType", "incidentDescription", "actionTaken", "blotterOfficer"];
+const REQUIRED_FIELDS = ["location", "incidentType", "incidentDateTime", "incidentDescription", "actionTaken", "blotterOfficer",
+  "requestedBy", "certificationPurpose", "issuanceDate", "commanderName", "commanderRank", "commanderPosition"];
 
 const validCalendarDate = (value: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;

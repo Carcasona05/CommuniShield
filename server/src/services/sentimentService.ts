@@ -6,7 +6,8 @@ import { InferenceSession, Tensor } from "onnxruntime-node";
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { getActiveModelBundle } from "./sentimentModelRegistry.js";
 import { supportingProposals } from "./supportingModelRegistry.js";
-import { routeSupportingModels, type Scores } from "./supportingModelRouting.js";
+import { ranked, validRule, type Scores } from "./supportingModelRouting.js";
+import { chooseRawConfidenceWinner, type ConfidenceCandidate, type SentimentDecision } from "./sentimentConfidenceRouting.js";
 import {
   GeminiClientError,
   candidateModels,
@@ -45,6 +46,7 @@ export interface SentimentAnalysis {
   source_text: string;
   error_code: string;
   analyzed_at: string | null;
+  decision?: SentimentDecision | null;
 }
 
 export interface SentimentPrediction {
@@ -55,6 +57,7 @@ export interface SentimentPrediction {
   model: string;
   input_hash: string;
   source_text: string;
+  decision?: SentimentDecision;
 }
 
 interface LocalSession {
@@ -99,12 +102,6 @@ const resolveModelDirectory = (): string => {
 const modelDirectory = resolveModelDirectory();
 const localSessions = new Map<SentimentLanguage, { version: string; session: Promise<LocalSession> }>();
 
-const LOW_LOCAL_CONFIDENCE = 0.45;
-// A confident local override is only trustworthy when the input carries enough
-// signal. For very short inputs (up to 3 tokens, e.g. "gwapo") the TF-IDF model
-// has almost no context, so it must be near-certain before it may overrule Gemini.
-const SHORT_INPUT_TOKENS = 3;
-const SHORT_INPUT_LOCAL_CONFIDENCE = 0.75;
 
 const clamp = (value: number, minimum = 0, maximum = 1): number =>
   Math.min(maximum, Math.max(minimum, value));
@@ -225,6 +222,42 @@ const localPredictionDependencies = {
   },
 };
 
+const selectRawPrediction = (
+  template: SentimentPrediction,
+  candidates: ConfidenceCandidate[]
+): SentimentPrediction => {
+  const result = chooseRawConfidenceWinner(candidates);
+  return {
+    ...template,
+    label: result.label,
+    confidence: result.confidence,
+    provider: result.winner?.source === "gemini" ? "gemini"
+      : result.winner?.source === "supporting" ? "ensemble"
+      : result.winner ? "local" : candidates.length > 1 ? "ensemble" : template.provider,
+    model: result.winner?.model ?? `raw-confidence-v1:${result.decision.reason}`,
+    decision: result.decision,
+  };
+};
+
+const predictionCandidates = (prediction: SentimentPrediction): ConfidenceCandidate[] =>
+  prediction.decision?.candidates ?? [{
+    id: `${prediction.provider}:${prediction.model}`,
+    source: prediction.provider === "gemini" ? "gemini" : "builtin",
+    model: prediction.model,
+    label: prediction.label,
+    confidence: prediction.confidence,
+  }];
+
+const applyRawPolicy = (prediction: SentimentPrediction): SentimentPrediction =>
+  selectRawPrediction(prediction, predictionCandidates(prediction));
+
+const scoreCandidate = (id: string, source: "builtin" | "supporting", model: string, scores: Scores): ConfidenceCandidate => {
+  const top = ranked(scores);
+  // An exact within-model class tie is an abstention, not an arbitrary label.
+  const tied = Object.values(scores).filter(value => value === top.score).length > 1;
+  return { id, source, model, scores, label: tied ? "unclear" : top.label, confidence: top.score };
+};
+
 const runLocalPrediction = async (
   language: LocalModelLanguage,
   text: string
@@ -255,31 +288,30 @@ const runLocalPrediction = async (
     input_hash: sentimentInputHash(text),
     source_text: text,
   };
-  // Supporting policies are qualified against the immutable bundled models,
-  // never against an unrelated legacy activated bundle.
-  if (version !== "bundled") return builtin;
   const scores: Scores = {
     negative: Number(probabilities[0]), neutral: Number(probabilities[1]), positive: Number(probabilities[2]),
   };
+  const candidates = [scoreCandidate(`builtin:${language}@${version}`, "builtin", builtin.model, scores)];
+  // Supports still require the immutable built-in bundle and registry checks.
+  if (version !== "bundled") return selectRawPrediction(builtin, candidates);
   try {
     const proposals = await localPredictionDependencies.supportingProposals(modelDirectory, language, text, scores);
-    const decision = routeSupportingModels(scores, proposals);
+    for (const proposal of proposals) {
+      if (!validRule(proposal.rule)) continue;
+      try {
+        candidates.push(scoreCandidate(`supporting:${proposal.id}`, "supporting",
+          `supporting:${proposal.id}@${proposal.version}`, proposal.scores));
+      } catch { /* A malformed support cannot discard valid model predictions. */ }
+    }
     if (proposals.length) {
       // Telemetry must not turn a successful prediction into a failed analysis.
       await localPredictionDependencies.recordSupportUsage([...new Set(proposals.map(proposal => proposal.id))])
         .catch(error => console.error("[Sentiment support usage]", asErrorMessage(error)));
     }
-    if (decision.origin === "builtin") return builtin;
-    return {
-      ...builtin,
-      label: decision.label,
-      confidence: decision.confidence,
-      provider: "ensemble",
-      model: `cascade:${decision.origin}|${decision.reason}|builtin:${version}|support:${decision.ids.join(",")}`,
-    };
+    return selectRawPrediction(builtin, candidates);
   } catch (error) {
     console.error("[Sentiment supporting fallback]", asErrorMessage(error));
-    return builtin;
+    return selectRawPrediction(builtin, candidates);
   }
 };
 
@@ -426,10 +458,13 @@ const callGeminiSentiment = async (
         };
         const label = normalizeSentimentLabel(parsed.label);
         if (!label) throw new Error("Gemini returned an unsupported sentiment label");
+        if (typeof parsed.confidence !== "number" || !Number.isFinite(parsed.confidence) || parsed.confidence < 0 || parsed.confidence > 1) {
+          throw new Error("Gemini returned an invalid confidence score");
+        }
         clearModelExhaustion(model);
         return {
           label,
-          confidence: safeConfidence(parsed.confidence),
+          confidence: parsed.confidence,
           language,
           provider: "gemini",
           model,
@@ -470,51 +505,10 @@ const fuseLocalWithGeminiAssist = (
   local: SentimentPrediction,
   gemini: SentimentPrediction
 ): { prediction: SentimentPrediction; errorCode: string } => {
-  const assistTag = `${local.model}+${gemini.model}`;
-
-  if (local.label === gemini.label) {
-    return {
-      prediction: {
-        ...local,
-        confidence: clamp((local.confidence + gemini.confidence) / 2),
-        provider: "ensemble",
-        model: `assist:agree|${assistTag}`,
-      },
-      errorCode: "",
-    };
-  }
-
-  // Decide how confident the local model must be before it may overrule Gemini.
-  // Short, low-context inputs demand near-certainty; longer inputs use the
-  // normal threshold.
-  const tokenCount = local.source_text.trim().split(/\s+/).filter(Boolean).length;
-  const requiredLocalConfidence =
-    tokenCount <= SHORT_INPUT_TOKENS
-      ? Math.max(LOW_LOCAL_CONFIDENCE, SHORT_INPUT_LOCAL_CONFIDENCE)
-      : LOW_LOCAL_CONFIDENCE;
-
-  if (local.confidence >= requiredLocalConfidence) {
-    return {
-      prediction: {
-        ...local,
-        confidence: clamp(local.confidence * 0.85),
-        provider: "ensemble",
-        model: `assist:local_wins|${local.label}~${gemini.label}`,
-      },
-      errorCode: "",
-    };
-  }
-
   return {
-    prediction: {
-      ...gemini,
-      language: local.language,
-      confidence: clamp(gemini.confidence * 0.9),
-      provider: "ensemble",
-      model: `assist:gemini_rescue|${local.label}~${gemini.label}`,
-      input_hash: local.input_hash,
-      source_text: local.source_text,
-    },
+    // Flatten source evidence, NOT a pre-collapsed local winner: otherwise a
+    // local conflicting tie could be lost before comparison with Gemini.
+    prediction: selectRawPrediction(local, [...predictionCandidates(local), ...predictionCandidates(gemini)]),
     errorCode: "",
   };
 };
@@ -531,6 +525,8 @@ const attempt = async <T>(fn: () => Promise<T>): Promise<AssistAttempt<T>> => {
   }
 };
 
+const predictionDependencies = { settings, detectLanguage, runLocalPrediction, callGeminiSentiment };
+
 const predict = async (
   textValue: string,
   context?: string,
@@ -544,8 +540,8 @@ const predict = async (
     };
   }
 
-  const config = await settings();
-  const detectedLanguage = await detectLanguage(text);
+  const config = await predictionDependencies.settings();
+  const detectedLanguage = await predictionDependencies.detectLanguage(text);
   const localEnabled = parseBooleanSetting(config.sentiment_local_model_enabled, true);
   const geminiEnabled = parseBooleanSetting(config.sentiment_gemini_enabled, false);
   const cebuanoMode = config.sentiment_cebuano_mode || "local";
@@ -566,9 +562,9 @@ const predict = async (
 
   if (shouldUseLocal && localLanguage) {
     const [localResult, geminiResult] = await Promise.all([
-      attempt(() => runLocalPrediction(detectedLanguage, text)),
+      attempt(() => predictionDependencies.runLocalPrediction(detectedLanguage, text)),
       shouldUseGemini
-        ? attempt(() => callGeminiSentiment(text, detectedLanguage, config, context))
+        ? attempt(() => predictionDependencies.callGeminiSentiment(text, detectedLanguage, config, context))
         : Promise.resolve(null),
     ]);
 
@@ -580,13 +576,13 @@ const predict = async (
             geminiResult && !geminiResult.ok ? geminiResult.error : "skipped"
           );
         }
-        return { prediction: localResult.value, errorCode: "" };
+        return { prediction: applyRawPolicy(localResult.value), errorCode: "" };
       }
       return fuseLocalWithGeminiAssist(localResult.value, geminiResult.value);
     }
 
     if (geminiResult?.ok) {
-      return { prediction: geminiResult.value, errorCode: "" };
+      return { prediction: applyRawPolicy(geminiResult.value), errorCode: "" };
     }
 
     if (!shouldUseGemini) {
@@ -618,7 +614,7 @@ const predict = async (
   if (shouldUseGemini) {
     try {
       return {
-        prediction: await callGeminiSentiment(text, detectedLanguage, config, context),
+        prediction: applyRawPolicy(await predictionDependencies.callGeminiSentiment(text, detectedLanguage, config, context)),
         errorCode: "",
       };
     } catch (error) {
@@ -639,18 +635,16 @@ const predict = async (
     if (cebuanoMode !== "disabled") fallbackLanguages.push("cebuano");
     const fallbackResults = await Promise.all(
       fallbackLanguages.map((language) =>
-        attempt(() => runLocalPrediction(language, text))
+        attempt(() => predictionDependencies.runLocalPrediction(language, text))
       )
     );
-    let best: SentimentPrediction | null = null;
-    for (const result of fallbackResults) {
-      if (!result.ok) continue;
-      if (!best || result.value.confidence > best.confidence) {
-        best = result.value;
-      }
-    }
-    if (best) {
-      return { prediction: best, errorCode: "" };
+    const available = fallbackResults.filter((result): result is { ok: true; value: SentimentPrediction } => result.ok);
+    if (available.length) {
+      const candidates = available.flatMap(result => predictionCandidates(result.value));
+      const prediction = selectRawPrediction(available[0]!.value, candidates);
+      const winningPrediction = available.find(result => predictionCandidates(result.value).some(candidate => candidate.id === prediction.decision?.winnerId));
+      prediction.language = winningPrediction?.value.language ?? "unknown";
+      return { prediction, errorCode: "" };
     }
   }
 
@@ -668,9 +662,8 @@ export const __testing = {
   runLocalPrediction,
   localPredictionDependencies,
   fuseLocalWithGeminiAssist,
-  LOW_LOCAL_CONFIDENCE,
-  SHORT_INPUT_TOKENS,
-  SHORT_INPUT_LOCAL_CONFIDENCE,
+  predict,
+  predictionDependencies,
   buildGeminiSentimentPrompt,
 };
 
@@ -696,6 +689,7 @@ type StoredSentimentRow = {
   analyzed_at: string | null;
   request_id: string | null;
   updated_at?: string | null;
+  decision?: SentimentDecision | null;
 };
 
 type ClaimResult = {
@@ -705,7 +699,7 @@ type ClaimResult = {
 };
 
 const sentimentSelect =
-  "id, subject_id, label, confidence, language, provider, model, status, input_hash, source_text, error_code, analyzed_at, request_id, updated_at";
+  "id, subject_id, label, confidence, language, provider, model, status, input_hash, source_text, error_code, analyzed_at, request_id, updated_at, decision";
 
 const toAnalysis = (
   subjectType: SentimentSubjectType,
@@ -733,6 +727,7 @@ const toAnalysis = (
   source_text: row.source_text || "",
   error_code: row.error_code || "",
   analyzed_at: row.analyzed_at ?? null,
+  decision: row.decision ?? null,
 });
 
 const unavailableAnalysis = (
@@ -821,6 +816,7 @@ const claimPending = async (
     error_code: "",
     analyzed_at: null,
     request_id: requestId,
+    decision: null,
   };
 
   const insertResult = await supabaseAdmin
@@ -930,6 +926,7 @@ const discardClaim = async (
       provider: "none",
       model: "none",
       error_code: "source_changed",
+      decision: null,
       analyzed_at: null,
     })
     .eq("id", claimId)
@@ -971,6 +968,7 @@ const persistPrediction = async (
       error_code: errorCode.slice(0, 500),
       analyzed_at: analyzedAt,
       request_id: requestId,
+      decision: prediction.decision ?? null,
     })
     .eq("id", claimId)
     .eq("subject_type", subjectType)

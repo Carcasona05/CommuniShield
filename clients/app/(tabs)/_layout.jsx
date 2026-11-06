@@ -13,6 +13,7 @@ import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import BottomNavBar from "../../components/BottomNavBar";
 import ErrorBoundary from "../../components/ErrorBoundary";
+import PageLoadNotice from "../../components/PageLoadNotice";
 import ProfileCompletionGate from "../../components/ProfileCompletionGate";
 import CredibilityNotice from "../../components/CredibilityNotice";
 import { scrollToTop } from "../../services/scrollToTopBus";
@@ -20,12 +21,19 @@ import { subscribeNavVisibility, publishNavVisibility } from "../../services/nav
 import { smartBack } from "../../services/navigation";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
+import useSessionEpoch from "../../hooks/useSessionEpoch";
 import { getCache, setCache } from "../../services/dataStore";
 import { saveLastPage, getLastPage } from "../../services/lastPage";
+import BrowserSessionGate from "../../components/BrowserSessionGate";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
 export default function TabLayout() {
+  return <BrowserSessionGate><TabLayoutInner /></BrowserSessionGate>;
+}
+
+function TabLayoutInner() {
+  const epoch = useSessionEpoch();
   const router = useRouter();
   const pathname = usePathname();
   // Computed up front: the web layout returns early below, but the effects
@@ -54,6 +62,7 @@ export default function TabLayout() {
   });
   const prevTabRef = useRef("/(tabs)/User_Home");
   const [navVisible, setNavVisible] = useState(true);
+  useEffect(() => { setUnreadCount(0); }, [epoch]);
 
   useEffect(() => subscribeNavVisibility(setNavVisible), []);
 
@@ -217,11 +226,13 @@ export default function TabLayout() {
     <ErrorBoundary>
     <View style={[styles.root, isDark && styles.darkRoot]}>
       <Header />
+      <PageLoadNotice />
       <ProfileCompletionGate />
       <CredibilityNotice />
 
       <View style={styles.content}>
         <Tabs
+          key={epoch}
           screenOptions={{
             headerShown: false,
             tabBarStyle: {

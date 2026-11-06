@@ -1,4 +1,6 @@
-/** Pure, validation-policy-driven cascade. Scores are NOT calibrated certainty. */
+/** Policy validation and legacy cascade qualification utilities.
+ * Production selection uses sentimentConfidenceRouting.ts. Scores are NOT calibrated certainty.
+ */
 export const SUPPORT_LABELS = ["negative", "neutral", "positive"] as const;
 export type SupportLabel = typeof SUPPORT_LABELS[number];
 export type Scores = Record<SupportLabel, number>;

@@ -8,7 +8,11 @@ export function querySnapshotKey(endpoint, params = {}) {
 export function usableQuerySnapshot(snapshot, now = Date.now()) {
   if (!snapshot?.data || !Number.isFinite(snapshot.checkedAt)) return false;
   const age = now - snapshot.checkedAt;
-  return age >= 0 && age < QUERY_SNAPSHOT_TTL_MS &&
+  if (age < 0) return false;
+  // Keep ordinary pages displayable for this in-memory session. Network
+  // freshness is separate; time-sensitive forecasts still expire as before.
+  if (!snapshot.data.forecast) return true;
+  return age < QUERY_SNAPSHOT_TTL_MS &&
     new Date(snapshot.checkedAt).toISOString().slice(0, 10) === new Date(now).toISOString().slice(0, 10);
 }
 

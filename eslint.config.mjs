@@ -31,6 +31,15 @@ export default defineConfig([
   },
   
   // 3. Recommended & Strict TypeScript Rules
+  {
+    files: ["clients/**/*.{js,jsx,ts,tsx}"],
+    languageOptions: {
+      globals: {
+        __DEV__: "readonly", // Provided by the Expo/React Native bundler.
+      },
+    },
+  },
+
   ...tseslint.configs.recommended,
   
   // 4. Recommended React Rules

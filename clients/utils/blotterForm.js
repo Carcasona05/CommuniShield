@@ -3,7 +3,7 @@ export const BLOTTER_FORM_SECTIONS = [
     title: "POLICE BLOTTER INFORMATION",
     fields: [
       { key: "incidentType", column: "incident_type", label: "Nature of Case / Incident", placeholder: "Nature of the recorded case or incident", required: true },
-      { key: "incidentDateTime", column: "incident_datetime", label: "Date/Time of Occurrence", type: "datetime" },
+      { key: "incidentDateTime", column: "incident_datetime", label: "Date/Time of Occurrence", type: "datetime", required: true },
       { key: "location", column: "location", label: "Place of Occurrence", placeholder: "Exact place of occurrence", required: true },
     ],
   },
@@ -19,17 +19,17 @@ export const BLOTTER_FORM_SECTIONS = [
   {
     title: "PURPOSE AND ISSUANCE",
     fields: [
-      { key: "requestedBy", column: "requested_by", label: "Requested By", placeholder: "Concerned person's full name" },
-      { key: "certificationPurpose", column: "certification_purpose", label: "Intended Purpose", placeholder: "Purpose for requesting this certification" },
-      { key: "issuanceDate", column: "issuance_date", label: "Date of Issuance", type: "date" },
+      { key: "requestedBy", column: "requested_by", label: "Requested By", placeholder: "Concerned person's full name", required: true },
+      { key: "certificationPurpose", column: "certification_purpose", label: "Intended Purpose", placeholder: "Purpose for requesting this certification", required: true },
+      { key: "issuanceDate", column: "issuance_date", label: "Date of Issuance", type: "date", required: true },
     ],
   },
   {
     title: "SIGNATURE BLOCK",
     fields: [
-      { key: "commanderName", column: "commander_name", label: "Commander's Full Name", placeholder: "Full name for the signature block" },
-      { key: "commanderRank", column: "commander_rank", label: "Police Rank", placeholder: "Police rank, including the word Police" },
-      { key: "commanderPosition", column: "commander_position", label: "Official Position", placeholder: "Official position" },
+      { key: "commanderName", column: "commander_name", label: "Commander's Full Name", placeholder: "Full name for the signature block", required: true },
+      { key: "commanderRank", column: "commander_rank", label: "Police Rank", placeholder: "Police rank, including the word Police", required: true },
+      { key: "commanderPosition", column: "commander_position", label: "Official Position", placeholder: "Official position", required: true },
     ],
   },
 ];

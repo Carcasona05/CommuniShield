@@ -23,6 +23,7 @@ import ToastProvider, { useToast } from "../../components/Toast";
 import ConfirmModal from "../../components/modals/ConfirmModal";
 
 const COMMUNISHIELD_BLUE = "#294880";
+const isApiCancellation = error => error?.code === "ERR_CANCELED" || error?.__CANCEL__ === true;
 const PREFERENCES_PATH = "/profile/notification-preferences";
 const PREFERENCES_CACHE_KEY = `api:${PREFERENCES_PATH}`;
 
@@ -66,16 +67,17 @@ const UserSettings = () => {
       const { data } = await apiClient.get(PREFERENCES_PATH, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (version !== preferenceVersion.current) return;
+      if (version !== preferenceVersion.current || token !== await AsyncStorage.getItem("access_token")) return;
       setCache(PREFERENCES_CACHE_KEY, data);
       setPreferences(data);
     } catch (error) {
+      if (isApiCancellation(error)) return;
       if (version === preferenceVersion.current) {
         const status = error.response?.status;
         const message = status === 404
-          ? "Preferences API not found. Check that the app uses the updated local server."
+          ? "Notification preferences are unavailable on this server. Please update the backend deployment."
           : !error.response
-            ? "Cannot reach the server. Check your local API URL and server connection."
+            ? "Cannot connect to CommuniShield. Check your internet connection and try again."
             : error.response?.data?.error || "Could not load notification preferences. Please try again.";
         preferenceLoadError(message);
       }
@@ -99,6 +101,7 @@ const UserSettings = () => {
       setPreferences(data);
       toast.success(`${label} turned ${value ? "on" : "off"}.`);
     } catch (error) {
+      if (isApiCancellation(error)) return;
       toast.error(error.response?.data?.error || "Could not save preference. Please try again.");
     } finally {
       savingPreferenceRef.current = false;
@@ -123,6 +126,7 @@ const UserSettings = () => {
     () => getCache("api:/profile")?.email || "youraccount@email.com"
   );
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const logoutInProgress = useRef(false);
 
   const loadProfile = useCallback(async () => {
     try {
@@ -141,6 +145,7 @@ const UserSettings = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
 
+      if (token !== await AsyncStorage.getItem("access_token")) return;
       const profile = res.data ?? {};
       setCache("api:/profile", profile);
       setDisplayName(
@@ -175,11 +180,16 @@ const UserSettings = () => {
   }
 
   const handleLogout = async () => {
-    await clearAuth();
-    toast.success("You have been logged out successfully.");
-    setTimeout(() => {
-      router.replace("/(auth)/User_Login");
-    }, 800);
+    if (logoutInProgress.current) return;
+    logoutInProgress.current = true;
+    setShowLogoutModal(false);
+    try {
+      await clearAuth();
+      router.replace({ pathname: "/(auth)/User_Login", params: { loggedOut: "1" } });
+    } catch {
+      logoutInProgress.current = false;
+      toast.error("Could not finish logging out. Please try again.");
+    }
   };
 
   const SettingItem = ({
@@ -363,10 +373,7 @@ const UserSettings = () => {
 
               <TouchableOpacity
                 style={styles.modalConfirmButton}
-                onPress={() => {
-                  setShowLogoutModal(false);
-                  handleLogout();
-                }}
+                onPress={handleLogout}
                 activeOpacity={0.85}
               >
                 <ThemedText style={styles.modalConfirmText}>Logout</ThemedText>

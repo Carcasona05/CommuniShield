@@ -9,6 +9,7 @@ import { profileService } from "./services/authService.js";
 import { reportService } from "./services/reportService.js";
 import { riskOutlookHistory } from "./services/riskOutlookHistory.js";
 import { supabaseAdmin } from "./config/supabaseAdmin.js";
+import { ARGAO_BARANGAY_NAMES } from "./utils/argaoLocation.js";
 
 const DAY = 86400000;
 const now = Date.parse("2026-10-22T12:00:00Z");
@@ -143,6 +144,47 @@ test("endpoint keeps active indicators separate from resolved historical submiss
   assert.equal(current.severity.Unknown, 1, "missing analysis must not fabricate Medium severity");
   assert.equal(current.evidence.reports.usable, 2);
   assert.equal((output.body.forecast as { stats: { reports: number } }).stats.reports, 160);
+});
+
+test("current-only risk view returns all barangay evidence in one snapshot without loading forecast history", async t => {
+  t.mock.method(Date, "now", () => now);
+  t.mock.method(profileService, "getProfile", async () => ({ data: { role: "admin" }, error: null }));
+  const base = { ...history.at(-1)!, status: "Pending Review", ai_score: 80, is_verified: false, comments: [],
+    sentiment_status: "succeeded", sentiment_confidence: .9, sentiment_language: "cebuano" };
+  const dashboard = t.mock.method(reportService, "getAdminDashboard", async () => ({ data: { reports: [
+    { ...base, id: "lamacan", location: "Lamacan, Argao", latitude: 9.8784487, longitude: 123.5950192, severity: "High", sentiment: "negative" },
+    { ...base, id: "tulic", location: "Tulic, Argao", latitude: 9.869362, longitude: 123.585527, severity: "Low", sentiment: "positive" },
+  ], summary: {} }, error: null }));
+  const loadHistory = t.mock.method(riskOutlookHistory, "load", async () => { throw new Error("Current view must not request history"); });
+  const result = response();
+  await getRiskOutlook({ user: { id: "u" }, query: { view: "current" } } as unknown as Request, result.res);
+  assert.equal(result.output.status, 200);
+  assert.equal(dashboard.mock.callCount(), 1);
+  assert.equal(loadHistory.mock.callCount(), 0);
+  assert.equal((result.output.body.forecast as { status: string }).status, "not_requested");
+  const scopes = result.output.body.currentByBarangay as Record<string, {
+    activeReportCount: number; severity: Record<string, number>;
+    evidence: { reports: { counts: Record<string, number> } };
+  }>;
+  assert.equal(Object.keys(scopes).length, ARGAO_BARANGAY_NAMES.length);
+  assert.equal(scopes.Lamacan!.activeReportCount, 1);
+  assert.equal(scopes.Lamacan!.severity.High, 1);
+  assert.equal(scopes.Lamacan!.evidence.reports.counts.negative, 1);
+  assert.equal(scopes.Tulic!.activeReportCount, 1);
+  assert.equal(scopes.Tulic!.severity.Low, 1);
+  assert.equal(scopes.Tulic!.evidence.reports.counts.positive, 1);
+  assert.equal(scopes.Anajao!.activeReportCount, 0);
+  assert.equal((result.output.body.current as { activeReportCount: number }).activeReportCount, 2);
+  assert.ok((result.output.body.reports as { barangay: string }[]).every(report => ["Lamacan", "Tulic"].includes(report.barangay)));
+});
+
+test("an unsupported risk view fails before loading the dashboard or history", async t => {
+  t.mock.method(profileService, "getProfile", async () => ({ data: { role: "admin" }, error: null }));
+  const dashboard = t.mock.method(reportService, "getAdminDashboard", async () => { throw new Error("Must not query"); });
+  const result = response();
+  await getRiskOutlook({ user: { id: "u" }, query: { view: "unknown" } } as unknown as Request, result.res);
+  assert.equal(result.output.status, 400);
+  assert.equal(dashboard.mock.callCount(), 0);
 });
 
 test("forecast history explicitly paginates and retains resolved statuses", async (t) => {

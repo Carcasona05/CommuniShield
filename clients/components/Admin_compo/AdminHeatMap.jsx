@@ -1,6 +1,8 @@
-﻿import React, { useEffect, useRef, useState } from "react";
+﻿import React, { useEffect, useRef } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
+import useMapReadiness from "../../hooks/useMapReadiness";
+import MapLoadingOverlay from "../MapLoadingOverlay";
 
 const MAP_HTML = `
 <!DOCTYPE html>
@@ -52,15 +54,24 @@ const MAP_HTML = `
       maxBoundsViscosity: 0.85,
       scrollWheelZoom: true,
     });
+    // Remove Leaflet's documentation link; retain tile-provider attribution.
+    map.attributionControl.setPrefix(false);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    function signalReady() {
+      var message = JSON.stringify({ type: "map-ready" });
+      if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(message);
+      else if (window.parent !== window) window.parent.postMessage(message, "*");
+    }
+    var baseLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(map);
+    baseLayer.on("load", signalReady);
 
     L.control.scale().addTo(map);
 
     var SEVERITY_COLOR = {
+      Unknown: "#64748B",
       Low: "#3DBB74",
       Medium: "#F7C948",
       High: "#F29A2E",
@@ -68,6 +79,7 @@ const MAP_HTML = `
     };
 
     var SEVERITY_INTENSITY = {
+      Unknown: 0.15,
       Low: 0.3,
       Medium: 0.5,
       High: 0.75,
@@ -75,6 +87,7 @@ const MAP_HTML = `
     };
 
     var SEVERITY_RANK = {
+      Unknown: 0,
       Low: 1,
       Medium: 2,
       High: 3,
@@ -82,6 +95,7 @@ const MAP_HTML = `
     };
 
     var DOT_RADIUS = {
+      Unknown: 7,
       Low: 7,
       Medium: 8,
       High: 9,
@@ -98,7 +112,7 @@ const MAP_HTML = `
     function severityOf(r) {
       return SEVERITY_INTENSITY[r.severity] != null
         ? r.severity
-        : "Medium";
+        : "Unknown";
     }
 
     function esc(value) {
@@ -110,7 +124,7 @@ const MAP_HTML = `
     }
 
     function worstSeverity(list) {
-      var best = "Medium";
+      var best = "Unknown";
       var bestRank = 0;
 
       (list || []).forEach(function (r) {
@@ -332,6 +346,7 @@ const MAP_HTML = `
     }
 
     window.__communishieldInit = function (cfg) {
+      if (!baseLayer.isLoading()) signalReady();
       cfg = cfg || {};
 
       render(cfg.reports || []);
@@ -385,9 +400,10 @@ const AdminHeatMap = ({
   onReportSelect,
   focusTarget = null,
   resetView = false,
+  loading = false,
 }) => {
   const mapRef = useRef(null);
-  const [loaded, setLoaded] = useState(false);
+  const { loaded, ready, error, revision, markLoaded, markReady, markError, retry } = useMapReadiness();
   const isWeb = Platform.OS === "web";
 
   const reportsRef = useRef(reports);
@@ -397,6 +413,7 @@ const AdminHeatMap = ({
 
   const selectReport = (data) => {
     const payload = typeof data === "string" ? JSON.parse(data) : data;
+    if (payload?.type === "map-ready") { markReady(); return; }
     if (payload?.type !== "report-select" || !payload.report?.id) return;
     // Resolve against current data, not a stale iframe snapshot.
     const report = reportsRef.current.find((item) => item.id === payload.report.id);
@@ -447,7 +464,9 @@ const AdminHeatMap = ({
 
   if (isWeb) {
     return (
+      <View style={[styles.fill, style]}>
       <iframe
+        key={revision}
         ref={mapRef}
         srcDoc={MAP_HTML}
         style={{
@@ -456,22 +475,28 @@ const AdminHeatMap = ({
           border: "0",
           display: "block",
         }}
-        onLoad={() => setLoaded(true)}
+        onLoad={markLoaded}
+        onError={markError}
       />
+      <MapLoadingOverlay visible={!ready || loading} loadingData={loading} error={error} onRetry={retry} />
+      </View>
     );
   }
 
   return (
     <View style={[styles.fill, style]}>
       <WebView
+        key={revision}
         ref={mapRef}
         source={{ html: MAP_HTML }}
         style={styles.fill}
-        onLoadEnd={() => setLoaded(true)}
+        onLoadEnd={markLoaded}
+        onError={markError}
         onMessage={handleMessage}
         javaScriptEnabled
         originWhitelist={["*"]}
       />
+      <MapLoadingOverlay visible={!ready || loading} loadingData={loading} error={error} onRetry={retry} />
     </View>
   );
 };
