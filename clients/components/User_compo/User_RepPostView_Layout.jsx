@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import apiClient from "../../services/apiClient";
-import { ensureCompleteProfile, ensureParticipationReady } from "../../services/profileCompletion";
+import { ensureParticipationReady } from "../../services/profileCompletion";
 import formatRelativeTime from "../../services/formatRelativeTime";
 import formatDisplayLocation from "../../services/formatDisplayLocation";
 import censorText from "../../services/censorText";
@@ -24,6 +24,9 @@ import { patchCachedReports } from "../../services/dataStore";
 import { triggerRefresh } from "../../services/refreshBus";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useToast } from "../Toast";
+import { normalizeReportStatus } from "../../services/reportPresentation";
+import usePaginatedComments from "../../hooks/usePaginatedComments";
+import usePrependScroll from "../../hooks/usePrependScroll";
 
 const PRIMARY = "#294880";
 
@@ -33,41 +36,20 @@ const FONT = {
   semiBold: "Poppins-SemiBold",
 };
 
-const COMMENT_WINDOW = 10;
-
 const User_RepPostView_Layout = ({ post }) => {
   const commentInputRef = useRef(null);
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const [commentText, setCommentText] = useState("");
-  const [comments, setComments] = useState([]);
-  const [sending, setSending] = useState(false);
+  const thread = usePaginatedComments(post?.id, post?.comments, toast);
+  const { commentText, setCommentText, comments, sending, total: commentTotal, submit: handleAddComment } = thread;
+  const commentDisabled = !commentText.trim() || sending || thread.loading || thread.loadingMore;
+  const commentScroll = usePrependScroll(comments.length, post?.id);
   const [likeBusy, setLikeBusy] = useState(false);
   const [likeState, setLikeState] = useState({
     liked: post?.isLiked ?? false,
     count: post?.likes ?? 0,
   });
-  const [visibleCommentCount, setVisibleCommentCount] = useState(COMMENT_WINDOW);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-
-  useEffect(() => {
-    const loadComments = async () => {
-      if (!post?.id) return;
-      try {
-        const token = await AsyncStorage.getItem("access_token");
-        if (!token) return;
-
-        const res = await apiClient.get(`/reports/${post.id}/comments`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setComments(res.data?.comments || []);
-      } catch {
-        setComments([]);
-      }
-    };
-
-    loadComments();
-  }, [post?.id]);
 
   useEffect(() => {
     setLikeState({
@@ -75,10 +57,6 @@ const User_RepPostView_Layout = ({ post }) => {
       count: post?.likes ?? 0,
     });
   }, [post?.isLiked, post?.likes]);
-
-  useEffect(() => {
-    setVisibleCommentCount(COMMENT_WINDOW);
-  }, [post?.id]);
 
   useEffect(() => {
     if (Platform.OS !== "android") return undefined;
@@ -114,17 +92,7 @@ const User_RepPostView_Layout = ({ post }) => {
   };
 
   const normalizeStatus = (value) => {
-    const current = String(value || "").toLowerCase();
-
-    if (current.includes("fake") || current.includes("marked")) return "Marked Fake";
-    if (current.includes("under")) return "Under Verification";
-    if (current.includes("resolved")) return "Resolved";
-    if (current.includes("reject")) return "Rejected";
-    if (current.includes("archive")) return "Archived";
-    if (current.includes("verified")) return "Resolved";
-    if (current.includes("pending")) return "Pending Review";
-
-    return post?.verified ? "Resolved" : "Pending Review";
+    return normalizeReportStatus(value, post?.is_verified ?? post?.verified);
   };
 
   const getStatusData = () => {
@@ -172,38 +140,6 @@ const User_RepPostView_Layout = ({ post }) => {
           icon: "time-outline",
           color: "#9A6A00",
         };
-    }
-  };
-
-  const handleAddComment = async () => {
-    if (!commentText.trim() || sending) return;
-    setSending(true);
-
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) {
-        toast.error("Please sign in to comment.");
-        return;
-      }
-
-      if (!await ensureCompleteProfile("comment")) return;
-      await apiClient.post(
-        `/reports/${post.id}/comments`,
-        { content: commentText.trim() },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      const res = await apiClient.get(`/reports/${post.id}/comments`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      setComments(res.data?.comments || []);
-      setCommentText("");
-      triggerRefresh();
-    } catch (error) {
-      toast.error(error.response?.data?.error || "Could not add comment.");
-    } finally {
-      setSending(false);
     }
   };
 
@@ -267,6 +203,10 @@ const User_RepPostView_Layout = ({ post }) => {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
     <ScrollView
+      ref={commentScroll.ref}
+      onScroll={commentScroll.onScroll}
+      onContentSizeChange={commentScroll.onContentSizeChange}
+      scrollEventThrottle={16}
       style={styles.container}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
@@ -388,7 +328,7 @@ const User_RepPostView_Layout = ({ post }) => {
               size={18}
               color={PRIMARY}
             />
-            <Text style={styles.summaryText}>{comments.length} Comments</Text>
+            <Text style={styles.summaryText}>{commentTotal} Comments</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -396,24 +336,24 @@ const User_RepPostView_Layout = ({ post }) => {
       <View style={styles.commentsCard}>
         <View style={styles.commentsHeader}>
           <Text style={styles.commentsTitle}>Comments</Text>
-          <Text style={styles.commentsCount}>{comments.length}</Text>
+          <Text style={styles.commentsCount}>{commentTotal}</Text>
         </View>
 
-        {comments.length > visibleCommentCount ? (
+        {thread.hasMore ? (
           <TouchableOpacity
             style={styles.viewMoreComments}
             activeOpacity={0.7}
-            onPress={() =>
-              setVisibleCommentCount((count) => count + COMMENT_WINDOW)
-            }
+            onPress={() => commentScroll.preserve(thread.loadMore)}
+            disabled={thread.loadingMore || sending}
           >
             <Text style={styles.viewMoreCommentsText}>
-              View more comments ({comments.length - visibleCommentCount} more)
+              {thread.loadingMore ? "Loading comments..." : `View more comments (${Math.max(0, commentTotal - comments.length)} more)`}
             </Text>
           </TouchableOpacity>
         ) : null}
 
-        {comments.length === 0 ? (
+        {thread.error ? <TouchableOpacity onPress={() => comments.length ? commentScroll.preserve(thread.retry) : thread.retry()} disabled={sending || thread.loading || thread.loadingMore}><Text accessibilityRole="alert" style={styles.viewMoreCommentsText}>{thread.error}</Text></TouchableOpacity> : null}
+        {thread.loading ? <ActivityIndicator size="small" color={PRIMARY} /> : comments.length === 0 && !thread.error ? (
           <View style={styles.noCommentsBox}>
             <Ionicons
               name="chatbubble-ellipses-outline"
@@ -423,7 +363,7 @@ const User_RepPostView_Layout = ({ post }) => {
             <Text style={styles.noCommentsText}>No comments yet.</Text>
           </View>
         ) : (
-          comments.slice(-visibleCommentCount).map((comment) => (
+          comments.map((comment) => (
             <View key={comment.id} style={styles.commentItem}>
               <View style={styles.commentAvatar}>
                 <Ionicons name="person-outline" size={15} color={PRIMARY} />
@@ -440,6 +380,7 @@ const User_RepPostView_Layout = ({ post }) => {
 
                 <Text style={styles.commentDate}>
                   {formatRelativeTime(comment.datePosted) || "Just now"}
+                  {comment.sentiment_status === "pending" ? " · Analysis pending" : ""}
                 </Text>
               </View>
             </View>
@@ -471,10 +412,13 @@ const User_RepPostView_Layout = ({ post }) => {
         />
 
         <TouchableOpacity
-          style={[styles.sendButton, sending && styles.sendButtonDisabled]}
+          style={[styles.sendButton, commentDisabled && styles.sendButtonDisabled]}
           activeOpacity={0.8}
           onPress={handleAddComment}
-          disabled={sending}
+          disabled={commentDisabled}
+          accessibilityRole="button"
+          accessibilityLabel="Send comment"
+          accessibilityState={{ disabled: commentDisabled }}
         >
           {sending ? (
             <ActivityIndicator size="small" color="#FFFFFF" />

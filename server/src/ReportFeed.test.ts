@@ -14,6 +14,16 @@ function mockFeed(t: TestContext, failTable = "") {
   }));
   const batches: { table: string; ids: string[] }[] = [];
   const filters: { table: string; column: string; value: string; operator: string }[] = [];
+  t.mock.method(supabaseAdmin, "rpc", (async (name: string, args: any) => {
+    if (name === "report_engagement_counts") return { data: args.p_ids.map((id: string) => ({ id, comments: 1, likes: 1, is_liked: true })), error: null };
+    if (name === "feed_safety_reports") return { data: [], error: null };
+    assert.equal(name, "feed_page");
+    for (const [column, value, operator] of [["created_at", args.p_from, "gte"], ["created_at", args.p_to, "lte"]]) {
+      if (value) filters.push({ table: "feed_page", column, value, operator });
+    }
+    const selected = reports.filter(row => (!args.p_owner || row.user_id === args.p_owner) && (!args.p_from || row.created_at >= args.p_from) && (!args.p_to || row.created_at <= args.p_to));
+    return { data: { items: selected.slice(0, 11).map(row => ({ id: row.id, created_at: row.created_at, source: "User" })), total: selected.length, statusCounts: {} }, error: null };
+  }) as never);
   t.mock.method(supabaseAdmin, "from", (table: string) => {
     let ids: string[] = [];
     const conditions: ((row: (typeof reports)[number]) => boolean)[] = [];
@@ -36,6 +46,7 @@ function mockFeed(t: TestContext, failTable = "") {
       },
       in(_column: string, values: string[]) {
         ids = values;
+        if (table === "reports") conditions.push(row => values.includes(row.id));
         batches.push({ table, ids });
         assert.ok(ids.length <= 100, "Relation queries must stay below proxy URL limits");
         return query;
@@ -67,7 +78,7 @@ test("large Home feeds batch all report relations and retain enrichment", async 
   const result = await reportService.listReports("viewer");
   assert.equal(result.error, null);
   assert.equal(result.data?.length, 225);
-  assert.equal(batches.length, 15);
+  assert.equal(batches.length, 9);
   const last = result.data!.at(-1)!;
   assert.equal(last.incident_type, "Fire");
   assert.equal(last.severity, "High");
@@ -108,10 +119,11 @@ test("Home filters 24-hour and 7-day windows in the database before loading rela
     const start = batches.length;
     await getReports({ query: { period }, user: { id: "viewer" } } as unknown as Request & { user: User }, res);
     assert.equal(output.status, 200);
-    assert.equal(output.body.reports.length, count);
+    assert.equal(output.body.reports.length, 10);
+    assert.equal(output.body.total, count);
     assert.ok(batches.slice(start).every(batch => batch.ids.every(id => Number(id.split("-")[1]) % 3 < (period === "24h" ? 1 : 2))));
   }
-  for (const table of ["reports", "admin_announcement"]) {
+  for (const table of ["feed_page"]) {
     assert.equal(filters.filter(filter => filter.table === table && filter.operator === "gte").length, 2);
     assert.equal(filters.filter(filter => filter.table === table && filter.operator === "lte").length, 2);
   }
@@ -120,8 +132,9 @@ test("Home filters 24-hour and 7-day windows in the database before loading rela
 test("Home defaults to 24 hours and rejects unsupported or unbounded windows", async t => {
   mockFeed(t);
   let r = response();
-  await getReports({ query: {} } as Request, r.res);
-  assert.equal(r.output.body.reports.length, 75);
+  await getReports({ query: {}, user: { id: "viewer" } } as unknown as Request, r.res);
+  assert.equal(r.output.body.reports.length, 10);
+  assert.equal(r.output.body.total, 75);
   for (const period of ["all", "30d", ["24h", "7d"]]) {
     r = response();
     await getReports({ query: { period } } as unknown as Request, r.res);
@@ -130,11 +143,12 @@ test("Home defaults to 24 hours and rejects unsupported or unbounded windows", a
 });
 
 test("My Reports uses the authenticated account, never a supplied owner ID", async t => {
-  const list = t.mock.method(reportService, "listMyReports", async () => ({ data: [], error: null }));
+  const list = t.mock.method(reportService, "listFeedPage", async () => ({ data: { reports: [], posts: [], order: [], total: 0, statusCounts: {}, hasMore: false, nextCursor: null }, error: null }));
   const { output, res } = response();
   await getMyReports({ query: { user_id: "other-user" }, user: { id: "viewer" } } as unknown as Request & { user: User }, res);
   assert.equal(output.status, 200);
   assert.equal(list.mock.calls[0]?.arguments[0], "viewer");
+  assert.equal(list.mock.calls[0]?.arguments[1]?.userId, "viewer");
   const denied = response();
   await getMyReports({ query: {} } as Request, denied.res);
   assert.equal(denied.output.status, 401);
@@ -143,17 +157,16 @@ test("My Reports uses the authenticated account, never a supplied owner ID", asy
 test("no recent admin announcements is an empty feed, not a load failure", async t => {
   mockFeed(t);
   const { output, res } = response();
-  await getReports({ query: { period: "24h" } } as unknown as Request, res);
+  await getReports({ query: { period: "24h" }, user: { id: "viewer" } } as unknown as Request, res);
   assert.equal(output.status, 200);
   assert.deepEqual(output.body.posts, []);
-  assert.equal(output.body.postsUnavailable, false);
+  assert.equal(output.body.hasMore, true);
 });
 
-test("real announcement database failures still report unavailable content", async t => {
-  mockFeed(t, "admin_announcement");
+test("pagination database failures are not disguised as a successful empty page", async t => {
+  t.mock.method(supabaseAdmin, "rpc", async () => ({ data: null, error: { message: "Database unavailable" } }) as never);
   const { output, res } = response();
-  await getReports({ query: { period: "24h" } } as unknown as Request, res);
-  assert.equal(output.status, 200);
-  assert.equal(output.body.postsUnavailable, true);
-  assert.equal(output.body.reports.length, 75);
+  await getReports({ query: { period: "24h" }, user: { id: "viewer" } } as unknown as Request, res);
+  assert.equal(output.status, 500);
+  assert.equal(output.body.error, "Database unavailable");
 });

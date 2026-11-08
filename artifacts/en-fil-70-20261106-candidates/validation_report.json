@@ -1,0 +1,376 @@
+{
+  "created_at": "2026-11-06T15:04:26.586273+00:00",
+  "target_macro_f1": 0.7,
+  "selection_split": "validation",
+  "test_evaluated": false,
+  "deployed": false,
+  "input_split_hashes": {
+    "train": "f14189a697d6740d7ac288c35059a70200d408ef067f33a0d034cb0a4c4d1a33",
+    "validation": "273592bbf42f694e486e7b51902143a6c3d3c793a57452f5ed863fbc48f6ff63"
+  },
+  "trainer_sha256": "bafc0d5d77cad86817e3c17c137211e927df840924c1419db1e0565efd3f13ad",
+  "models": [
+    {
+      "language": "english",
+      "fit_splits": [
+        "train"
+      ],
+      "training_samples": 56977,
+      "validation_metrics": {
+        "samples": 3335,
+        "accuracy": 0.7031484257871065,
+        "macro_f1": 0.6919258903988731,
+        "weighted_f1": 0.7029647205680181,
+        "per_label": {
+          "negative": {
+            "precision": 0.6010037641154329,
+            "recall": 0.6736990154711674,
+            "f1": 0.6352785145888594,
+            "support": 711.0
+          },
+          "neutral": {
+            "precision": 0.7307692307692307,
+            "recall": 0.6407843137254902,
+            "f1": 0.6828249059757626,
+            "support": 1275.0
+          },
+          "positive": {
+            "precision": 0.7387323943661972,
+            "recall": 0.7776130467012602,
+            "f1": 0.7576742506319971,
+            "support": 1349.0
+          }
+        },
+        "confusion_matrix_labels": [
+          "negative",
+          "neutral",
+          "positive"
+        ],
+        "confusion_matrix": [
+          [
+            479,
+            119,
+            113
+          ],
+          [
+            200,
+            817,
+            258
+          ],
+          [
+            118,
+            182,
+            1049
+          ]
+        ]
+      },
+      "test_metrics": null,
+      "test_evaluated": false,
+      "validation_target_met": false,
+      "configuration": {
+        "features": "standard",
+        "c": 8.0,
+        "class_weight": "balanced",
+        "validation_macro_f1": 0.6919258903988731,
+        "quality_floors_passed": true
+      },
+      "offsets": {
+        "negative": 0.3,
+        "neutral": 0.0,
+        "positive": 0.6
+      },
+      "input_split_hashes": {
+        "train": "f14189a697d6740d7ac288c35059a70200d408ef067f33a0d034cb0a4c4d1a33",
+        "validation": "273592bbf42f694e486e7b51902143a6c3d3c793a57452f5ed863fbc48f6ff63"
+      },
+      "onnx_smoke_samples": 3335,
+      "onnx_prediction_mismatches": 41,
+      "export_compatible": false,
+      "onnx_validation_metrics": {
+        "samples": 3335,
+        "accuracy": 0.7022488755622189,
+        "macro_f1": 0.690759354440975,
+        "weighted_f1": 0.7022290400162847,
+        "per_label": {
+          "negative": {
+            "precision": 0.6,
+            "recall": 0.6666666666666666,
+            "f1": 0.631578947368421,
+            "support": 711.0
+          },
+          "neutral": {
+            "precision": 0.7255936675461742,
+            "recall": 0.6470588235294118,
+            "f1": 0.6840796019900498,
+            "support": 1275.0
+          },
+          "positive": {
+            "precision": 0.7407670454545454,
+            "recall": 0.7731653076352853,
+            "f1": 0.7566195139644541,
+            "support": 1349.0
+          }
+        },
+        "confusion_matrix_labels": [
+          "negative",
+          "neutral",
+          "positive"
+        ],
+        "confusion_matrix": [
+          [
+            474,
+            123,
+            114
+          ],
+          [
+            199,
+            825,
+            251
+          ],
+          [
+            117,
+            189,
+            1043
+          ]
+        ]
+      },
+      "eligible_for_review": false,
+      "onnx_sha256": "bb02ae30ee98e894092eb210ac755429c1916a8a7a5bd74c51699c96f314aa40",
+      "trials": [
+        {
+          "features": "aligned-word",
+          "c": 0.5,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "aligned-word",
+          "c": 0.5,
+          "class_weight": null,
+          "validation_macro_f1": 0.6510555134002377,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "aligned-word",
+          "c": 2.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": 0.6428880538506995,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "aligned-word",
+          "c": 2.0,
+          "class_weight": null,
+          "validation_macro_f1": 0.6622212172835212,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "aligned-word",
+          "c": 8.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": 0.6427534841491239,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "aligned-word",
+          "c": 8.0,
+          "class_weight": null,
+          "validation_macro_f1": 0.6583283598821039,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "aligned-word",
+          "c": 32.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": 0.6394021505860098,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "aligned-word",
+          "c": 32.0,
+          "class_weight": null,
+          "validation_macro_f1": 0.6533509698347015,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "standard",
+          "c": 0.5,
+          "class_weight": "balanced",
+          "validation_macro_f1": 0.6747862738494824,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "standard",
+          "c": 0.5,
+          "class_weight": null,
+          "validation_macro_f1": 0.6719955737612552,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "standard",
+          "c": 2.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": 0.6912581614611867,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "standard",
+          "c": 2.0,
+          "class_weight": null,
+          "validation_macro_f1": 0.6889253224827612,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "standard",
+          "c": 8.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": 0.6919258903988731,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "standard",
+          "c": 8.0,
+          "class_weight": null,
+          "validation_macro_f1": 0.6900880961454655,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "standard",
+          "c": 32.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": 0.6865251976534913,
+          "quality_floors_passed": true
+        },
+        {
+          "features": "standard",
+          "c": 32.0,
+          "class_weight": null,
+          "validation_macro_f1": 0.6821409959862401,
+          "quality_floors_passed": true
+        }
+      ]
+    },
+    {
+      "language": "filipino",
+      "validation_target_met": false,
+      "reason": "No candidate meets existing validation class-quality floors",
+      "trials": [
+        {
+          "features": "aligned-word",
+          "c": 0.5,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "aligned-word",
+          "c": 0.5,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "aligned-word",
+          "c": 2.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "aligned-word",
+          "c": 2.0,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "aligned-word",
+          "c": 8.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "aligned-word",
+          "c": 8.0,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "aligned-word",
+          "c": 32.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "aligned-word",
+          "c": 32.0,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 0.5,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 0.5,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 2.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 2.0,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 8.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 8.0,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 32.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 32.0,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        }
+      ]
+    }
+  ],
+  "all_validation_targets_met": false,
+  "all_exports_compatible": false
+}

@@ -259,8 +259,16 @@ export default function TermsAndConditions() {
             <Text style={styles.bodyText}>
               For questions, concerns, or to exercise your data subject rights, contact our Data Protection Officer at:
             </Text>
-            <Text style={styles.contactInfo}>Email: dpo@CommuniShield.example.com</Text>
-            <Text style={styles.contactInfo}>Address: CommuniShield Data Privacy Office, [Company Address], Philippines</Text>
+            <View style={styles.contactCard}>
+              <View>
+                <Text style={styles.contactLabel}>Email</Text>
+                <Text selectable style={styles.contactInfo}>communishield@gmail.com</Text>
+              </View>
+              <View>
+                <Text style={styles.contactLabel}>Address</Text>
+                <Text selectable style={styles.contactInfo}>Argao Police Station, Baluarte Beach Resort, General Ortega St, Argao, 6021 Cebu</Text>
+              </View>
+            </View>
           </View>
 
           <View style={styles.lastUpdated}>
@@ -375,13 +383,28 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: "justify",
   },
+  contactCard: {
+    marginTop: 14,
+    padding: 16,
+    gap: 16,
+    backgroundColor: "#F0F5FF",
+    borderWidth: 1,
+    borderColor: "#C8D7F0",
+    borderLeftWidth: 4,
+    borderLeftColor: "#294880",
+    borderRadius: 12,
+  },
+  contactLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#3A5BA0",
+    marginBottom: 5,
+  },
   contactInfo: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: "#3D4A6B",
-    marginLeft: 12,
-    marginBottom: 4,
-    fontStyle: "italic",
+    fontSize: 15,
+    lineHeight: 23,
+    fontWeight: "600",
+    color: "#1F355A",
   },
   lastUpdated: {
     marginTop: 32,

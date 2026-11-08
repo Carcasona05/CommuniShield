@@ -8,6 +8,7 @@ import {
   deleteReport,
   addComment,
   getComments,
+  getCommentStatuses,
   toggleLike,
   validateReport,
   getIncidentOptions,
@@ -37,6 +38,7 @@ router.get("/reports", authenticate, getReports);
 router.get("/reports/mine", authenticate, getMyReports);
 router.get("/reports/:id", authenticate, getReport);
 router.get("/reports/:id/comments", authenticate, getComments);
+router.get("/reports/:id/comment-status", authenticate, getCommentStatuses);
 router.post("/reports/:id/comments", authenticate, requireCompleteUserProfile, requireCredibilityWriteAccess("comment"), addComment);
 router.post("/reports/:id/like", authenticate, toggleLike);
 router.post("/reports/:id/status", authenticate, adminOnly, requireCredibilityEditAccess, validateReport);

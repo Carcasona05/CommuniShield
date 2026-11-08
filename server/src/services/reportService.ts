@@ -3,6 +3,7 @@ import { cleanCredibilityReview } from "../utils/credibilityReview.js";
 import { sentimentCoverage } from "./sentimentCoverage.js";
 import { reverseGeocode } from "../utils/geocode.js";
 import { deriveBarangay, hasReportCoordinates } from "../utils/argaoLocation.js";
+import { encodeFeedCursor, type FeedCursor } from "../utils/feedCursor.js";
 import {
   getRecommendedActions,
   ruleBasedActions,
@@ -217,26 +218,30 @@ export const reportService = {
     };
   },
 
-  async listReports(viewerId?: string, filters: { userId?: string; from?: string; to?: string } = {}) {
-    const { data: types, error: typesError } = await supabaseAdmin
-      .from("incident_types")
-      .select("id, name, incident_categories(id, name)");
-
-    if (typesError) return { data: null, error: typesError.message };
-
-    const typeMap = new Map<string, { type: string; category: string }>();
-    (types || []).forEach((row) => {
-      const t = row as unknown as {
-        id: string;
-        name: string;
-        incident_categories: { name: string }[] | null;
-      };
-      typeMap.set(t.id, {
-        type: t.name,
-        category: categoryNameOf(t.incident_categories),
-      });
+  async listFeedPage(viewerId: string, filters: { userId?: string; from?: string; to?: string; status?: string; source?: string; cursor?: FeedCursor | null } = {}) {
+    const { data: page, error } = await supabaseAdmin.rpc("feed_page", {
+      p_owner: filters.userId ?? null, p_from: filters.from ?? null, p_to: filters.to ?? null,
+      p_status: filters.status ?? null, p_source: filters.source ?? "All",
+      p_before_time: filters.cursor?.created_at ?? null, p_before_id: filters.cursor?.id ?? null,
+      p_before_source: filters.cursor?.source ?? "User",
     });
+    if (error) return { error: error.message };
+    const keys = (page.items || []).slice(0, 10) as Required<FeedCursor>[];
+    const reportIds = keys.filter(row => row.source === "User").map(row => row.id);
+    const adminIds = keys.filter(row => row.source === "Admin").map(row => row.id);
+    const [reports, posts] = await Promise.all([
+      reportIds.length ? this.listReports(viewerId, { ids: reportIds, ...(filters.userId ? { userId: filters.userId } : {}) }) : { data: [], error: null },
+      adminIds.length ? this.listAdminPosts({ ids: adminIds }) : { data: [], error: null },
+    ]);
+    if (reports.error || posts.error) return { error: reports.error || posts.error };
+    return { data: {
+      reports: reports.data, posts: posts.data, order: keys.map(row => `${row.source}:${row.id}`), total: Number(page.total), statusCounts: page.statusCounts,
+      hasMore: page.items.length > 10,
+      nextCursor: page.items.length > 10 ? encodeFeedCursor(keys[keys.length - 1]!) : null,
+    }, error: null };
+  },
 
+  async listReports(viewerId?: string, filters: { userId?: string; from?: string; to?: string; ids?: string[] } = {}) {
     // Archived reports only live in the Logs archive view, never in feeds.
     let reportsQuery = supabaseAdmin
       .from("reports")
@@ -247,16 +252,33 @@ export const reportService = {
     if (filters.userId) reportsQuery = reportsQuery.eq("user_id", filters.userId);
     if (filters.from) reportsQuery = reportsQuery.gte("created_at", filters.from);
     if (filters.to) reportsQuery = reportsQuery.lte("created_at", filters.to);
-    const { data: reports, error: reportError } = await reportsQuery.order("created_at", { ascending: false });
+    if (filters.ids) reportsQuery = reportsQuery.in("id", filters.ids);
+    const [{ data: reports, error: reportError }, { data: types, error: typesError }] = await Promise.all([
+      reportsQuery.order("created_at", { ascending: false }),
+      supabaseAdmin.from("incident_types").select("id, name, incident_categories(id, name)"),
+    ]);
 
     if (reportError) return { data: null, error: reportError.message };
+    if (typesError) return { data: null, error: typesError.message };
+
+    const typeMap = new Map<string, { type: string; category: string }>();
+    (types || []).forEach(row => typeMap.set(row.id, { type: row.name, category: categoryNameOf(row.incident_categories) }));
 
     const reportIds = (reports || []).map((r) => r.id);
 
-    const { data: analyses, error: analysisError } = await loadDashboardRelations(reportIds, batch => supabaseAdmin
+    const [analysisResult, sentimentResult, imageResult, countsResult] = await Promise.all([
+      loadDashboardRelations(reportIds, batch => supabaseAdmin
           .from("report_credibility_analysis")
           .select("report_id, ai_score, severity, credibility_review")
-          .in("report_id", batch));
+          .in("report_id", batch)),
+      loadDashboardRelations(reportIds, batch => supabaseAdmin.from("sentiment_analysis")
+        .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
+        .eq("subject_type", "report").in("subject_id", batch)),
+      loadDashboardRelations(reportIds, batch => supabaseAdmin.from("report_images")
+        .select("report_id, image_url").in("report_id", batch).order("position", { ascending: true })),
+      reportIds.length ? supabaseAdmin.rpc("report_engagement_counts", { p_ids: reportIds, p_viewer: viewerId ?? null }) : Promise.resolve({ data: [], error: null }),
+    ]);
+    const { data: analyses, error: analysisError } = analysisResult;
 
     if (analysisError) return { data: null, error: analysisError.message };
 
@@ -283,22 +305,14 @@ export const reportService = {
       }
     );
 
-    const { data: sentimentRows, error: sentimentError } = await loadDashboardRelations(reportIds, batch => supabaseAdmin
-          .from("sentiment_analysis")
-          .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
-          .eq("subject_type", "report")
-          .in("subject_id", batch));
+    const { data: sentimentRows, error: sentimentError } = sentimentResult;
     if (sentimentError) return { data: null, error: sentimentError.message };
     const sentimentMap = new Map<string, SentimentRow>();
     (sentimentRows || []).forEach((row: SentimentRow) => {
       sentimentMap.set(row.subject_id, row);
     });
 
-    const { data: images, error: imageError } = await loadDashboardRelations(reportIds, batch => supabaseAdmin
-          .from("report_images")
-          .select("report_id, image_url")
-          .in("report_id", batch)
-          .order("position", { ascending: true }));
+    const { data: images, error: imageError } = imageResult;
 
     if (imageError) return { data: null, error: imageError.message };
 
@@ -309,33 +323,12 @@ export const reportService = {
       imagesByReport.set(img.report_id, list);
     });
 
-    const likesByReport = new Map<string, number>();
-    const likedByUser = new Set<string>();
+    const engagement = new Map<string, { likes: number; comments: number; is_liked: boolean }>();
     if (reportIds.length > 0) {
-      const { data: likes, error: likeError } = await loadDashboardRelations(reportIds, batch => supabaseAdmin
-        .from("report_likes")
-        .select("report_id, user_id")
-        .in("report_id", batch));
-      if (likeError) return { data: null, error: likeError.message };
-
-      (likes || []).forEach(
-        (l: { report_id: string; user_id: string | null }) => {
-          likesByReport.set(l.report_id, (likesByReport.get(l.report_id) || 0) + 1);
-          if (l.user_id) likedByUser.add(`${l.report_id}:${l.user_id}`);
-        }
-      );
-    }
-
-    const commentsByReport = new Map<string, number>();
-    if (reportIds.length > 0) {
-      const { data: commentRows, error: commentError } = await loadDashboardRelations(reportIds, batch => supabaseAdmin
-        .from("report_comments")
-        .select("report_id")
-        .in("report_id", batch));
-      if (commentError) return { data: null, error: commentError.message };
-
-      (commentRows || []).forEach((c: { report_id: string }) => {
-        commentsByReport.set(c.report_id, (commentsByReport.get(c.report_id) || 0) + 1);
+      const { data: counts, error: countError } = countsResult;
+      if (countError) return { data: null, error: countError.message };
+      (counts || []).forEach((row: { id: string; likes: number; comments: number; is_liked: boolean }) => {
+        engagement.set(row.id, { likes: Number(row.likes), comments: Number(row.comments), is_liked: row.is_liked });
       });
     }
 
@@ -366,9 +359,9 @@ export const reportService = {
         latitude: r.latitude ?? null,
         longitude: r.longitude ?? null,
         images: imagesByReport.get(r.id) || [],
-        likes: likesByReport.get(r.id) || 0,
-        comments: commentsByReport.get(r.id) || 0,
-        is_liked: viewerId ? likedByUser.has(`${r.id}:${viewerId}`) : false,
+        likes: engagement.get(r.id)?.likes || 0,
+        comments: engagement.get(r.id)?.comments || 0,
+        is_liked: engagement.get(r.id)?.is_liked || false,
         ai_score: analysis.ai_score ?? null,
         severity: analysis.severity ?? "Medium",
         ...sentimentFields(sentiment),
@@ -389,7 +382,7 @@ export const reportService = {
   },
 
   async getReportById(viewerId: string | undefined, reportId: string) {
-    const all = await this.listReports(viewerId);
+    const all = await this.listReports(viewerId, { ids: [reportId] });
     if (all.error) return all;
 
     const report = (all.data || []).find((r) => r.id === reportId) ?? null;
@@ -504,7 +497,7 @@ export const reportService = {
   },
 
   async addComment(userId: string, reportId: string, content: string) {
-    const text = (content || "").trim();
+    const text = typeof content === "string" ? content.trim() : "";
     if (!text) return { error: "Comment is required" };
     if (text.length > 2000) return { error: "Comment must be 2000 characters or fewer" };
 
@@ -523,50 +516,59 @@ export const reportService = {
         user_id: userId,
         content: text,
       })
-      .select("id")
+      .select("id, content, created_at")
       .maybeSingle();
 
     if (error) return { error: error.message };
     if (!data) return { error: "Failed to create comment" };
-    return { data: data.id };
+    const [profileResult, countResult] = await Promise.allSettled([
+      supabaseAdmin.from("profiles").select("fullname, user_name").eq("id", userId).maybeSingle(),
+      supabaseAdmin.from("report_comments").select("id", { count: "exact", head: true }).eq("report_id", reportId),
+    ]);
+    const profile = profileResult.status === "fulfilled" ? profileResult.value.data : null;
+    const count = countResult.status === "fulfilled" ? countResult.value : null;
+    // Persistence already succeeded: a failed optional count must not turn a
+    // saved comment into a misleading error (which could cause a duplicate retry).
+    return { data: data.id, total: count?.error ? null : count?.count ?? null, comment: { id: data.id, text: data.content, datePosted: data.created_at,
+      user: profile?.fullname || profile?.user_name || "User", sentiment: null, sentiment_status: "pending" } };
   },
 
-  async listComments(reportId: string) {
-    const { data, error } = await supabaseAdmin
+  async listComments(reportId: string, cursor: FeedCursor | null = null) {
+    let query = supabaseAdmin
       .from("report_comments")
       .select("id, user_id, content, created_at")
-      .eq("report_id", reportId)
-      .order("created_at", { ascending: true });
+      .eq("report_id", reportId);
+    if (cursor) query = query.or(`created_at.lt.${cursor.created_at},and(created_at.eq.${cursor.created_at},id.lt.${cursor.id})`);
+    const [{ data: rows, error }, count] = await Promise.all([
+      query.order("created_at", { ascending: false }).order("id", { ascending: false }).limit(11),
+      supabaseAdmin.from("report_comments").select("id", { count: "exact", head: true }).eq("report_id", reportId),
+    ]);
 
     if (error) return { data: null, error: error.message };
+    if (count.error) return { data: null, error: count.error.message };
+    const data = (rows || []).slice(0, 10);
+    const hasMore = (rows || []).length > 10;
+    const oldest = data[data.length - 1];
+    const nextCursor = hasMore && oldest ? encodeFeedCursor({ id: oldest.id, created_at: oldest.created_at }) : null;
 
     const commentIds = (data || []).map((comment) => comment.id);
-    const sentimentByComment = new Map<string, SentimentRow>();
-    if (commentIds.length > 0) {
-      const { data: sentimentRows, error: sentimentError } = await supabaseAdmin
-        .from("sentiment_analysis")
+    const userIds = [...new Set(data.map(c => c.user_id).filter(Boolean))];
+    const [sentiments, names, jobs] = await Promise.all([
+      commentIds.length ? supabaseAdmin.from("sentiment_analysis")
         .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
-        .eq("subject_type", "comment")
-        .in("subject_id", commentIds);
-      if (sentimentError) return { data: null, error: sentimentError.message };
-      (sentimentRows || []).forEach((analysis: SentimentRow) => {
-        sentimentByComment.set(analysis.subject_id, analysis);
-      });
-    }
-
-    const userIds = [...new Set((data || []).map((c) => c.user_id).filter(Boolean))];
-
+        .eq("subject_type", "comment").in("subject_id", commentIds) : Promise.resolve({ data: [], error: null }),
+      userIds.length ? supabaseAdmin.from("profiles").select("id, fullname, user_name").in("id", userIds) : Promise.resolve({ data: [], error: null }),
+      commentIds.length ? supabaseAdmin.from("comment_sentiment_jobs").select("comment_id").in("comment_id", commentIds).is("completed_at", null) : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (sentiments.error) return { data: null, error: sentiments.error.message };
+    if (jobs.error) return { data: null, error: jobs.error.message };
+    const sentimentByComment = new Map<string, SentimentRow>();
+    (sentiments.data || []).forEach((analysis: SentimentRow) => sentimentByComment.set(analysis.subject_id, analysis));
     const nameByUser = new Map<string, string>();
-    if (userIds.length > 0) {
-      const { data: profiles } = await supabaseAdmin
-        .from("profiles")
-        .select("id, fullname, user_name")
-        .in("id", userIds);
-      (profiles || []).forEach(
+    (names.data || []).forEach(
         (p: { id: string; fullname: string | null; user_name: string | null }) =>
           nameByUser.set(p.id, p.fullname || p.user_name || "User")
       );
-    }
 
     const comments = (data || []).map((c) => {
       const analysis = sentimentByComment.get(c.id);
@@ -579,7 +581,30 @@ export const reportService = {
       };
     });
 
-    return { data: comments, error: null };
+    const pendingIds = new Set((jobs.data || []).map(job => job.comment_id));
+    comments.forEach(comment => {
+      if (pendingIds.has(comment.id) && ["unavailable", "failed"].includes(comment.sentiment_status)) comment.sentiment_status = "pending";
+    });
+    return { data: comments.reverse(), total: count.count ?? 0, hasMore, nextCursor, error: null };
+  },
+
+  async commentStatuses(reportId: string, ids: string[]) {
+    const { data: comments, error } = await supabaseAdmin.from("report_comments").select("id").eq("report_id", reportId).in("id", ids);
+    if (error) return { error: error.message };
+    const allowed = (comments || []).map(row => row.id);
+    if (!allowed.length) return { data: [], error: null };
+    const [{ data, error: analysisError }, jobs] = await Promise.all([
+      supabaseAdmin.from("sentiment_analysis")
+        .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
+        .eq("subject_type", "comment").in("subject_id", allowed),
+      supabaseAdmin.from("comment_sentiment_jobs").select("comment_id").in("comment_id", allowed).is("completed_at", null),
+    ]);
+    if (analysisError) return { error: analysisError.message };
+    if (jobs.error) return { error: jobs.error.message };
+    const analyses = new Map<string, SentimentRow>((data || []).map((row: SentimentRow) => [row.subject_id, row]));
+    const pending = new Set((jobs.data || []).map(row => row.comment_id));
+    return { data: allowed.map(id => ({ id, ...sentimentFields(analyses.get(id)),
+      ...(pending.has(id) ? { sentiment_status: "pending" } : {}) })), error: null };
   },
 
   async toggleLike(userId: string, reportId: string) {
@@ -663,12 +688,13 @@ export const reportService = {
     return { data: options, error: null };
   },
 
-  async listAdminPosts(filters: { from?: string; to?: string } = {}) {
+  async listAdminPosts(filters: { from?: string; to?: string; ids?: string[] } = {}) {
     let query = supabaseAdmin
       .from("admin_announcement")
       .select("id, admin_id, type, location, details, pic_url, created_at");
     if (filters.from) query = query.gte("created_at", filters.from);
     if (filters.to) query = query.lte("created_at", filters.to);
+    if (filters.ids) query = query.in("id", filters.ids);
     const { data, error } = await query.order("created_at", { ascending: false });
 
     if (error) return { data: null, error: error.message };

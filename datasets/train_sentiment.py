@@ -14,6 +14,7 @@ import numpy as np
 import onnx
 import pandas as pd
 import sklearn
+from validation_diagnostics import observe as observe_validation, report as validation_report
 from onnx.checker import check_model
 from skl2onnx import to_onnx
 from skl2onnx.common.data_types import StringTensorType
@@ -36,9 +37,10 @@ ZERO_DIVISION = cast(Any, 0)
 class TrainingQualityError(ValueError):
     """Expected validation rejection, not a crashed training process."""
 
-    def __init__(self, language, reasons):
+    def __init__(self, language, reasons, diagnostics=None):
         self.language = language
         self.reasons = reasons
+        self.diagnostics = diagnostics
         super().__init__(f"{language}: {'; '.join(reasons)}")
 
 
@@ -73,7 +75,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baseline-model-dir", type=Path)
     parser.add_argument("--independent-quality", action="store_true")
     parser.add_argument("--validation-only", action="store_true",
-                        help="Do not load or score test.csv")
+                         help="Do not load or score test.csv")
+    parser.add_argument('--feature-profile', choices=('auto', 'legacy', 'portable-v1'), default='auto')
     parser.add_argument("--languages", nargs="+", choices=("cebuano", "english", "filipino"))
     return parser.parse_args()
 
@@ -116,11 +119,16 @@ def load_splits(data_dir: Path, include_test: bool = True) -> dict[str, pd.DataF
     return frames
 
 
-def build_vectorizer(word_max_ngram: int = 2) -> FeatureUnion:
+def build_vectorizer(word_max_ngram: int = 2, portable: bool = False) -> FeatureUnion:
+    if portable:
+        from portable_sentiment_features import PortableTfidfVectorizer
+        vectorizer_class = PortableTfidfVectorizer
+    else:
+        vectorizer_class = TfidfVectorizer
     transformers: list[tuple[str, Any]] = [
         (
             "word",
-            TfidfVectorizer(
+            vectorizer_class(
                 analyzer="word",
                 ngram_range=(1, word_max_ngram),
                 min_df=2,
@@ -132,7 +140,7 @@ def build_vectorizer(word_max_ngram: int = 2) -> FeatureUnion:
         ),
         (
             "character",
-            TfidfVectorizer(
+            vectorizer_class(
                 analyzer="char",
                 ngram_range=(3, 5),
                 min_df=3,
@@ -170,6 +178,9 @@ def export_onnx(pipeline: Pipeline, artifact_path: Path) -> dict[str, object]:
         options={id(pipeline.named_steps["classifier"]): {"zipmap": False}},
     )
     pinned = pin_string_normalizer_locale(model)
+    from portable_sentiment_features import PortableTfidfVectorizer, pin_padding
+    if any(isinstance(vectorizer, PortableTfidfVectorizer) for _, vectorizer in pipeline.named_steps['features'].transformer_list):
+        pin_padding(model)
     check_model(model)
     onnx.save(model, onnx_path)
     return {
@@ -278,7 +289,7 @@ def baseline_validation_metrics(model: Path, frame: pd.DataFrame) -> EvaluationM
     raise ValueError(f"Recorded validation metadata matching {model.name} is missing. Provision the matching ONNX bundle and metadata; do not substitute test metrics.")
 
 
-def select_validation_offsets(decisions, classes, labels, reference=None, independent_quality=False):
+def select_validation_offsets(decisions, classes, labels, reference=None, independent_quality=False, diagnostics=None):
     """Select class intercepts on validation only, with existing quality floors."""
     if independent_quality and reference is not None:
         raise ValueError("Independent selection must not use a built-in metric reference")
@@ -296,7 +307,7 @@ def select_validation_offsets(decisions, classes, labels, reference=None, indepe
     floors = np.array([max(0.0, reference["per_label"][label]["recall"] - 0.02)
                        for label in classes]) if reference else np.full(3, 0.5 if independent_quality else 0.0)
     minimum_f1 = max(0.6, reference["macro_f1"] - 0.01) if reference else (0.6 if independent_quality else 0.0)
-    if independent_quality and (support < 10).any():
+    if independent_quality and (support < 10).any() and diagnostics is None:
         return None
     offsets = itertools.product(LOGIT_OFFSETS, repeat=2) if reference or independent_quality else [(0.0, 0.0)]
     best = None
@@ -310,6 +321,13 @@ def select_validation_offsets(decisions, classes, labels, reference=None, indepe
         predicted_counts = confusion.sum(axis=0)
         precision = np.divide(tp, predicted_counts, out=np.zeros(3), where=predicted_counts > 0)
         score = float(np.mean(2 * tp / (support + predicted_counts)))
+        if independent_quality and diagnostics is not None:
+            observe_validation(diagnostics, {'macro_f1': score, 'per_class': {
+                label: {'precision': float(precision[i]), 'recall': float(recall[i]),
+                        'f1': float(2 * tp[i] / (support[i] + predicted_counts[i])), 'support': int(support[i])}
+                for i, label in enumerate(classes)}}, dict(zip(classes, bias.tolist())))
+        if independent_quality and (support < 10).any():
+            continue
         if score < minimum_f1 or np.any(recall + 1e-12 < floors):
             continue
         if independent_quality and np.any(precision < 0.5):
@@ -332,6 +350,7 @@ def train_language(
     word_max_ngram: int = 2,
     independent_quality: bool = False,
     evaluate_test: bool = True,
+    feature_profile: str = 'auto',
 ) -> dict[str, object]:
     from training_progress import write_fit_progress
     if independent_quality and baseline_model_dir is not None:
@@ -356,7 +375,8 @@ def train_language(
     )
     configurations = [(c, weight) for c in CANDIDATES for weight in (('balanced', None) if independent_quality else ('balanced',))]
     write_fit_progress(0, len(configurations) + 2)
-    vectorizer = build_vectorizer() if word_max_ngram == 2 else build_vectorizer(word_max_ngram)
+    portable = feature_profile == 'portable-v1' or (feature_profile == 'auto' and independent_quality and language in ('english', 'filipino'))
+    vectorizer = build_vectorizer(word_max_ngram, portable=portable)
     train_features = vectorizer.fit_transform(train_frame["text"])
     validation_features = vectorizer.transform(validation_frame["text"])
     write_fit_progress(1, len(configurations) + 2)
@@ -368,12 +388,17 @@ def train_language(
     best_class_weight = "balanced"
     reference = baseline_validation_metrics(baseline_model_dir / f"sentiment_{language}.onnx", validation_frame) if baseline_model_dir else None
     validation_labels = cast(pd.Series, validation_frame["label"])
+    validation_trials = []
     for configuration_index, (candidate, class_weight) in enumerate(configurations):
         classifier = build_classifier(candidate)
         classifier.set_params(estimator__class_weight=class_weight)
         classifier.fit(train_features, train_frame["label"])
+        trial = {'c': candidate, 'class_weight': class_weight}
         selection = select_validation_offsets(classifier.decision_function(validation_features),
-                                               classifier.classes_, validation_labels, reference, independent_quality)
+                                               classifier.classes_, validation_labels, reference, independent_quality,
+                                               diagnostics=trial if independent_quality else None)
+        if independent_quality:
+            validation_trials.append(trial)
         write_fit_progress(configuration_index + 2, len(configurations) + 2)
         if selection is None:
             print(f"  C={candidate:g}, weight={class_weight}: no validation setting meets the required class-quality floors", flush=True)
@@ -390,7 +415,7 @@ def train_language(
     if best_classifier is None or best_selection is None:
         raise TrainingQualityError(language, [
             "No fitted candidate meets validation macro-F1 and per-class precision/recall floors. Review training labels and class coverage."
-        ])
+        ], validation_report(validation_trials) if independent_quality else None)
     for index, label in enumerate(best_classifier.classes_):
         best_classifier.estimators_[index].intercept_ += best_selection["offsets"][label]
     pipeline = Pipeline(
@@ -420,16 +445,22 @@ def train_language(
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "training_samples": int(len(train_frame)),
         "fit_splits": ["train"],
+        "feature_profile": 'portable-v1' if portable else 'legacy',
         "calibration": {"selection_split": "validation", "logit_offsets": best_selection["offsets"],
                         "recall_floors": best_selection["recall_floors"], "baseline_validation": reference,
                         "precision_floors": best_selection["precision_floors"],
                         "selection_policy": "independent-quality-v2" if independent_quality else "legacy"},
         "validation_metrics": best_validation,
+        "validation_diagnostics": validation_report(validation_trials) if independent_quality else None,
         "test_metrics": test_metrics,
     }
     artifact_path = output_dir / f"sentiment_{language}.joblib"
     joblib.dump({"pipeline": pipeline, "metadata": metadata}, artifact_path, compress=3)
     onnx_metadata = export_onnx(pipeline, artifact_path)
+    if portable:
+        from portable_sentiment_features import verify_export
+        metadata['export_parity'] = verify_export(pipeline, artifact_path.with_suffix('.onnx'),
+                                                  validation_frame['text'].tolist())
     write_fit_progress(len(configurations) + 2, len(configurations) + 2)
     metadata["artifact_path"] = str(artifact_path)
     metadata["onnx_artifact"] = onnx_metadata
@@ -463,12 +494,15 @@ def main() -> None:
                 args.baseline_model_dir.resolve() if args.baseline_model_dir else None,
                 independent_quality=args.independent_quality,
                 word_max_ngram=3 if args.independent_quality else 2,
-                evaluate_test=not args.validation_only,
+                 evaluate_test=not args.validation_only,
+                 feature_profile=args.feature_profile,
             ))
         except TrainingQualityError as error:
             failure = {"kind": "validation_quality", "language": error.language,
                        "reasons": error.reasons, "completed_languages": [r["language"] for r in results],
-                       "requested_languages": list(languages), "test_used_for_selection": False}
+                        "requested_languages": list(languages), "test_used_for_selection": False}
+            if error.diagnostics is not None:
+                failure['validation_diagnostics'] = error.diagnostics
             (args.output_dir / "training_failure.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
             print(f"Validation quality checks failed: {error}", flush=True)
             raise SystemExit(2) from None

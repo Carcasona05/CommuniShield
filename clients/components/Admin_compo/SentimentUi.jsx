@@ -40,11 +40,11 @@ export function SectionTabs({ options, value, onChange, disabled }) {
   </View>;
 }
 
-export function Disclosure({ title, children, defaultOpen = false }) {
+export function Disclosure({ title, children, defaultOpen = false, titleStyle }) {
   const [open, setOpen] = useState(defaultOpen);
   return <View style={styles.disclosure}>
     <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} style={styles.disclosureTrigger}>
-      <Text style={styles.disclosureTitle}>{title}</Text>
+      <Text style={[styles.disclosureTitle, titleStyle]}>{title}</Text>
       <Ionicons name={open ? "chevron-up" : "chevron-down"} size={15} color="#718096" />
     </Pressable>
     {open ? <View style={styles.disclosureBody}>{children}</View> : null}

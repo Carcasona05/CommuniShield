@@ -6,13 +6,17 @@ import { smartBack } from "../../services/navigation";
 import ToastProvider, { useToast } from "../../components/Toast";
 import ConfirmModal from "../../components/modals/ConfirmModal";
 import MyUser_RepPostView_Layout from "../../components/User_compo/MyUser_RepPostView_Layout";
-import { removeCachedReport } from "../../services/dataStore";
+import { removeCachedReport, patchCachedReports } from "../../services/dataStore";
+import { mergeReportDetails } from "../../services/reportPresentation";
 
-const MyUser_RepPostView = () => (
+const MyUser_RepPostView = () => {
+  const { report } = useLocalSearchParams();
+  return (
   <ToastProvider>
-    <MyUser_RepPostViewInner />
+    <MyUser_RepPostViewInner key={String(report || "")} />
   </ToastProvider>
 );
+};
 
 const MyUser_RepPostViewInner = () => {
   const router = useRouter();
@@ -35,7 +39,7 @@ const MyUser_RepPostViewInner = () => {
   const [freshReport, setFreshReport] = useState(parsedReport);
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (isCurrent) => {
     if (!parsedReport?.id) return;
     try {
       const token = await AsyncStorage.getItem("access_token");
@@ -43,14 +47,19 @@ const MyUser_RepPostViewInner = () => {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       const report = res.data?.report;
-      if (report) setFreshReport(report);
+      if (report && token === await AsyncStorage.getItem("access_token") && isCurrent() && String(report.id) === String(parsedReport.id)) {
+        setFreshReport(previous => mergeReportDetails(previous, report));
+        patchCachedReports(report.id, previous => ({ ...previous, status: report.status, is_verified: report.is_verified }));
+      }
     } catch {
       // keep serialized fallback
     }
   }, [parsedReport?.id]);
 
   useEffect(() => {
-    refresh();
+    let active = true;
+    refresh(() => active);
+    return () => { active = false; };
   }, [refresh]);
 
   const handleEdit = () => {
@@ -91,6 +100,7 @@ const MyUser_RepPostViewInner = () => {
   return (
     <>
       <MyUser_RepPostView_Layout
+        key={(freshReport || parsedReport)?.id}
         report={freshReport || parsedReport}
         onEdit={handleEdit}
         onDelete={handleDelete}

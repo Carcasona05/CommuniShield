@@ -10,9 +10,9 @@ create table if not exists public.emergency_facilities (
 );
 
 insert into public.emergency_facilities (name, type, latitude, longitude, address, phone) values
-  ('Argao Municipal Police Station', 'police', 9.8721, 123.5986, 'Poblacion, Argao, Cebu', '911'),
-  ('Argao Fire Station', 'fire', 9.8738, 123.5998, 'Poblacion, Argao, Cebu', '911')
-on conflict (name) do nothing;
+  ('Argao Police Station', 'police', 9.8807935, 123.6087917, 'Baluarte Beach Resort, General Ortega St, Argao, 6021 Cebu', '09425533464'),
+  ('Argao Fire Station', 'fire', 9.8819689, 123.6003262, 'VJJ2+Q4, Argao, Cebu', '(032)8872837')
+on conflict (name) do update set latitude = excluded.latitude, longitude = excluded.longitude, address = excluded.address, phone = excluded.phone;
 
 alter table public.emergency_facilities enable row level security;
 

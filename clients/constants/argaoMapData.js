@@ -1,3 +1,5 @@
+// Barangay-area reference points, not claimed barangay hall entrances. All 45
+// are checked against the bundled Argao boundary polygons in mapLocations tests.
 export const ARGAO_BARANGAYS = [
   { "id": "brgy-alambijud", "name": "Alambijud", "lat": 9.951803, "lng": 123.517838, "type": "barangay", "address": "Argao, Cebu" },
   { "id": "brgy-anajao", "name": "Anajao", "lat": 9.98623, "lng": 123.507351, "type": "barangay", "address": "Argao, Cebu" },
@@ -44,7 +46,14 @@ export const ARGAO_BARANGAYS = [
   { "id": "brgy-tulic", "name": "Tulic", "lat": 9.869362, "lng": 123.585527, "type": "barangay", "address": "Argao, Cebu" },
   { "id": "brgy-ubaub", "name": "Ubaub", "lat": 9.93876, "lng": 123.535109, "type": "barangay", "address": "Argao, Cebu" },
   { "id": "brgy-usmad", "name": "Usmad", "lat": 9.909827, "lng": 123.555864, "type": "barangay", "address": "Argao, Cebu" },
-];
+].map((barangay) => ({
+  ...barangay,
+  address: `${barangay.name}, Argao, 6021 Cebu`,
+  locationKind: "barangay-area",
+  sourceUrl: "https://api.github.com/repos/faeldon/philippines-json-maps/git/blobs/f399a677989cad33235169e0e8f5954c42f23df9",
+  locationNote: "Barangay area reference point, not a verified barangay hall entrance.",
+  mapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${barangay.name}, Argao, Cebu, Philippines`)}`,
+}));
 
 export const ARGAO_HELP_FACILITIES = [
   { "id": "fac-isidroc-kintanarmemorialhospital", "name": "Isidro C. Kintanar Memorial Hospital", "lat": 9.856293, "lng": 123.570756, "type": "hospital", "phone": "(032) 485 8599", "address": "Natalio Bacalso Avenue, Argao, Cebu" },
@@ -66,8 +75,8 @@ export const ARGAO_HELP_FACILITIES = [
   { "id": "fac-tulangbarangayhealthcenter", "name": "Tulang Barangay Health Center", "lat": 9.958376, "lng": 123.509978, "type": "clinic", "phone": null, "address": "Argao, Cebu" },
   { "id": "fac-tulicbarangayhealthstation", "name": "Tulic Barangay Health Station", "lat": 9.869076, "lng": 123.585785, "type": "clinic", "phone": null, "address": "Natalio Bacalso Avenue, Argao, Cebu" },
   { "id": "fac-ubaubbarangayhealthcenter", "name": "Ubaub Barangay Health Center", "lat": 9.939117, "lng": 123.535004, "type": "clinic", "phone": null, "address": "Argao, Cebu" },
-  { "id": "fac-argaopolicestation", "name": "Argao Police Station", "lat": 9.880793, "lng": 123.608792, "type": "police", "phone": "911", "address": "Ortega Street, Argao, Cebu" },
-  { "id": "fac-argaofirestation", "name": "Argao Fire Station", "lat": 9.881969, "lng": 123.600326, "type": "fire", "phone": "911", "address": "Isidro Kintanar Street, Argao, Cebu" },
+  { "id": "fac-argaopolicestation", "name": "Argao Police Station", "lat": 9.8807935, "lng": 123.6087917, "type": "police", "phone": "09425533464", "address": "Baluarte Beach Resort, General Ortega St, Argao, 6021 Cebu", "sourceUrl": "https://www.openstreetmap.org/way/627985721", "mapsUrl": "https://www.google.com/maps/search/?api=1&query=Argao+Police+Station%2C+General+Ortega+St%2C+Argao%2C+Cebu" },
+  { "id": "fac-argaofirestation", "name": "Argao Fire Station (Old Railway Stn)", "lat": 9.8819689, "lng": 123.6003262, "type": "fire", "phone": "(032)8872837", "address": "VJJ2+Q4, Argao, Cebu", "plusCode": "6QX5VJJ2+Q4", "sourceUrl": "https://www.openstreetmap.org/way/558963703", "mapsUrl": "https://www.google.com/maps/search/?api=1&query=Argao+Fire+Station+Old+Railway+Stn%2C+Argao%2C+Cebu" },
 ];
 
 export const MAP_TYPE_META = {
@@ -75,7 +84,7 @@ export const MAP_TYPE_META = {
   "clinic": { "color": "#00897B", "label": "Clinic", "icon": "pulse", "responseNote": "Health station for checkups, first aid, and medical consultations." },
   "police": { "color": "#294880", "label": "Police Station", "icon": "shield-checkmark", "responseNote": "Nearest police assistance for public safety concerns." },
   "fire": { "color": "#F4511E", "label": "Fire Station", "icon": "flame", "responseNote": "Nearest fire response for fire and emergency incidents." },
-  "barangay": { "color": "#2E7D32", "label": "Barangay", "icon": "home", "responseNote": "Barangay officials can assist residents and visitors with local concerns." },
+  "barangay": { "color": "#2E7D32", "label": "Barangay Area", "icon": "home", "responseNote": "Barangay area reference point. Use Google Maps to look up the barangay hall before visiting." },
 };
 
 export const MAP_TYPE_BY_LABEL = {

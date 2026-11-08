@@ -1,0 +1,12 @@
+[
+  {
+    "id": "fac-argaopolicestation", "name": "Argao Police Station", "type": "police",
+    "latitude": 9.8807935, "longitude": 123.6087917,
+    "address": "Baluarte Beach Resort, General Ortega St, Argao, 6021 Cebu", "phone": "09425533464"
+  },
+  {
+    "id": "fac-argaofirestation", "name": "Argao Fire Station (Old Railway Stn)", "type": "fire",
+    "latitude": 9.8819689, "longitude": 123.6003262,
+    "address": "VJJ2+Q4, Argao, Cebu", "phone": "(032)8872837"
+  }
+]

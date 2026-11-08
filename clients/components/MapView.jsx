@@ -42,13 +42,6 @@ body{background:#DCE7F3;}
     var CEBU_LNG_MIN = 123.05;
     var CEBU_LNG_MAX = 124.05;
 
-    function clampLat(x) {
-      return Math.min(Math.max(x, CEBU_LAT_MIN), CEBU_LAT_MAX);
-    }
-    function clampLng(x) {
-      return Math.min(Math.max(x, CEBU_LNG_MIN), CEBU_LNG_MAX);
-    }
-
     var map = L.map("map", {
       center: [9.8816, 123.5953],
       zoom: 13,
@@ -77,8 +70,15 @@ body{background:#DCE7F3;}
     }).addTo(map);
     baseLayer.on("load", function () { sendToHost({ type: "map-ready" }); });
 
-    var userMarker = L.marker([9.8816, 123.5953]).addTo(map);
-    userMarker.bindPopup("Your current location");
+    // The initial Argao viewport is not the user's GPS location.
+    var userMarker = null;
+    function showUserMarker(lat, lng) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
+      if (!userMarker) {
+        userMarker = L.marker([lat, lng]).addTo(map);
+        userMarker.bindPopup("Your current location");
+      } else userMarker.setLatLng([lat, lng]);
+    }
 
     var facilityLayer = L.layerGroup().addTo(map);
     var follow = true;
@@ -181,32 +181,26 @@ body{background:#DCE7F3;}
         });
       });
       if (c.lat !== undefined && c.lng !== undefined) {
-        var clat = clampLat(c.lat);
-        var clng = clampLng(c.lng);
-        userMarker.setLatLng([clat, clng]);
+        showUserMarker(c.lat, c.lng);
         if (!inited) {
-          map.setView([clat, clng], 15);
+          map.setView([c.lat, c.lng], 15);
           inited = true;
         }
-        positionToHost(clat, clng);
+        positionToHost(c.lat, c.lng);
       }
     };
 
     window.__communishieldRecenter = function (lat, lng) {
       follow = true;
       if (lat !== undefined && lng !== undefined) {
-        var clat = clampLat(lat);
-        var clng = clampLng(lng);
-        userMarker.setLatLng([clat, clng]);
-        positionToHost(clat, clng);
-        map.setView([clat, clng], 15);
+        showUserMarker(lat, lng);
+        positionToHost(lat, lng);
+        map.setView([lat, lng], 15);
       }
     };
 
     window.__communishieldSetUser = function (lat, lng) {
-      var clat = clampLat(lat);
-      var clng = clampLng(lng);
-      userMarker.setLatLng([clat, clng]);
+      showUserMarker(lat, lng);
     };
 
     window.addEventListener("message", function (e) {
@@ -229,9 +223,9 @@ body{background:#DCE7F3;}
 
     if (navigator.geolocation) {
       function report(p) {
-        var lat = clampLat(p.coords.latitude);
-        var lng = clampLng(p.coords.longitude);
-        userMarker.setLatLng([lat, lng]);
+        var lat = p.coords.latitude;
+        var lng = p.coords.longitude;
+        showUserMarker(lat, lng);
         if (follow) map.setView([lat, lng], 15);
         if (follow) positionToHost(lat, lng);
       }

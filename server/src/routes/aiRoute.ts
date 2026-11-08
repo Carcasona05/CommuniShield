@@ -10,17 +10,22 @@ import {
 import { authenticate, requireRole } from "../middlewares/authMiddleware.js";
 import { previewDataset, submitDataset, listDatasets, getDataset, editDatasetSample, reviewDataset, exportDataset } from "../controllers/sentimentDatasetController.js";
 import { getSentimentTraining, manageSentimentTraining } from "../controllers/sentimentTrainingController.js";
-import { listSupportingModels, manageSupportingModel } from "../controllers/supportingModelController.js";
+import { listSupportingModels, manageSupportingModel, previewSupportingModelDeletion } from "../controllers/supportingModelController.js";
+import { testSentiment, sentimentTestStatus } from "../controllers/sentimentTestController.js";
 
 const router = express.Router();
 
 const adminOnly = requireRole(["admin", "super_admin"]);
 const superAdminOnly = requireRole(["super_admin"]);
 
+router.get("/sentiment/test", authenticate, adminOnly, sentimentTestStatus);
+router.post("/sentiment/test", authenticate, adminOnly, testSentiment);
+
 router.get("/sentiment/training", authenticate, adminOnly, getSentimentTraining);
 router.post("/sentiment/training", authenticate, superAdminOnly, manageSentimentTraining);
 router.get("/sentiment/supporting-models", authenticate, adminOnly, listSupportingModels);
 router.post("/sentiment/supporting-models", authenticate, superAdminOnly, manageSupportingModel);
+router.get("/sentiment/supporting-models/:id/delete-preview", authenticate, superAdminOnly, previewSupportingModelDeletion);
 
 router.get("/sentiment/datasets", authenticate, adminOnly, listDatasets);
 router.post("/sentiment/datasets/preview", authenticate, adminOnly, previewDataset);

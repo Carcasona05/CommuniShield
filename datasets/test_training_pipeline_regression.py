@@ -68,7 +68,11 @@ class TrainingPipelineRegressionTests(unittest.TestCase):
                            "pool_protocol": 1, "admission": "independent-v1", "scope_version": 1,
                            "requested_languages": ["cebuano"], "builtin_hashes": original,
                            "samples": [{"text": "danger terrible crime newly approved incident",
-                                        "language": "cebuano", "label": "negative"}]}}
+                                         "language": "cebuano", "label": "negative"}]}}
+                if mode == 'continue':
+                    job['snapshot']['samples'] = [
+                        {'text': f'{words} approved addition {index}', 'language': 'cebuano', 'label': label}
+                        for label, words in self.words.items() for index in range(12)]
                 cloud = Mock(progress_enabled=False)
                 with patch.object(worker, "Lease"):
                     worker.process_job(cloud, job, self.data, self.builtin, self.root / "runs",

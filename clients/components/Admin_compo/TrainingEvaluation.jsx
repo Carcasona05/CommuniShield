@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Disclosure } from "./SentimentUi";
 import { evaluationLanguages, gateValue } from "../../services/trainingEvaluation";
+import SentimentClassMetrics from "./SentimentClassMetrics";
 
 const colors = { passed: "#16794B", failed: "#B93838", missing: "#946212", skipped: '#64748B' };
 const names = { passed: "Passed", failed: "Failed", missing: "Not recorded", skipped:'Not included' };
@@ -58,6 +59,7 @@ export default function TrainingEvaluation({ metrics }) {
         <Text style={s.note}>{partial ? `Only ${metrics.qualified_languages.join(', ')} passed and can be enabled. Failed and unincluded languages keep using their built-ins.` : failed ? "Training finished, but some quality checks failed. The built-in model is unchanged." : complete ? "Quality checks passed for the included languages. A super-admin can review and enable them." : "There is not enough recorded evidence to confirm that all checks passed."}</Text></View>
     </View>
     <Text style={s.heading}>{partial ? 'Results by language' : failed ? "Why it failed" : "Results by language"}</Text>
+    <SentimentClassMetrics metrics={metrics} />
     {orderedLanguages.map((language) => {
       const grouped = new Map();
       for (const row of language.failed) {
@@ -67,16 +69,25 @@ export default function TrainingEvaluation({ metrics }) {
       return <View key={language.language} style={s.language} testID={`quality-language-${language.language}`}>
         <View style={s.languageHeading}><Text style={s.languageName}>{language.language}</Text><ResultPill status={language.status} label={language.status === 'skipped' ? 'Not included' : language.status === "failed" ? "Needs improvement" : language.status === "passed" ? "Passed" : "Missing results"} /></View>
         {language.status === 'skipped' ? <Text style={s.note}>Not trained in this run. The built-in continues serving this language.</Text> : null}
+        {language.diagnostics ? <Text style={s.note}>None of the {language.diagnostics.trials.length} fitted configurations qualified. The values below describe the closest rejected validation setting—not a passing model. Test and accepted-prediction checks were not run for this language.</Text> : null}
         {[...grouped].map(([reason, rows]) => <View key={reason} style={s.simpleFailure}><Text style={s.checkName}>{reason}</Text>{rows.map((row) => <View key={row.id} style={s.evidence}><Text style={s.note}>{row.id.startsWith("Test-") ? "Final test" : "Validation check"}</Text><View style={s.measurements}><Text style={s.observed}>Result: {gateValue(row.value, row.count, row.minimum)}</Text><Text style={s.note}>Required: {row.minimum == null ? "Not recorded" : `≥ ${gateValue(row.minimum, row.count)}`}</Text></View></View>)}</View>)}
         {language.status === "failed" && !language.failed.length ? <Text style={s.note}>{language.reasons[0] || "A required check did not pass. See detailed scores for the recorded explanation."}</Text> : null}
         {language.missing.length ? <Text style={s.note}>Some measurements were not recorded. They are not counted as passes.</Text> : null}
       </View>;
     })}
-    {failed ? <Text style={s.note}>Next step: inspect the mistakes and add reviewed examples for the affected languages and labels before training again. Passing the overall score alone is not enough.</Text> : null}
-    <Disclosure title="See detailed scores">
+    {failed ? <Text style={s.note}>Next step: inspect the failed checks and recorded diagnostics before changing data or training again. Passing the overall score alone is not enough.</Text> : null}
+    <Disclosure title="See detailed scores" titleStyle={s.heading}>
       <Text style={s.note}>Macro-F1 is an overall sentiment score, not accuracy or confidence. Precision measures how often a predicted label was correct; recall measures how many examples of that label were found. Accepted predictions meet the model’s confidence and margin requirements. All required checks must pass.</Text>
       {orderedLanguages.filter(l => l.status !== 'skipped').map((language) => <Disclosure key={language.language} title={`${language.language}: all quality checks (${language.rows.length})`}>
-        {["Validation", "Test"].map((split) => <View key={split} style={s.checkGroup}><Text style={s.groupTitle}>{split} checks</Text>{language.rows.filter((row) => row.id.startsWith(`${split}-`)).map((row) => <GateRow key={row.id} row={row} />)}</View>)}
+        {["Validation", "Test"].filter(split => language.rows.some(row => row.id.startsWith(`${split}-`))).map((split) => <View key={split} style={s.checkGroup}><Text style={s.groupTitle}>{split} checks</Text>{language.rows.filter((row) => row.id.startsWith(`${split}-`)).map((row) => <GateRow key={row.id} row={row} />)}</View>)}
+        {language.diagnostics ? <Disclosure title="Rejected configuration diagnostics">
+          <Text style={s.note}>Validation-only Python measurements. Each entry shows its closest setting after checking the configured class offsets; these are not ONNX or final test scores.</Text>
+          {language.diagnostics.trials.map((trial, index) => <View key={index} style={s.checkGroup}>
+            <Text style={s.groupTitle}>{trial.strength != null ? `Update strength: ${trial.strength}` : `C=${trial.c} · class weight: ${trial.class_weight || "unweighted"}`}</Text>
+            <Text style={s.note}>Macro-F1: {gateValue(trial.representative?.metrics?.macro_f1)} · {trial.eligible_settings} / {trial.settings_evaluated} settings qualified</Text>
+            {(trial.representative?.failures || []).map((reason, i) => <Text key={i} style={s.reason}>{reason}</Text>)}
+          </View>)}
+        </Disclosure> : null}
         {language.reasons.map((reason, i) => <Text key={i} style={s.reason}>{reason}</Text>)}
       </Disclosure>)}
       {Array.isArray(metrics.reasons) ? metrics.reasons.map((reason, i) => <Text key={i} style={s.reason}>{reason}</Text>) : null}
@@ -87,22 +98,22 @@ export default function TrainingEvaluation({ metrics }) {
 const s = StyleSheet.create({
   panel: { gap: 12 }, flex: { flex: 1, minWidth: 0, gap: 4 },
   banner: { padding: 14, borderRadius: 10, flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  heading: { fontSize: 13, lineHeight: 21, fontFamily: "PoppinsSemiBold", color: "#294880" },
-  note: { fontSize: 11, lineHeight: 18, fontFamily: "PoppinsRegular", color: "#64748B", flexShrink: 1 },
+  heading: { fontSize: 15, lineHeight: 23, fontFamily: "PoppinsSemiBold", color: "#203B66" },
+  note: { fontSize: 13, lineHeight: 21, fontFamily: "PoppinsRegular", color: "#475569", flexShrink: 1 },
   language: { borderWidth: 1, borderColor: "#E2EAF3", borderRadius: 10, padding: 12, gap: 10, backgroundColor: "#FFFFFF" },
   languageHeading: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  languageName: { fontSize: 13, fontFamily: "PoppinsSemiBold", color: "#294880", textTransform: "capitalize" },
+  languageName: { fontSize: 15, lineHeight: 23, fontFamily: "PoppinsSemiBold", color: "#203B66", textTransform: "capitalize" },
   pill: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 5, paddingVertical: 5, paddingHorizontal: 8, borderRadius: 20 },
   simpleFailure: { paddingTop: 9, borderTopWidth: 1, borderTopColor: "#EDF1F6", gap: 6 },
   evidence: { gap: 3, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: "#F1C6C1" },
   checkGroup: { gap: 2 },
-  groupTitle: { fontFamily: "PoppinsMedium", fontSize: 11, color: "#294880", paddingVertical: 8 },
+  groupTitle: { fontFamily: "PoppinsMedium", fontSize: 13, lineHeight: 21, color: "#203B66", paddingVertical: 8 },
   check: { padding: 10, gap: 7, borderBottomWidth: 1, borderBottomColor: "#EDF1F6", backgroundColor: "#FFFFFF", flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" },
   failedRow: { borderBottomColor: "#F9E9E6" },
   checkTitle: { flexDirection: "row", alignItems: "center", gap: 7, flex: 1, minWidth: 165 },
-  checkName: { fontSize: 11, lineHeight: 18, fontFamily: "PoppinsMedium", color: "#334155", flexShrink: 1 },
+  checkName: { fontSize: 13, lineHeight: 21, fontFamily: "PoppinsMedium", color: "#334155", flexShrink: 1 },
   measurements: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 12, maxWidth: "100%" },
-  observed: { fontSize: 11, lineHeight: 18, fontFamily: "PoppinsMedium", color: "#334155", flexShrink: 1 },
-  result: { fontSize: 11, fontFamily: "PoppinsMedium", flexShrink: 1 },
-  reason: { fontSize: 11, lineHeight: 18, fontFamily: "PoppinsRegular", color: "#B93838" },
+  observed: { fontSize: 13, lineHeight: 21, fontFamily: "PoppinsSemiBold", color: "#203B66", flexShrink: 1 },
+  result: { fontSize: 12, lineHeight: 20, fontFamily: "PoppinsMedium", flexShrink: 1 },
+  reason: { fontSize: 13, lineHeight: 21, fontFamily: "PoppinsRegular", color: "#A52D2D" },
 });

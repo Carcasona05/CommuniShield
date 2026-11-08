@@ -1,0 +1,107 @@
+{
+  "created_at": "2026-11-06T14:07:22.754791+00:00",
+  "target_macro_f1": 0.75,
+  "selection_split": "validation",
+  "test_evaluated": false,
+  "deployed": false,
+  "input_split_hashes": {
+    "train": "607b1e3a1f7e6a225ecc4b8b5b973cb821ab7ff2e6103cf5cfb72e9a69ba14cc",
+    "validation": "273592bbf42f694e486e7b51902143a6c3d3c793a57452f5ed863fbc48f6ff63"
+  },
+  "trainer_sha256": "bc843dddfd76fe6f2d29f542ea2cbd8474d1270b5650063f2e2bec6600ca43d1",
+  "models": [
+    {
+      "language": "filipino",
+      "validation_target_met": false,
+      "reason": "No candidate meets existing validation class-quality floors",
+      "trials": [
+        {
+          "features": "standard",
+          "c": 0.5,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 0.5,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 2.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 2.0,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 8.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "standard",
+          "c": 8.0,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "contextual",
+          "c": 0.5,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "contextual",
+          "c": 0.5,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "contextual",
+          "c": 2.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "contextual",
+          "c": 2.0,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "contextual",
+          "c": 8.0,
+          "class_weight": "balanced",
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        },
+        {
+          "features": "contextual",
+          "c": 8.0,
+          "class_weight": null,
+          "validation_macro_f1": null,
+          "quality_floors_passed": false
+        }
+      ]
+    }
+  ],
+  "all_validation_targets_met": false,
+  "all_exports_compatible": false
+}

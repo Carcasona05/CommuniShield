@@ -12,6 +12,9 @@ export function builtinDirectory() {
     .filter((p): p is string => Boolean(p)).find((p) => existsSync(join(p, "sentiment_english.onnx"))) || join(here, "../../models"));
 }
 export const supportingModelService = {
+  async deletePreview(actor: string, id: string) {
+    return await supabaseAdmin.rpc("sentiment_supporting_delete_preview", { p_actor: actor, p_model: id });
+  },
   async list(page: number) {
     const [models, settings, state, enabled] = await Promise.all([
       supabaseAdmin.from("sentiment_supporting_models").select("id,name,status,routing_policy,metrics,datasets,use_count,last_used_at,created_at,updated_at", { count: "exact" })
@@ -25,7 +28,14 @@ export const supportingModelService = {
     return { data: { models: models.data, total: models.count, maxEnabled: settings.data.max_enabled,
       enabledCount: enabled.count, generation: state.data.generation }, error: null };
   },
-  async action(actor: string, action: string, id: string | null, generation: number, limit?: number) {
+  async action(actor: string, action: string, id: string | null, generation: number, limit?: number, archiveDatasets: { id: string; version: number }[] = []) {
+    if (action === "delete") {
+      const result = await supabaseAdmin.rpc("delete_sentiment_supporting_with_datasets", {
+        p_actor: actor, p_model: id, p_generation: generation, p_datasets: archiveDatasets,
+      });
+      if (!result.error) invalidateSupportingRegistry();
+      return result;
+    }
     const payload: { limit?: number; builtin_hashes?: { [key: string]: string } } = {};
     if (action === "set_limit" && limit !== undefined) payload.limit = limit;
     if (action === "enable") {

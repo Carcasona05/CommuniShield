@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { ensureParticipationReady } from "../../services/profileCompletion";
 import {
   View,
   Text,
@@ -89,17 +88,7 @@ const MyUser_RepPost_Layout = ({
   };
 
   const normalizeStatus = (value) => {
-    const current = String(value || "").toLowerCase();
-
-    if (current.includes("fake") || current.includes("marked")) return "Marked Fake";
-    if (current.includes("under")) return "Under Verification";
-    if (current.includes("resolved")) return "Resolved";
-    if (current.includes("reject")) return "Rejected";
-    if (current.includes("archive")) return "Archived";
-    if (current.includes("verified")) return "Resolved";
-    if (current.includes("pending")) return "Pending Review";
-
-    return "Pending Review";
+    return normalizeReportStatus(value);
   };
 
   const getStatusData = () => {
@@ -364,9 +353,7 @@ const MyUser_RepPost_Layout = ({
         <TouchableOpacity
           style={styles.actionButton}
           activeOpacity={0.8}
-          onPress={async () => {
-            if (await ensureParticipationReady()) onComment?.();
-          }}
+          onPress={onComment}
         >
           <Ionicons
             name="chatbubble-ellipses-outline"
@@ -627,3 +614,4 @@ const styles = StyleSheet.create({
 });
 
 export default MyUser_RepPost_Layout;
+import { normalizeReportStatus } from "../../services/reportPresentation";

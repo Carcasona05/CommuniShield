@@ -4,6 +4,7 @@ import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import type { User } from "@supabase/supabase-js";
 import { profileService } from "../services/authService.js";
 import { profileCompletionService, validProfileBirthdate } from "../services/profileCompletionService.js";
+import { parseProfileAddress } from "../services/profileAddressService.js";
 import { isValidEmail, isValidPhone, passwordPolicyError } from "../services/validation.js";
 import { notificationService } from "../services/notificationService.js";
 import { credibilityService } from "../services/credibilityService.js";
@@ -256,6 +257,7 @@ export const getProfile = async (
     department: data?.department ?? "",
     birthdate: data?.birthdate ?? null,
     location: data?.location ?? "",
+    address_source: "user-provided",
     location_confirmed: completion?.data?.locationConfirmed === true,
     profile_completion: completion?.data || null,
     role: data?.role ?? "user",
@@ -322,11 +324,10 @@ export const updateProfile = async (
 
   const current = await profileService.getProfile(user.id);
   if (current.error || !current.data) return res.status(503).json({ error: "Could not verify your profile." });
-  if (current.data.role === "user" && location !== undefined) {
-    return res.status(400).json({ error: "Tap Address in Profile Details and allow location access before saving your address." });
-  }
+  const address = location !== undefined ? parseProfileAddress(location) : null;
+  if (address?.error) return res.status(400).json({ error: address.error });
   if (birthdate !== undefined && birthdate !== null && !validProfileBirthdate(birthdate)) {
-    return res.status(400).json({ error: "Provide a valid birthdate that is not in the future." });
+    return res.status(400).json({ error: "You must be at least 16 years old. Please provide a valid birthdate." });
   }
   if (user_name !== undefined && (typeof user_name !== "string" || !user_name.trim())) {
     return res.status(400).json({ error: "Username cannot be empty." });
@@ -351,7 +352,7 @@ export const updateProfile = async (
   if (user_name !== undefined) updates.user_name = user_name;
   if (phone !== undefined) updates.phone = phone;
   if (birthdate !== undefined) updates.birthdate = birthdate;
-  if (location !== undefined) updates.location = location;
+  if (address?.data) Object.assign(updates, address.data);
   if (department !== undefined) updates.department = department;
 
   const { data, error } = await profileService.updateProfileFields(

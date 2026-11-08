@@ -129,7 +129,7 @@ class TrainingWorkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             data, models = self.make_baseline(root)
-            job = {"id": str(uuid4()), "lease_token": str(uuid4()), "base_job_id": None, "snapshot": {
+            job = {"id": str(uuid4()), "lease_token": str(uuid4()), "base_job_id": None, "training_mode": "fresh", "snapshot": {
                 "pool_protocol": 1, "admission": "independent-v1",
                 "builtin_hashes": {name: worker.sha256(models / name) for name in worker.FILES},
                 "datasets": [], "samples": [{"text": "new approved", "language": "cebuano", "label": "positive"}]}}

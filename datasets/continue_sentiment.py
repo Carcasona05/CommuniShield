@@ -18,6 +18,13 @@ from sklearn.metrics import log_loss
 
 from import_approved_sentiment import text_key
 from train_sentiment import LABELS, MODEL_DIR, baseline_validation_metrics, evaluate, export_onnx, load_splits
+from validation_diagnostics import observe as observe_validation, report as validation_report
+
+
+class ContinuedQualityError(ValueError):
+    def __init__(self, diagnostics):
+        self.diagnostics = diagnostics
+        super().__init__('No continued update preserves validation quality while learning the new examples. The active model remains unchanged.')
 
 UPDATE_STRENGTHS = (0.05, 0.1, 0.25, 0.5, 1.0)
 REPLAY_PER_CLASS = 300
@@ -82,12 +89,17 @@ def continue_pipeline(active, replay: pd.DataFrame, additions: pd.DataFrame,
     old_new_loss = log_loss(additions["label"], old.predict_proba(x_new), labels=list(LABELS))
     floors = {label: max(0.0, reference["per_label"][label]["recall"] - 0.02) if reference else 0.5 for label in LABELS}
     best = None
+    validation_trials = []
     for strength_index, strength in enumerate(UPDATE_STRENGTHS):
         candidate = copy.deepcopy(classifier)
         for before, after, target in zip(old.estimators_, classifier.estimators_, candidate.estimators_):
             target.coef_ = before.coef_ + strength * (after.coef_ - before.coef_)
             target.intercept_ = before.intercept_ + strength * (after.intercept_ - before.intercept_)
         metrics = evaluate(validation["label"], pd.Series(candidate.predict(x_validation)))
+        if reference is None:
+            trial = {'strength': strength}
+            observe_validation(trial, {'macro_f1': metrics['macro_f1'], 'per_class': metrics['per_label']})
+            validation_trials.append(trial)
         loss = log_loss(additions["label"], candidate.predict_proba(x_new), labels=list(LABELS))
         write_fit_progress(len(LABELS) + strength_index + 1, progress_total)
         eligible = metrics["macro_f1"] >= (max(0.6, reference["macro_f1"] - 0.01) if reference else 0.6) and all(
@@ -102,7 +114,7 @@ def continue_pipeline(active, replay: pd.DataFrame, additions: pd.DataFrame,
                     "strength": strength, "new_loss_before": old_new_loss, "new_loss_after": loss,
                     "new_examples_without_features": unrepresented}
     if best is None:
-        raise ValueError("No continued update preserves validation quality while learning the new examples. The active model remains unchanged.")
+        raise ContinuedQualityError(validation_report(validation_trials) if reference is None else None)
     result = copy.deepcopy(active)
     result.set_params(classifier=best["classifier"])
     return result, {key: value for key, value in best.items() if key not in ("classifier", "rank")}
@@ -123,6 +135,10 @@ def main():
     previous = json.loads(previous_file.read_text(encoding="utf-8")) if previous_file.is_file() else {"samples": []}
     additions = new_examples(snapshot, previous)
     frames = load_splits(args.data_dir)
+    validation_receipt = None
+    if args.independent_quality:
+        from continued_validation import verify
+        validation_receipt = verify(args.data_dir, args.languages or sorted(frames['validation']['language'].unique()))
     # build_snapshot already excludes held-out and baseline-duplicate samples.
     accepted = json.loads((args.data_dir / "approved_training_samples.json").read_text(encoding="utf-8"))
     train_keys = {text_key(row) for row in accepted}
@@ -138,6 +154,9 @@ def main():
         # artifacts or private worker artifacts whose manifest checksum matched.
         saved = joblib.load(source)
         active = saved["pipeline"]
+        if args.independent_quality and language in ('english', 'filipino'):
+            from portable_sentiment_features import adapt_pipeline
+            active = adapt_pipeline(active)
         metadata = dict(saved["metadata"])
         new = pd.DataFrame([row for row in additions if row["language"] == language])
         target = args.output_dir / f"sentiment_{language}.joblib"
@@ -157,16 +176,25 @@ def main():
                 if not args.independent_quality or not str(error).startswith('No continued update preserves'):
                     raise
                 (args.output_dir / 'training_failure.json').write_text(json.dumps({
-                    'kind':'validation_quality','language':language,'completed_languages':[]}), encoding='utf-8')
+                    'kind':'validation_quality','language':language,'completed_languages':[],
+                    'validation_diagnostics': getattr(error, 'diagnostics', None)}), encoding='utf-8')
                 print(f'{language}: no continued candidate meets validation quality requirements', flush=True)
                 raise SystemExit(2) from None
             metadata.update(update_mode="warm_start_fixed_vocabulary", new_examples=len(new),
                             replay_examples=len(replay) - len(new), selection_split="validation",
                             fit_splits=["train"], training_samples=len(replay),
                             validation_metrics=selection["validation"], continued_update=selection)
+            if validation_receipt:
+                metadata['continuation_validation'] = validation_receipt
+                metadata['inherited_training_state'] = 'historical; original validation is not independent'
+            if args.independent_quality and language in ('english', 'filipino'):
+                metadata['feature_profile'] = 'portable-v1'
             metadata.pop("test_metrics", None)  # measured later by the independent ONNX gate
             joblib.dump({"pipeline": updated, "metadata": metadata}, target, compress=3)
             export_onnx(updated, target)
+            if args.independent_quality and language in ('english', 'filipino'):
+                from portable_sentiment_features import verify_export
+                metadata['export_parity'] = verify_export(updated, target.with_suffix('.onnx'), validation['text'].tolist())
         models.append(metadata)
     (args.output_dir / "baseline_metrics.json").write_text(json.dumps({
         "mode": "continued", "models": models, "new_examples": len(additions),

@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import apiClient from "../services/apiClient";
 
 const date = value => new Date(value).toLocaleString();
-const MOBILE_FONT = Platform.select({ ios: "System", android: "sans-serif", default: "system-ui" });
 export default function CredibilityAccessPanel({ onAccessChange }) {
   const [access, setAccess] = useState(null);
   const [error, setError] = useState("");
@@ -84,30 +83,30 @@ const s = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 2 },
   headerIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#EAF0FA", alignItems: "center", justifyContent: "center" },
   heading: { flex: 1, minWidth: 0 },
-  title: { color: "#20385F", fontFamily: MOBILE_FONT, fontWeight: "600", fontSize: 16 },
-  note: { color: "#64748B", fontFamily: MOBILE_FONT, fontSize: 12, lineHeight: 19 },
-  caption: { color: "#7D899B", fontFamily: MOBILE_FONT, fontSize: 11, lineHeight: 17, flexShrink: 1 },
+  title: { color: "#20385F", fontFamily: "PoppinsSemiBold", fontSize: 16 },
+  note: { color: "#64748B", fontFamily: "PoppinsRegular", fontSize: 12, lineHeight: 19 },
+  caption: { color: "#7D899B", fontFamily: "PoppinsRegular", fontSize: 11, lineHeight: 17, flexShrink: 1 },
   refresh: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#F5F7FB" },
   statusRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, justifyContent: "space-between", paddingVertical: 6 },
   badge: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 20, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: "#EAF4EF" },
-  badgeText: { color: "#267358", fontFamily: MOBILE_FONT, fontWeight: "500", fontSize: 12 },
+  badgeText: { color: "#267358", fontFamily: "PoppinsMedium", fontSize: 12 },
   statusDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#3A9572" },
   suspendedBadge: { backgroundColor: "#FFF0E6" },
   suspendedText: { color: "#A75B2B" },
   suspendedDot: { backgroundColor: "#B26B35" },
   allowances: { flexDirection: "row", gap: 12, paddingVertical: 6 },
   allowance: { flex: 1, minWidth: 0, alignItems: "center", gap: 4, paddingVertical: 12, borderRadius: 14, backgroundColor: "#F5F7FB" },
-  activityLabel: { fontFamily: MOBILE_FONT, fontWeight: "500", fontSize: 14, color: "#334155" },
-  amount: { color: "#294880", fontFamily: MOBILE_FONT, fontWeight: "600", fontSize: 22, lineHeight: 28 },
+  activityLabel: { fontFamily: "PoppinsMedium", fontSize: 14, color: "#334155" },
+  amount: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 22, lineHeight: 32 },
   zeroAmount: { color: "#8A97AA" },
   resetRow: { flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center", paddingVertical: 6 },
   suspension: { borderRadius: 16, padding: 14, backgroundColor: "#FFF8F2", gap: 10, marginVertical: 4 },
   noticeHeading: { flexDirection: "row", alignItems: "center", gap: 8 },
-  suspensionTitle: { fontFamily: MOBILE_FONT, fontWeight: "500", color: "#334155", fontSize: 14, lineHeight: 21, flexShrink: 1 },
+  suspensionTitle: { fontFamily: "PoppinsMedium", color: "#334155", fontSize: 14, lineHeight: 21, flexShrink: 1 },
   info: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 12, backgroundColor: "#F2F5FA" },
-  infoText: { flex: 1, color: "#63748B", fontFamily: MOBILE_FONT, fontSize: 13, lineHeight: 20 },
+  infoText: { flex: 1, color: "#63748B", fontFamily: "PoppinsRegular", fontSize: 13, lineHeight: 20 },
   disclosure: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44 },
-  disclosureText: { flex: 1, color: "#52657D", fontFamily: MOBILE_FONT, fontWeight: "500", fontSize: 13 },
-  scoringNote: { color: "#64748B", fontFamily: MOBILE_FONT, fontSize: 13, lineHeight: 21, paddingHorizontal: 28, paddingBottom: 8 },
-  error: { color: "#B42318", fontFamily: MOBILE_FONT, fontSize: 14, lineHeight: 21 },
+  disclosureText: { flex: 1, color: "#52657D", fontFamily: "PoppinsMedium", fontSize: 13 },
+  scoringNote: { color: "#64748B", fontFamily: "PoppinsRegular", fontSize: 13, lineHeight: 21, paddingHorizontal: 28, paddingBottom: 8 },
+  error: { color: "#B42318", fontFamily: "PoppinsRegular", fontSize: 14, lineHeight: 21 },
 });

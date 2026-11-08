@@ -21,8 +21,15 @@ export const sentimentDatasetService = {
   },
   async list(status: string, page: number) {
     let query = supabaseAdmin.from("sentiment_datasets").select("*, sentiment_training_samples(count)", { count: "exact" });
-    if (status !== "all") query = query.eq("status", status);
-    return await query.order("created_at", { ascending: false }).range((page - 1) * 10, page * 10 - 1);
+    if (status === "current") query = query.neq("status", "archived");
+    else if (status !== "all") query = query.eq("status", status);
+    const [result, current, archived] = await Promise.all([
+      query.order("created_at", { ascending: false }).order("id").range((page - 1) * 10, page * 10 - 1),
+      supabaseAdmin.from("sentiment_datasets").select("id", { count: "exact", head: true }).neq("status", "archived"),
+      supabaseAdmin.from("sentiment_datasets").select("id", { count: "exact", head: true }).eq("status", "archived"),
+    ]);
+    return { ...result, error: result.error || current.error || archived.error,
+      counts: { current: current.count || 0, archived: archived.count || 0 } };
   },
   async detail(id: string, page: number) {
     const batch = await supabaseAdmin.from("sentiment_datasets").select("*").eq("id", id).maybeSingle();
@@ -33,6 +40,7 @@ export const sentimentDatasetService = {
     return { data: { dataset: batch.data, samples: samples.data, sampleCount: samples.count || 0, events: events.data }, error: null };
   },
   async mutate(actor: string, action: string, payload: Record<string, unknown>) {
+    if (action === "restore") return await supabaseAdmin.rpc("restore_sentiment_dataset", { p_actor: actor, p_payload: payload });
     return await supabaseAdmin.rpc("manage_sentiment_dataset", { p_actor: actor, p_action: action, p_payload: payload });
   },
   async export(actor: string, id: string, format: string) {

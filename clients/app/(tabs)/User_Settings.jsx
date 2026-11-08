@@ -284,16 +284,16 @@ const UserSettings = () => {
 
           <SettingItem
             icon="warning-outline"
-            iconBg="#FFEAEA"
-            iconColor="#D64545"
+            iconBg="#FEF3C7"
+            iconColor="#B45309"
             title="Incident Alert Settings"
             subtitle={notifications
               ? "Enable alerts for incidents near your location"
               : "Turn on Notifications to receive incident alerts"}
             rightComponent={
               <Switch
-                trackColor={{ false: "#D1D5DB", true: "#FFD2D2" }}
-                thumbColor={crimeAlerts ? "#D64545" : "#F9FAFB"}
+                trackColor={{ false: "#D1D5DB", true: "#BFD2FF" }}
+                thumbColor={crimeAlerts ? COMMUNISHIELD_BLUE : "#F9FAFB"}
                 disabled={!preferences || savingPreferences}
                 accessibilityLabel="Incident alerts"
                 onValueChange={(value) => handlePreferenceChange("crime_alerts_enabled", value, "Incident alerts")}

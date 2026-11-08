@@ -9,7 +9,7 @@ test('Credibility Score component and all referenced styles remain unchanged',()
   const parts=[component,...new Set(names).values()].map((value,index)=>index===0?value:source.match(new RegExp('^  '+value+': \\{[\\s\\S]*?^  \\},','m'))?.[0]||value);
   assert.equal(createHash('sha256').update(parts.join('\n')).digest('hex'),'a6734899d88382a35a6c5aa683793ef03a353914b2e81242f8ae57843ae53c9e');
 });
-test('mobile profile uses horizontal label/value rows and preserves permission-only address editing',()=>{
+test('mobile profile uses horizontal rows and one manual address',()=>{
   assert.match(source,/<Divboxwhite testID="profile-details-container" style=\{styles.detailsCard\}>/);
   assert.match(source,/detailsCard: \{\s+padding: 14,[\s\S]*?backgroundColor: "#FFFFFF"/);
   assert.match(source,/<ThemedHeader accessibilityRole="header" style=\{styles.profileTitle\}>Profile Details/);
@@ -17,17 +17,21 @@ test('mobile profile uses horizontal label/value rows and preserves permission-o
   assert.match(source,/required=\{missingDetails.includes\("First name"\)\}/);
   assert.match(source,/required=\{missingDetails.includes\("Last name"\)\}/);
   assert.doesNotMatch(source,/showRequirements|You’re all set|profile-completion-checklist/);
-  assert.match(source,/const MOBILE_FONT = Platform.select\(\{ ios: "System", android: "sans-serif", default: "system-ui" \}\)/);
+  assert.doesNotMatch(source,/MOBILE_FONT/);
+  assert.match(source,/profileTitle: \{[^\n]*fontFamily: "PoppinsSemiBold"/);
   assert.match(source,/detailsRow: \{\s+flexDirection: "row"/);
   assert.match(source,/value: \{\s+flex: 1,[\s\S]*?textAlign: "right"/);
   assert.match(source,/testID=\{`profile-field-\$\{fieldKey\}`\}/);
-  assert.match(source,/if \(!editMode \|\| locationLock.current \|\| saving \|\| deviceCoordinates\) return/);
-  assert.match(source,/visible=\{showLocationConsent && editMode\}/);
+  assert.doesNotMatch(source,/locationLock|showLocationConsent|requestProfileDeviceLocation/);
+  assert.doesNotMatch(source,/fieldKey="barangay"/);
+  assert.match(source,/accessibilityLabel="Address"/);
 });
 test('Your access has mobile activity rows, collapsible help and timed suspension details',()=>{
   const access=readFileSync(new URL('../../clients/components/CredibilityAccessPanel.jsx',import.meta.url),'utf8');
-  assert.match(access,/<AllowanceRow icon="document-text-outline" label="Reports"/);
-  assert.match(access,/<AllowanceRow icon="chatbubble-ellipses-outline" label="Comments"/);
+  assert.match(access,/<AllowanceRow label="Reports"/);
+  assert.match(access,/<AllowanceRow label="Comments"/);
+  assert.doesNotMatch(access,/MOBILE_FONT|system-ui|sans-serif/);
+  assert.match(access,/title: \{[^\n]*fontFamily: "PoppinsSemiBold"/);
   assert.match(access,/accessibilityLabel="Refresh account access"/);
   assert.match(access,/accessibilityState=\{\{ expanded: showScoring \}\}/);
   assert.match(access,/testID="timed-suspension-details"/);

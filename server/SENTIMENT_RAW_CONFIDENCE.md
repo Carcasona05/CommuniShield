@@ -55,6 +55,29 @@ against each other. This is the requested ranking rule, not a claim that the
 highest number is necessarily correct. Validate accuracy on independent labeled
 examples before treating these scores as certainty.
 
+## Internal test page
+
+Open `/SentimentTest` on the client web origin while signed in as Admin or Super
+Admin. The route is intentionally absent from navigation. Its access probe and
+`POST /api/sentiment/test` both enforce authentication and admin roles on the
+server; hiding the URL is not the access control.
+
+The lightweight page accepts up to 2,000 text characters and 600 optional context
+characters. It runs the same serving pipeline only on explicit button clicks and
+shows the final winner and available model scores. No reports, comments, datasets,
+analysis records or support-usage counters are written. Downloaded model caches
+may be populated on the backend. Gemini receives entered text/context and consumes
+API quota. Provider failures are omitted from the candidate list; sensitive error
+bodies are not returned. No entered text/results are stored by the page.
+
+The endpoint permits five attempts per minute per account and one concurrent test
+per account **per backend process**. On horizontally scaled deployments, enforce a
+shared gateway/Redis rate limit too if a global quota cap is needed.
+
+Restart the backend and Expo after adding the route. The page can run without
+the decision-column migration because it never reads/writes analysis records,
+but normal post/comment analysis still requires the deployment migration above.
+
 ## Offline tests
 
 From `server`:

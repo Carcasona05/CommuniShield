@@ -13,6 +13,8 @@ import { reportSubmissionService } from "../services/reportSubmissionService.js"
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { buildBlotterUpdates } from "../utils/blotterFields.js";
 import { credibilityFailure } from "./credibilityController.js";
+import { decodeFeedCursor } from "../utils/feedCursor.js";
+import { commentSentimentJobs } from "../services/commentSentimentJobs.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string }; token?: string };
 
@@ -286,16 +288,20 @@ export const getReports = async (req: AuthRequest, res: Response) => {
   const now = Date.now();
   const window = { from: new Date(now - (period === "7d" ? 7 * 24 : 24) * 60 * 60 * 1000).toISOString(), to: new Date(now).toISOString() };
   try {
-    const [{ data, error }, posts] = await Promise.all([
-      reportService.listReports(req.user?.id, window),
-      reportService.listAdminPosts(window),
+    if (!req.user?.id) return res.status(401).json({ error: "Unauthorized" });
+    const cursor = decodeFeedCursor(req.query.cursor);
+    const status = typeof req.query.status === "string" && req.query.status !== "All Status" ? req.query.status : undefined;
+    const source = req.query.source ?? "All";
+    if (!["All", "User", "Admin"].includes(String(source))) return res.status(400).json({ error: "Invalid feed source" });
+    const [{ data, error }, safety] = await Promise.all([
+      reportService.listFeedPage(req.user.id, { ...window, ...(status ? { status } : {}), source: String(source), cursor }),
+      !cursor ? supabaseAdmin.rpc("feed_safety_reports", { p_from: window.from, p_to: window.to }) : Promise.resolve(null),
     ]);
-
     if (error) return res.status(500).json({ error });
-
-    // Admin posts are public feed content, not access to admin management routes.
-    res.json({ reports: data, posts: posts.data || [], postsUnavailable: Boolean(posts.error) });
-  } catch {
+    // Safety metadata is not restricted to the first ten posts or status/source filters.
+    res.json({ ...data, ...(safety ? { safetyReports: safety.data || [], safetyUnavailable: Boolean(safety.error) } : {}) });
+  } catch (error) {
+    if (error instanceof Error && error.message === "Invalid pagination cursor") return res.status(400).json({ error: error.message });
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -304,11 +310,15 @@ export const getMyReports = async (req: AuthRequest, res: Response) => {
   const user = req.user;
   if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
 
-  const { data, error } = await reportService.listMyReports(user.id);
-
-  if (error) return res.status(500).json({ error });
-
-  res.json({ reports: data });
+  try {
+    const cursor = decodeFeedCursor(req.query.cursor);
+    const status = typeof req.query.status === "string" && req.query.status !== "All Status" ? req.query.status : undefined;
+    const { data, error } = await reportService.listFeedPage(user.id, { userId: user.id, ...(status ? { status } : {}), cursor });
+    if (error) return res.status(500).json({ error });
+    res.json(data);
+  } catch (error) {
+    res.status(error instanceof Error && error.message === "Invalid pagination cursor" ? 400 : 500).json({ error: error instanceof Error ? error.message : "Could not load reports" });
+  }
 };
 
 export const getReport = async (req: AuthRequest, res: Response) => {
@@ -401,26 +411,36 @@ export const addComment = async (req: AuthRequest, res: Response) => {
   }
   if (!result.data) return res.status(500).json({ error: "Failed to create comment" });
 
-  const sentiment = await sentimentService.analyze("comment", result.data).catch((error) => {
-    console.error("Comment sentiment analysis failed:", error);
-    return null;
-  });
+  backgroundTasks.schedule("comment sentiment", () => commentSentimentJobs.drain(1));
 
   res.status(201).json({
     message: "Comment added",
     comment_id: result.data,
-    ...sentimentResponse(sentiment),
+    comment: result.comment,
+    total: result.total,
+    sentiment: null,
+    sentiment_status: "pending",
   });
 };
 
 export const getComments = async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
 
-  const { data, error } = await reportService.listComments(String(id));
+  try {
+    const result = await reportService.listComments(String(id), decodeFeedCursor(req.query.cursor));
+    if (result.error) return res.status(500).json({ error: result.error });
+    res.json({ comments: result.data, total: result.total, hasMore: result.hasMore, nextCursor: result.nextCursor });
+  } catch (error) {
+    res.status(error instanceof Error && error.message === "Invalid pagination cursor" ? 400 : 500).json({ error: error instanceof Error ? error.message : "Could not load comments" });
+  }
+};
 
-  if (error) return res.status(500).json({ error });
-
-  res.json({ comments: data });
+export const getCommentStatuses = async (req: AuthRequest, res: Response) => {
+  const ids = typeof req.query.ids === "string" ? req.query.ids.split(",") : [];
+  if (!ids.length || ids.length > 10 || ids.some(id => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) return res.status(400).json({ error: "Provide up to ten comment IDs" });
+  const result = await reportService.commentStatuses(String(req.params.id), ids);
+  if (result.error) return res.status(500).json({ error: result.error });
+  res.json({ comments: result.data });
 };
 
 export const toggleLike = async (req: AuthRequest, res: Response) => {

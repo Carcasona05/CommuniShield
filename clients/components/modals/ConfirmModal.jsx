@@ -13,6 +13,7 @@ export default function ConfirmModal({
   iconColor = "#DC2626",
   iconBg = "#FDEBEC",
   hideCancel = false,
+  children,
 }) {
   return (
     <Modal
@@ -30,6 +31,7 @@ export default function ConfirmModal({
           <Text style={styles.title}>{title}</Text>
 
           <Text style={styles.subtitle}>{message}</Text>
+          {children}
 
           {hideCancel ? (
             <TouchableOpacity

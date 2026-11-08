@@ -1,0 +1,34 @@
+{
+  "provenance": "Historical test_metrics from datasets/training-runs/builtin-retrain-20261023T225024Z-11efe5/backup/datasets/models/baseline_metrics.json; not a new evaluation.",
+  "onnx_hashes": {
+    "sentiment_cebuano.onnx": "e92c7d878db0fd68d0ab9a70f5f82a0d296ed1dc52e5c225c0e401e93d61c55f",
+    "sentiment_english.onnx": "264e55483fc93dd941d5356c1a38eca70fd273f3ecd6ce6e0d31d0852dac7341",
+    "sentiment_filipino.onnx": "ca27c428e437b8525c1f69d7e9c030411da9d00968933f7c7d48f1e0def8e3b4"
+  },
+  "models": [
+    { "language": "cebuano", "test_metrics": {
+      "samples": 2861, "accuracy": 0.7693114295700804, "macro_f1": 0.7220659399470538,
+      "per_label": {
+        "negative": { "precision": 0.4857792946530148, "recall": 0.7806215722120659, "f1": 0.5988779803646563, "support": 547 },
+        "neutral": { "precision": 0.9085252022401992, "recall": 0.8079690094078583, "f1": 0.8553016988869362, "support": 1807 },
+        "positive": { "precision": 0.8373333333333334, "recall": 0.6193293885601578, "f1": 0.7120181405895691, "support": 507 }
+      }
+    } },
+    { "language": "english", "test_metrics": {
+      "samples": 13646, "accuracy": 0.656236259709805, "macro_f1": 0.6555172346370877,
+      "per_label": {
+        "negative": { "precision": 0.6248545948041877, "recall": 0.7338342440801457, "f1": 0.6749738219895288, "support": 4392 },
+        "neutral": { "precision": 0.7091932457786116, "recall": 0.5947136563876652, "f1": 0.6469279479719322, "support": 6356 },
+        "positive": { "precision": 0.6181127295756809, "recall": 0.673567977915804, "f1": 0.6446499339498019, "support": 2898 }
+      }
+    } },
+    { "language": "filipino", "test_metrics": {
+      "samples": 3250, "accuracy": 0.6590769230769231, "macro_f1": 0.650611244015867,
+      "per_label": {
+        "negative": { "precision": 0.6626728110599078, "recall": 0.7277327935222672, "f1": 0.693680656054028, "support": 988 },
+        "neutral": { "precision": 0.4644506001846722, "recall": 0.5931603773584906, "f1": 0.520973588814086, "support": 848 },
+        "positive": { "precision": 0.8502772643253235, "recall": 0.6506364922206507, "f1": 0.7371794871794872, "support": 1414 }
+      }
+    } }
+  ]
+}

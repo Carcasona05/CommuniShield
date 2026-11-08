@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Platform,
+  Pressable,
   ScrollView,
   Share,
   StyleSheet,
@@ -919,9 +920,6 @@ function SAdmin_ReportManagementPage() {
                   <Text style={styles.previewTitle}>Report Document</Text>
                   <Text style={styles.previewSubtitle}>{previewRecord.title || previewRecord.id}</Text>
                 </View>
-                <TouchableOpacity onPress={() => setPreviewVisible(false)} hitSlop={10}>
-                  <Ionicons name="close" size={24} color="#4B5D7A" />
-                </TouchableOpacity>
               </View>
 
               <ScrollView
@@ -987,13 +985,15 @@ function SAdmin_ReportManagementPage() {
                     </TouchableOpacity>
                   </>
                 ) : null}
-                <TouchableOpacity style={styles.previewPrimaryButton} onPress={handlePrintPreview} activeOpacity={0.85}>
+                <Pressable style={({ hovered, pressed }) => [styles.previewPrimaryButton, (hovered || pressed) && styles.previewPrimaryButtonHovered]} onPress={handlePrintPreview} accessibilityRole="button" accessibilityLabel="Export as PDF">
                   <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
                   <Text style={styles.previewPrimaryButtonText}>Export as PDF</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.previewSecondaryButton} onPress={() => setPreviewVisible(false)} activeOpacity={0.85}>
-                  <Text style={styles.previewSecondaryButtonText}>Close</Text>
-                </TouchableOpacity>
+                </Pressable>
+                <Pressable style={({ hovered, pressed }) => [styles.previewCloseButton, (hovered || pressed) && styles.previewCloseButtonHovered]} onPress={() => setPreviewVisible(false)} accessibilityRole="button" accessibilityLabel="Close report document">
+                  {({ hovered, pressed }) => (
+                    <Text style={[styles.previewCloseButtonText, (hovered || pressed) && styles.previewCloseButtonTextHovered]}>Close</Text>
+                  )}
+                </Pressable>
               </View>
             </View>
           </View>
@@ -1045,7 +1045,7 @@ const styles = StyleSheet.create({
   previewHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
   previewTitle: { fontSize: 18, fontFamily: "PoppinsSemiBold", color: "#294880" },
   previewSubtitle: { marginTop: 2, fontSize: 12, fontFamily: "PoppinsRegular", color: "#5D6F92" },
-  previewScroll: { maxHeight: 560, paddingHorizontal: 18, paddingVertical: 16 },
+  previewScroll: { maxHeight: 560, flexShrink: 1, minHeight: 0, paddingHorizontal: 18, paddingVertical: 16 },
   documentHeading: { paddingVertical: 14, paddingHorizontal: 15, marginBottom: 14, borderLeftWidth: 4, borderLeftColor: "#25845C", backgroundColor: "#F5F8FC" },
   documentEyebrow: { color: "#25845C", fontSize: 10, fontFamily: "PoppinsSemiBold", letterSpacing: 1 },
   documentTitle: { marginTop: 5, color: "#1F2A37", fontSize: 18, lineHeight: 25, fontFamily: "PoppinsSemiBold" },
@@ -1057,8 +1057,13 @@ const styles = StyleSheet.create({
   previewValue: { flex: 1.25, fontSize: 12, color: "#1F2A37", fontFamily: "PoppinsRegular", textAlign: "right" },
   previewImages: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   previewImage: { width: 150, height: 112, borderRadius: 8, backgroundColor: "#E7ECF3" },
-  previewFooter: { flexDirection: "row", justifyContent: "flex-end", gap: 10, paddingHorizontal: 18, paddingVertical: 14, borderTopWidth: 1, borderTopColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
+  previewFooter: { flexDirection: "row", flexWrap: "wrap", flexShrink: 0, justifyContent: "flex-end", gap: 10, paddingHorizontal: 18, paddingVertical: 14, borderTopWidth: 1, borderTopColor: "#E7ECF3", backgroundColor: "#F7F9FD" },
+  previewCloseButton: { minHeight: 44, minWidth: 88, paddingHorizontal: 18, borderRadius: 10, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#294880", alignItems: "center", justifyContent: "center" },
+  previewCloseButtonText: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 14 },
+  previewCloseButtonHovered: { backgroundColor: "#CBD5E1", borderColor: "#475569" },
+  previewCloseButtonTextHovered: { color: "#294880" },
   previewPrimaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#294880", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  previewPrimaryButtonHovered: { backgroundColor: "#1C335C" },
   previewPrimaryButtonText: { color: "#FFFFFF", fontFamily: "PoppinsSemiBold", fontSize: 13 },
   previewSecondaryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 10, backgroundColor: "#EEF2F8", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
   previewSecondaryButtonText: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 13 },

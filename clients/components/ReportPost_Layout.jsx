@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { ensureParticipationReady } from "../services/profileCompletion";
 import {
   View,
   Text,
@@ -78,16 +77,7 @@ const ReportPost_Layout = ({
   };
 
   const normalizeStatus = (value) => {
-    const current = String(value || "").toLowerCase();
-
-    if (current.includes("under")) return "Under Verification";
-    if (current.includes("resolved")) return "Resolved";
-    if (current.includes("reject")) return "Rejected";
-    if (current.includes("archive")) return "Archived";
-    if (current.includes("verified")) return "Resolved";
-    if (current.includes("pending")) return "Pending Review";
-
-    return verified ? "Resolved" : "Pending Review";
+    return normalizeReportStatus(value, verified);
   };
 
   const getStatusData = () => {
@@ -114,6 +104,9 @@ const ReportPost_Layout = ({
           icon: "close-circle-outline",
           color: "#C0392B",
         };
+
+      case "Marked Fake":
+        return { label: "Marked Fake", icon: "warning-outline", color: "#B42318" };
 
       case "Archived":
         return {
@@ -269,9 +262,7 @@ const ReportPost_Layout = ({
         <TouchableOpacity
           style={styles.actionButton}
           activeOpacity={0.8}
-          onPress={async () => {
-            if (await ensureParticipationReady()) onComment?.();
-          }}
+          onPress={onComment}
         >
           <Ionicons
             name="chatbubble-ellipses-outline"
@@ -477,3 +468,4 @@ const styles = StyleSheet.create({
 });
 
 export default ReportPost_Layout;
+import { normalizeReportStatus } from "../services/reportPresentation";

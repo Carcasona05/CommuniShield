@@ -83,8 +83,17 @@ def evaluate(splits, candidate, builtin_hashes, selected_languages=None, trainin
     for language in requested:
         if language in training_failures:
             check = {'passed': False, 'reasons': ['No fitted candidate met validation quality requirements.'], 'failure_stage': 'validation_selection'}
+            from validation_diagnostics import sanitize
+            failure = training_failures[language]
+            diagnostics = sanitize(failure.get('validation_diagnostics')) if isinstance(failure, dict) else None
+            if diagnostics:
+                check['validation_diagnostics'] = diagnostics
+                check['validation_metrics'] = diagnostics['representative']['metrics']
+                check['reasons'] = diagnostics['representative']['failures'] or check['reasons']
+                check['test_evaluated'] = False
+                check['test_acceptance_evaluated'] = False
             checks[language] = check
-            reasons.append(f'{language}: {check["reasons"][0]}')
+            reasons.extend(f'{language}: {reason}' for reason in check['reasons'])
             if on_language_complete:
                 on_language_complete(language)
             continue

@@ -260,7 +260,8 @@ const scoreCandidate = (id: string, source: "builtin" | "supporting", model: str
 
 const runLocalPrediction = async (
   language: LocalModelLanguage,
-  text: string
+  text: string,
+  recordUsage = true
 ): Promise<SentimentPrediction> => {
   const { session, labels, version } = await loadLocalSession(language);
   const input = new Tensor("string", [text], [1, 1]);
@@ -303,7 +304,7 @@ const runLocalPrediction = async (
           `supporting:${proposal.id}@${proposal.version}`, proposal.scores));
       } catch { /* A malformed support cannot discard valid model predictions. */ }
     }
-    if (proposals.length) {
+    if (recordUsage && proposals.length) {
       // Telemetry must not turn a successful prediction into a failed analysis.
       await localPredictionDependencies.recordSupportUsage([...new Set(proposals.map(proposal => proposal.id))])
         .catch(error => console.error("[Sentiment support usage]", asErrorMessage(error)));
@@ -530,7 +531,8 @@ const predictionDependencies = { settings, detectLanguage, runLocalPrediction, c
 const predict = async (
   textValue: string,
   context?: string,
-  localOnly = false
+  localOnly = false,
+  recordUsage = true
 ): Promise<{ prediction: SentimentPrediction; errorCode: string }> => {
   const text = normalizeText(textValue);
   if (!text) {
@@ -562,7 +564,7 @@ const predict = async (
 
   if (shouldUseLocal && localLanguage) {
     const [localResult, geminiResult] = await Promise.all([
-      attempt(() => predictionDependencies.runLocalPrediction(detectedLanguage, text)),
+      attempt(() => predictionDependencies.runLocalPrediction(detectedLanguage, text, recordUsage)),
       shouldUseGemini
         ? attempt(() => predictionDependencies.callGeminiSentiment(text, detectedLanguage, config, context))
         : Promise.resolve(null),
@@ -635,7 +637,7 @@ const predict = async (
     if (cebuanoMode !== "disabled") fallbackLanguages.push("cebuano");
     const fallbackResults = await Promise.all(
       fallbackLanguages.map((language) =>
-        attempt(() => predictionDependencies.runLocalPrediction(language, text))
+        attempt(() => predictionDependencies.runLocalPrediction(language, text, recordUsage))
       )
     );
     const available = fallbackResults.filter((result): result is { ok: true; value: SentimentPrediction } => result.ok);
@@ -1013,6 +1015,10 @@ const loadSubjectText = async (
 };
 
 export const sentimentService = {
+  // Diagnostic only: reuse serving policy without claims, persistence or usage writes.
+  async testText(text: string, context?: string) {
+    return predict(text, context, false, false);
+  },
   async reanalyzeReportsWithComments(reportIds: string[]) {
     const ids = [...new Set(reportIds)];
     const commentIds = new Set<string>();

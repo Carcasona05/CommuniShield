@@ -1,0 +1,20 @@
+{
+  "test_evaluated": false,
+  "deployed": false,
+  "models": [
+    {
+      "language": "cebuano",
+      "python_validation_macro_f1": 0.7330502421559292,
+      "onnx_validation_macro_f1": 0.7330502421559292,
+      "prediction_mismatches": 0,
+      "samples": 2896
+    },
+    {
+      "language": "english",
+      "python_validation_macro_f1": 0.6968793710337006,
+      "onnx_validation_macro_f1": 0.6827130983627047,
+      "prediction_mismatches": 374,
+      "samples": 3335
+    }
+  ]
+}

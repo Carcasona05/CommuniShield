@@ -12,6 +12,7 @@ import { profileService } from "./services/authService.js";
 import { loginVerificationService } from "./services/loginVerificationService.js";
 import type { AddressInfo } from "node:net";
 import { sentimentTrainingService } from "./services/sentimentTrainingService.js";
+import { supabaseAdmin } from "./config/supabaseAdmin.js";
 
 const good = { text: "Maayo kaayo ang serbisyo", language: "cebuano", label: "positive" };
 beforeEach((t) => { if ("mock" in t) t.mock.method(service, "trainingReady", async () => true); });
@@ -154,6 +155,72 @@ test("dataset listing validates status/page and identifies the current viewer", 
   const { res, result } = response(); await listDatasets(req({}, { query: { status: "pending", page: "2" } }), res);
   assert.equal((result.body as { viewerId: string }).viewerId, id);
   const bad = response(); await listDatasets(req({}, { query: { page: "-1" } }), bad.res); assert.equal(bad.result.status, 400);
+});
+
+test("multiple manual examples submit as one reviewed dataset through existing validation", async (t) => {
+  const rows = [good, { text: "The meeting starts tomorrow.", language: "english", label: "neutral" }];
+  t.mock.method(service, "preview", async (input: unknown[]) => ({ data: validateDatasetRows(input), error: null }));
+  const write = t.mock.method(service, "mutate", async (actor: string, action: string, payload: Record<string, unknown>) => {
+    assert.equal(actor, id); assert.equal(action, "submit"); assert.equal(payload.source, "manual");
+    assert.equal(payload.privacy_reviewed, true);
+    const samples = payload.rows as { text: string; language: string; label: string; text_key: string }[];
+    assert.equal(samples.length, 2);
+    assert.deepEqual(samples.map(({ text, language, label }) => ({ text, language, label })), rows);
+    return { data: { id }, error: null };
+  });
+  const { res, result } = response();
+  await submitDataset(req({ name: "Manual batch", source: "manual", rows, privacy_reviewed: true }), res);
+  assert.equal(result.status, 201); assert.equal(write.mock.callCount(), 1);
+});
+
+test("current and archived listings expose full-library counts", async (t) => {
+  const counts = { current: 24, archived: 13 };
+  t.mock.method(service, "list", async (status: string, page: number) => {
+    assert.ok(["current", "archived"].includes(status)); assert.equal(page, 2);
+    return { data: [], error: null, count: 13, counts };
+  });
+  for (const status of ["current", "archived"]) {
+    const { res, result } = response();
+    await listDatasets(req({}, { query: { status, page: "2" } }), res);
+    assert.equal(result.status, 200);
+    assert.deepEqual((result.body as { counts: unknown }).counts, counts);
+  }
+});
+
+test("list service filters before pagination, keeps legacy all and counts across the library", async (t) => {
+  const queries: { operations: unknown[][] }[] = [];
+  t.mock.method(supabaseAdmin, "from", () => {
+    const entry = { operations: [] as unknown[][] }; queries.push(entry);
+    const query: Record<string, unknown> = {};
+    for (const method of ["select", "eq", "neq", "order", "range"]) {
+      query[method] = (...args: unknown[]) => { entry.operations.push([method, ...args]); return query; };
+    }
+    query.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [], error: null, count: 23 }).then(resolve);
+    return query;
+  });
+  for (const status of ["current", "archived", "all"]) {
+    queries.length = 0;
+    const result = await service.list(status, 2);
+    assert.deepEqual(result.counts, { current: 23, archived: 23 });
+    const listing = queries[0]!.operations;
+    if (status === "current") assert.ok(listing.some((op) => op[0] === "neq" && op[1] === "status" && op[2] === "archived"));
+    if (status === "archived") assert.ok(listing.some((op) => op[0] === "eq" && op[2] === "archived"));
+    if (status === "all") assert.ok(!listing.some((op) => ["eq", "neq"].includes(String(op[0]))));
+    assert.deepEqual(listing.at(-1), ["range", 10, 19]);
+    for (const query of queries.slice(1)) assert.ok(!query.operations.some((op) => op[0] === "range"));
+  }
+});
+
+test("restore uses authenticated actor/version without requiring or queueing training", async (t) => {
+  t.mock.method(service, "trainingReady", async () => { throw new Error("restore must not require training"); });
+  t.mock.method(service, "mutate", async (actor: string, action: string, payload: Record<string, unknown>) => {
+    assert.equal(actor, id); assert.equal(action, "restore"); assert.equal(payload.version, 7);
+    return { data: { id }, error: null };
+  });
+  const { res, result } = response();
+  await reviewDataset(req({ action: "restore", version: 7, actor: "forged" }), res);
+  assert.equal(result.status, 200);
+  assert.match((result.body as { message: string }).message, /not queued/);
 });
 
 test("training JSON export preserves exact text, CSV is review-safe, and pending export is blocked", async (t) => {

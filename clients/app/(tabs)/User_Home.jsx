@@ -22,9 +22,10 @@ import useScrollToTop from "../../hooks/useScrollToTop";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
 import { publishNavVisibility, subscribeNavVisibility } from "../../services/navBus";
-import { getCachedPage, patchCachedReports } from "../../services/dataStore";
+import { patchCachedReports } from "../../services/dataStore";
 import { SkeletonFeed } from "../../components/SkeletonCard";
 import { buildNearbySafety, formatSafetyReportAge, SAFETY_RADIUS_KM } from "../../services/safetyTips";
+import useCursorFeed from "../../hooks/useCursorFeed";
 
 const PRIMARY = "#294880";
 
@@ -45,24 +46,6 @@ const statusOptions = [
 ];
 
 const sourceOptions = ["All", "User", "Admin"];
-
-const PAGE_SIZE = 10;
-
-const isWithinPastHours = (dateValue, hours) => {
-  const date = new Date(dateValue);
-  const limit = new Date();
-  limit.setHours(limit.getHours() - hours);
-
-  return date >= limit;
-};
-
-const isWithinPastWeek = (dateValue) => {
-  const date = new Date(dateValue);
-  const limit = new Date();
-  limit.setDate(limit.getDate() - 7);
-
-  return date >= limit;
-};
 
 const mapFeed = (reportsData, adminData) => {
   const userPosts = (reportsData?.reports || []).map((r) => ({
@@ -107,8 +90,11 @@ const mapFeed = (reportsData, adminData) => {
     pic: p.pic,
   }));
 
-  return [...adminPosts, ...userPosts];
+  const order = new Map((reportsData?.order || []).map((id, index) => [id, index]));
+  return [...adminPosts, ...userPosts].sort((a, b) =>
+    (order.get(`${a.postSource}:${a.id}`) ?? 0) - (order.get(`${b.postSource}:${b.id}`) ?? 0));
 };
+const mapHomePage = (data) => mapFeed(data, data);
 
 const SEVERITY_COLORS = { Critical: "#991B1B", High: "#C2410C", Medium: "#946200", Low: PRIMARY, Unknown: "#64748B" };
 
@@ -327,90 +313,24 @@ const User_Home = () => {
   const [selectedStatus, setSelectedStatus] = useState("All Status");
   const [selectedSource, setSelectedSource] = useState("All");
   const [openDropdown, setOpenDropdown] = useState(null);
-  const [reports, setReports] = useState(() => {
-    const cached = getCachedPage("/reports", { period: "24h" });
-    return cached ? mapFeed(cached, cached) : [];
-  });
-  const [loading, setLoading] = useState(() => {
-    return getCachedPage("/reports", { period: "24h" }) === undefined;
-  });
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState("");
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const feed = useCursorFeed("/reports", {
+    period: selectedTimeRange === "Past 7 Days" ? "7d" : "24h",
+    ...(selectedStatus !== "All Status" ? { status: selectedStatus } : {}),
+    ...(selectedSource !== "All" ? { source: selectedSource } : {}),
+  }, mapHomePage);
+  const { rows: reports, setRows: setReports, loading, refreshing, error: loadError, loadingMore, load: loadReports, refresh: handleRefresh, loadMore: handleViewMore } = feed;
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [navShown, setNavShown] = useState(true);
   const [arrowReady, setArrowReady] = useState(false);
   const scrollRef = useScrollToTop();
   const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
-  const feedRequest = useRef(0);
-
-  const loadReports = useCallback(async ({ force = false } = {}) => {
-    const request = ++feedRequest.current;
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-
-      const params = { period: selectedTimeRange === "Past 7 Days" ? "7d" : "24h" };
-      const cached = getCachedPage("/reports", params);
-      if (cached) setReports(mapFeed(cached, cached));
-      else setLoading(true);
-      const { data } = await apiClient.get("/reports", {
-        params,
-        ...(force ? { cacheMode: "network" } : {}),
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (request !== feedRequest.current || token !== await AsyncStorage.getItem("access_token")) return;
-      setReports(mapFeed(data, data));
-      setLoadError(data?.postsUnavailable ? "Admin posts could not be loaded. Please retry." : "");
-    } catch (error) {
-      if (request === feedRequest.current && error.code !== "ERR_CANCELED") setLoadError("Could not load reports. Please retry.");
-    } finally {
-      if (request === feedRequest.current) {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }
-  }, [selectedTimeRange]);
-
-  useEffect(() => { loadReports(); return () => { feedRequest.current++; }; }, [loadReports]);
 
   useAutoRefresh(loadReports, 60000);
 
   useEffect(() => subscribeRefresh(() => loadReports({ force: true })), [loadReports]);
 
-  const handleRefresh = useCallback(() => {
-    setRefreshing(true);
-    loadReports({ force: true });
-  }, [loadReports]);
-
-  const filteredReports = useMemo(() => {
-    return reports.filter((report) => {
-      // Archived reports are removed from every user-facing surface.
-      if (report.status === "Archived") return false;
-
-      const matchesTimeRange =
-        selectedTimeRange === "Past 24 Hours"
-          ? isWithinPastHours(report.datePosted, 24)
-          : isWithinPastWeek(report.datePosted);
-
-      const matchesSource =
-        selectedSource === "All" || report.postSource === selectedSource;
-
-      const matchesStatus =
-        selectedStatus === "All Status" ||
-        (report.postSource === "User" && report.status === selectedStatus);
-
-      return matchesTimeRange && matchesSource && matchesStatus;
-    });
-  }, [reports, selectedTimeRange, selectedStatus, selectedSource]);
-
-  const visibleReports = filteredReports.slice(0, visibleCount);
-
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [selectedTimeRange, selectedStatus, selectedSource]);
+  const filteredReports = reports;
+  const visibleReports = reports;
 
   const handleDropdownToggle = (dropdownName) => {
     setOpenDropdown((current) =>
@@ -418,14 +338,6 @@ const User_Home = () => {
     );
   };
 
-  const handleViewMore = () => {
-    if (loadingMore) return;
-    setLoadingMore(true);
-    setTimeout(() => {
-      setVisibleCount((count) => count + PAGE_SIZE);
-      setLoadingMore(false);
-    }, 400);
-  };
 
   const lastScrollYRef = useRef(0);
 
@@ -526,7 +438,8 @@ const User_Home = () => {
           />
         }
       >
-        <MapPreview style={styles.mapSpacing} reports={reports} />
+        <MapPreview style={styles.mapSpacing} reports={feed.meta.safetyReports || []} />
+        {feed.meta.safetyUnavailable ? <ThemedText style={styles.reminderText}>Nearby safety information could not be loaded. Pull to refresh.</ThemedText> : null}
 
         <View style={styles.filterCard}>
           <DropdownFilter
@@ -587,7 +500,7 @@ const User_Home = () => {
             if (report.postSource === "Admin") {
               return (
                 <ReportByAdmin
-                  key={report.id}
+                  key={`${report.postSource}:${report.id}`}
                   report={report}
                   type={report.type}
                   location={report.location}
@@ -604,7 +517,7 @@ const User_Home = () => {
 
             return (
                 <ReportPost_Layout
-                  key={report.id}
+                  key={`${report.postSource}:${report.id}`}
                   userName={report.userName}
                   userAvatar={report.userAvatar}
                   datePosted={report.datePosted}
@@ -626,7 +539,7 @@ const User_Home = () => {
             );
           })}
 
-          {!loading && filteredReports.length > visibleReports.length ? (
+          {!loading && feed.meta.hasMore ? (
             <TouchableOpacity
               style={styles.viewMoreBtn}
               activeOpacity={0.8}

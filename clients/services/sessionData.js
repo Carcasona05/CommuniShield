@@ -244,6 +244,22 @@ export function createSessionData({ now = () => Date.now() } = {}) {
     return promise;
   };
   return { begin, reset, invalidate, current, get, set, run, fresh,
+    patchReports(id, patch) {
+      const update = data => !Array.isArray(data?.reports) ? data : {
+        ...data, reports: data.reports.map(report => String(report.id) === String(id) ? patch(report) : report),
+      };
+      for (const [key, entry] of [...values]) {
+        const path = cachedPagePath(key);
+        if (!["/reports", "/reports/mine"].includes(path)) continue;
+        const snapshot = key.startsWith("query-snapshot:");
+        set(key, snapshot ? { ...entry.data, data: update(entry.data.data) } : update(entry.data), entry.at);
+      }
+      for (const [key, entry] of responses) {
+        if (key.startsWith("/reports:") || key.startsWith("/reports/mine:")) {
+          entry.response = { ...entry.response, data: update(entry.response.data) };
+        }
+      }
+    },
     pageEntries: () => [...values].filter(([key]) => cachedPagePath(key)),
     restorePageEntries(entries) {
       if (!session || !Array.isArray(entries)) return;

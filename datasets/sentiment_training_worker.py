@@ -371,7 +371,7 @@ def training_quality_failure(candidate: Path):
     Unexpected errors keep their original failure path.
     """
     path = candidate / 'training_failure.json'
-    if not path.is_file() or path.stat().st_size > 16384:
+    if not path.is_file() or path.stat().st_size > 131072:
         return None
     try:
         marker = json.loads(path.read_text(encoding='utf-8'))
@@ -383,7 +383,9 @@ def training_quality_failure(candidate: Path):
     if not isinstance(completed, list) or any(not isinstance(l, str) or l not in LANGUAGES for l in completed):
         return None
     # Use our own public message, not arbitrary strings found in the file.
-    return marker['language'], ['No fitted candidate meets validation macro-F1 and per-class precision/recall requirements. Review training labels and class coverage.'], completed
+    from validation_diagnostics import sanitize
+    diagnostics = sanitize(marker.get('validation_diagnostics'))
+    return marker['language'], ['No fitted candidate meets validation macro-F1 and per-class precision/recall requirements. Review training labels and class coverage.'], completed, diagnostics
 
 
 def run_scoped_training(command, candidate, requested, directory, lease, progress=None):
@@ -417,7 +419,7 @@ def run_scoped_training(command, candidate, requested, directory, lease, progres
                     failure = training_quality_failure(output)
                     if not failure or failure[0] != language:
                         raise RuntimeError(f'{language}: training process failed unexpectedly. Inspect the private training.log.')
-                    failures[language] = failure[1]
+                    failures[language] = {'validation_diagnostics': failure[3]} if failure[3] else failure[1]
                     if progress:
                         progress.emit(2 + index, 'fitting', language)
                     continue
@@ -467,6 +469,10 @@ def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, r
             raise ValueError("Baseline ONNX bundle is incomplete")
         (directory / "approved_snapshot.json").write_text(json.dumps(job["snapshot"], ensure_ascii=False), encoding="utf-8")
         merged = build_snapshot(data_dir, job["snapshot"], directory / "data")
+        if mode == 'continue' and independent:
+            from continued_validation import prepare
+            merged['continuation_validation'] = prepare(directory / 'data', data_dir,
+                requested if scoped else sorted(LANGUAGES))
         progress.emit(1, 'preparing')
         candidate = directory / "candidate"
         if mode == "fresh":
@@ -500,12 +506,14 @@ def process_job(cloud: Cloud, job: dict, data_dir: Path, bundled_models: Path, r
                 if process is not None and process.returncode != 0:
                     failure = training_quality_failure(candidate) if independent else None
                     if failure:
-                        language, reasons, completed = failure
+                        language, reasons, completed = failure[:3]
                         metrics = {"passed": False, "admission": "independent-v1",
                                    "pool_protocol": 1, "training_mode": mode, "data": merged,
                                    "failure_stage": "validation_selection", "failed_language": language,
                                    "completed_languages": completed,
-                                   "reasons": [f"{language}: {reason}" for reason in reasons]}
+                                    "reasons": [f"{language}: {reason}" for reason in reasons]}
+                        if failure[3]:
+                            metrics['validation_diagnostics'] = {language: failure[3]}
                         (directory / "evaluation.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
                         completed_text = f" {', '.join(completed)} finished fitting, but has not independently qualified for enabling." if completed else ""
                         cloud.rpc("fail", job, {"metrics": metrics, "error":

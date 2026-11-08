@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -30,11 +30,10 @@ import useAutoRefresh from "../../hooks/useAutoRefresh";
 import useScrollToTop from "../../hooks/useScrollToTop";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { subscribeRefresh } from "../../services/refreshBus";
-import { getCache, getCachedPage, setCache, patchCachedReports, removeCachedReport } from "../../services/dataStore";
+import { getCache, setCache, patchCachedReports, removeCachedReport } from "../../services/dataStore";
+import useCursorFeed from "../../hooks/useCursorFeed";
 
 const PRIMARY = "#294880";
-
-const PAGE_SIZE = 10;
 
 const FONT = {
   regular: "Poppins-Regular",
@@ -590,7 +589,6 @@ const MyReportsInner = () => {
   const toast = useToast();
   const router = useRouter();
 
-  const [loading, setLoading] = useState(() => getCachedPage("/reports/mine") === undefined);
 
   const [fontsLoaded] = useFonts({
     "Poppins-Regular": require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -600,16 +598,10 @@ const MyReportsInner = () => {
 
   const [selectedStatus, setSelectedStatus] = useState("All Status");
   const [openDropdown, setOpenDropdown] = useState(null);
-  const [myReports, setMyReports] = useState(() => {
-    const cached = getCachedPage("/reports/mine");
-    return Array.isArray(cached?.reports) ? mapMyReports(cached) : [];
-  });
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState("");
+  const feed = useCursorFeed("/reports/mine", selectedStatus === "All Status" ? {} : { status: selectedStatus }, mapMyReports);
+  const { rows: myReports, setRows: setMyReports, loading, refreshing, error: loadError, loadingMore, load: loadMyReports, refresh: handleRefresh, loadMore: handleViewMore } = feed;
   const scrollRef = useScrollToTop();
   const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -617,83 +609,14 @@ const MyReportsInner = () => {
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
 
-  const loadMyReports = useCallback(async ({ force = false } = {}) => {
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-
-      const cached = getCachedPage("/reports/mine");
-      if (cached !== undefined) setMyReports(mapMyReports(cached));
-
-      const res = await apiClient.get("/reports/mine", {
-        ...(force ? { cacheMode: "network" } : {}),
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (token !== await AsyncStorage.getItem("access_token")) return;
-      setMyReports(mapMyReports(res.data));
-      setLoadError("");
-    } catch (error) {
-      if (error.code !== "ERR_CANCELED") setLoadError("Could not load your reports. Please retry.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
 
   useAutoRefresh(loadMyReports, 60000);
 
   useEffect(() => subscribeRefresh(() => loadMyReports({ force: true })), [loadMyReports]);
 
-  const handleRefresh = useCallback(() => {
-    setRefreshing(true);
-    loadMyReports({ force: true });
-  }, [loadMyReports]);
-
-  const filteredReports = useMemo(() => {
-    // Archived reports are removed from every user-facing surface.
-    const activeReports = myReports.filter(
-      (report) => report.status !== "Archived"
-    );
-
-    if (selectedStatus === "All Status") {
-      return activeReports;
-    }
-
-    return activeReports.filter((report) => report.status === selectedStatus);
-  }, [selectedStatus, myReports]);
-
-  const visibleReports = filteredReports.slice(0, visibleCount);
-
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [selectedStatus]);
-
-  const handleViewMore = () => {
-    if (loadingMore) return;
-    setLoadingMore(true);
-    setTimeout(() => {
-      setVisibleCount((count) => count + PAGE_SIZE);
-      setLoadingMore(false);
-    }, 400);
-  };
-
-  const statusCounts = useMemo(() => {
-    const activeReports = myReports.filter(
-      (report) => report.status !== "Archived"
-    );
-    const counts = { "All Status": activeReports.length };
-
-    statusOptions.forEach((status) => {
-      if (status !== "All Status") {
-        counts[status] = activeReports.filter(
-          (report) => report.status === status
-        ).length;
-      }
-    });
-
-    return counts;
-  }, [myReports]);
+  const filteredReports = myReports;
+  const visibleReports = myReports;
+  const statusCounts = Object.fromEntries(statusOptions.map(status => [status, feed.meta.statusCounts?.[status] ?? 0]));
 
   const handleDropdownToggle = (dropdownName) => {
     setOpenDropdown((current) =>
@@ -838,6 +761,7 @@ const MyReportsInner = () => {
       );
 
       removeCachedReport(reportId);
+      void loadMyReports({ force: true });
 
       toast.success("Report deleted successfully.");
     } catch (error) {
@@ -954,7 +878,7 @@ const MyReportsInner = () => {
             ))
           )}
 
-          {!loading && filteredReports.length > visibleReports.length ? (
+          {!loading && feed.meta.hasMore ? (
             <TouchableOpacity
               style={styles.viewMoreBtn}
               activeOpacity={0.8}

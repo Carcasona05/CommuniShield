@@ -48,14 +48,7 @@ export const clearDataCache = () => {
 const REPORT_CACHE_KEYS = ["api:/reports", "api:/reports/mine"];
 
 export const patchCachedReports = (id, patch) => {
-  REPORT_CACHE_KEYS.forEach((key) => {
-    const cached = getCache(key);
-    if (!cached || !Array.isArray(cached.reports)) return;
-    setCache(key, {
-      ...cached,
-      reports: cached.reports.map((r) => (r.id === id ? patch(r) : r)),
-    });
-  });
+  sessionData.patchReports(id, patch);
 };
 
 export const removeCachedReport = (id) => {

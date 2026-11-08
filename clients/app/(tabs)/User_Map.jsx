@@ -8,7 +8,9 @@ import {
   Dimensions,
   Platform,
   Linking,
+  useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -19,6 +21,7 @@ import { MapSkeleton } from "../../components/PageSkeletons";
 import apiClient from "../../services/apiClient";
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { getCachedPage } from "../../services/dataStore";
+import { mergeMapFacilities, facilityDirectionsUrl, facilityPhoneUrl } from "../../services/mapFacilities";
 import {
   ARGAO_BARANGAYS,
   ARGAO_HELP_FACILITIES,
@@ -45,17 +48,6 @@ const facilityParams = (position) => {
   return { lat: anchor[0], lng: anchor[1], radius: 8000 };
 };
 
-const haversineKm = (lat1, lng1, lat2, lng2) => {
-  const R = 6371;
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-};
-
 const formatDistance = (km) => {
   if (km === undefined || km === null || Number.isNaN(km)) return "—";
   if (km < 1) return `${Math.max(1, Math.round(km * 1000))} m away`;
@@ -65,6 +57,11 @@ const formatDistance = (km) => {
 const metaFor = (type) => MAP_TYPE_META[type] || MAP_TYPE_META.police;
 
 const UserMap = () => {
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+  const navigationHeight = screenWidth < 340 ? 62 : screenWidth < 390 ? 66 : 70;
+  const navigationBottom = Platform.OS === "ios" ? Math.max(insets.bottom, 10) + 6 : Math.max(insets.bottom, 8) + 8;
+  const recenterBottom = navigationHeight + navigationBottom + 12;
   const [selectedType, setSelectedType] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
   const [showPanel, setShowPanel] = useState(false);
@@ -145,42 +142,12 @@ const UserMap = () => {
     if (userPosition) loadFacilities();
   }, [userPosition, loadFacilities]);
 
-  const mergedFacilities = useMemo(() => {
-    const anchor = userPosition
-      ? clampToCebu(userPosition[0], userPosition[1])
-      : [DEFAULT_ARGAO.lat, DEFAULT_ARGAO.lng];
-
-    const staticFacilities = ARGAO_HELP_FACILITIES.filter(
-      (s) =>
-        !facilities.some(
-          (f) =>
-            f.type === s.type &&
-            haversineKm(f.lat, f.lng, s.lat, s.lng) < 2.5
-        )
-    ).map((s) => ({
-      ...s,
-      distanceKm: haversineKm(anchor[0], anchor[1], s.lat, s.lng),
-    }));
-
-    const all = [
-      ...facilities.map((f) => ({ ...f })),
-      ...ARGAO_BARANGAYS.map((b) => ({
-        ...b,
-        distanceKm: haversineKm(anchor[0], anchor[1], b.lat, b.lng),
-      })),
-      ...staticFacilities,
-    ].filter((facility) => facility.type !== "help");
-
-    all.sort(
-      (a, b) => (a.distanceKm ?? 1e9) - (b.distanceKm ?? 1e9)
-    );
-    return all;
-  }, [facilities, userPosition]);
+  const mergedFacilities = useMemo(() => mergeMapFacilities(facilities, ARGAO_HELP_FACILITIES, ARGAO_BARANGAYS, userPosition), [facilities, userPosition]);
 
   useEffect(() => {
     setSelectedFacility((prev) =>
       prev && mergedFacilities.some((f) => f.id === prev.id)
-        ? prev
+        ? mergedFacilities.find((f) => f.id === prev.id)
         : mergedFacilities[0] ?? null
     );
   }, [mergedFacilities]);
@@ -209,18 +176,16 @@ const UserMap = () => {
 
   const nearestFire = mergedFacilities.find((f) => f.type === "fire");
 
-  const mapPosition = userPosition
-    ? clampToCebu(userPosition[0], userPosition[1])
-    : null;
+  const mapPosition = userPosition;
 
   const openDirections = (facility) => {
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${facility.lat},${facility.lng}`;
+    const url = facilityDirectionsUrl(facility);
     Linking.openURL(url).catch(() => {});
   };
 
   const openCall = (facility) => {
-    const phone = (facility.phone || "911").replace(/[^0-9+]/g, "");
-    if (phone) Linking.openURL(`tel:${phone}`).catch(() => {});
+    const url = facilityPhoneUrl(facility);
+    if (url) Linking.openURL(url).catch(() => {});
   };
 
   const handleSelectType = (type) => {
@@ -294,7 +259,7 @@ const UserMap = () => {
           </View>
 
         <TouchableOpacity
-          style={styles.recenterButton}
+          style={[styles.recenterButton, { bottom: recenterBottom }]}
           activeOpacity={0.8}
           onPress={() => mapViewRef.current?.recenter()}
         >
@@ -346,12 +311,12 @@ const UserMap = () => {
             <View style={styles.infoRow}>
               <Ionicons name="call-outline" size={16} color="#6B7280" />
               <ThemedText style={styles.infoText}>
-                {selectedFacility.phone || "911 / Local Hotline"}
+                {selectedFacility.phone || "Direct phone number not listed"}
               </ThemedText>
             </View>
 
             <ThemedText style={styles.responseNote}>
-              {selectedMeta.responseNote}
+              {selectedFacility.locationNote || selectedMeta.responseNote}
             </ThemedText>
 
             <View style={styles.cardButtons}>
@@ -362,14 +327,15 @@ const UserMap = () => {
               >
                 <Ionicons name="navigate-outline" size={16} color="#FFFFFF" />
                 <ThemedText style={styles.primaryButtonText}>
-                  Get Directions
+                  {selectedFacility.locationKind === "barangay-area" ? "View Barangay" : "Get Directions"}
                 </ThemedText>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.secondaryButton}
+                style={[styles.secondaryButton, !facilityPhoneUrl(selectedFacility) && { opacity: 0.45 }]}
                 activeOpacity={0.8}
                 onPress={() => openCall(selectedFacility)}
+                disabled={!facilityPhoneUrl(selectedFacility)}
               >
                 <Ionicons name="call-outline" size={16} color={COMMUNISHIELD_BLUE} />
                 <ThemedText style={styles.secondaryButtonText}>
@@ -377,6 +343,11 @@ const UserMap = () => {
                 </ThemedText>
               </TouchableOpacity>
             </View>
+            {selectedFacility.mapsUrl && selectedFacility.locationKind !== "barangay-area" ? (
+              <TouchableOpacity accessibilityRole="link" onPress={() => Linking.openURL(selectedFacility.mapsUrl).catch(() => {})}>
+                <ThemedText style={styles.responseNote}>View location on Google Maps</ThemedText>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           <View style={styles.bottomPanel}>
@@ -429,8 +400,8 @@ const UserMap = () => {
             </View>
 
             <ThemedText style={styles.bottomNote}>
-              Pins cover all 45 barangays of Argao plus hospitals, clinics,
-              police stations, and fire stations.
+              Pins cover all 45 barangay areas, hospitals, clinics, police and fire stations.
+              Barangay pins are area references, not verified hall entrances.
             </ThemedText>
           </View>
         </View>
@@ -581,7 +552,6 @@ const styles = StyleSheet.create({
   recenterButton: {
     position: "absolute",
     right: 12,
-    bottom: 12,
     width: 44,
     height: 44,
     borderRadius: 22,

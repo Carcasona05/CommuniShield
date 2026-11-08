@@ -186,6 +186,7 @@ describe("archived reports", () => {
       return builder;
     };
     t.mock.method(supabaseAdmin, "from", makeBuilder as unknown as typeof supabaseAdmin.from);
+    t.mock.method(supabaseAdmin, "rpc", async () => ({ data: [], error: null }) as never);
 
     const feed = await reportService.listReports();
     assert.equal(feed.error, null);

@@ -51,10 +51,10 @@ export const listDatasets = async (req: AuthRequest, res: Response) => {
   try {
     const status = String(req.query.status || "all");
     const page = Number(req.query.page || 1);
-    if (!["all", "pending", "approved", "rejected", "archived"].includes(status) || !Number.isInteger(page) || page < 1 || page > 100000) throw new DatasetInputError("Invalid dataset status or page.");
-    const { data, error, count } = await service.list(status, page);
+    if (!["all", "current", "pending", "approved", "rejected", "archived"].includes(status) || !Number.isInteger(page) || page < 1 || page > 100000) throw new DatasetInputError("Invalid dataset status or page.");
+    const { data, error, count, counts } = await service.list(status, page);
     if (error) return databaseError(res, error);
-    return res.json({ datasets: data, total: count || 0, page, viewerId: req.user.id });
+    return res.json({ datasets: data, total: count || 0, counts, page, viewerId: req.user.id });
   } catch (error) { return failure(res, error); }
 };
 
@@ -89,11 +89,11 @@ export const reviewDataset = async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
   try {
     const { action, version, note = "" } = req.body || {};
-    if (!uuid(req.params.id) || !["approve", "reject", "archive"].includes(action) || !validVersion(version) || typeof note !== "string" || note.length > 1000 || note.includes("\0") || (action === "reject" && !note.trim())) throw new DatasetInputError("Provide an action, current version, and a rejection reason when rejecting (maximum 1,000 characters).");
-    if (action === "approve" && !await service.trainingReady()) return res.status(503).json({ error: "Apply sentiment_training_jobs.sql before approval so automatic retraining can be queued safely." });
+    if (!uuid(req.params.id) || !["approve", "reject", "archive", "restore"].includes(action) || !validVersion(version) || typeof note !== "string" || note.length > 1000 || note.includes("\0") || (action === "reject" && !note.trim())) throw new DatasetInputError("Provide an action, current version, and a rejection reason when rejecting (maximum 1,000 characters).");
+    if (action === "approve" && !await service.trainingReady()) return res.status(503).json({ error: "Apply sentiment_training_jobs.sql before approving examples for the training pool." });
     const result = await service.mutate(req.user.id, action, { dataset_id: req.params.id, version, note: note.trim() });
     if (result.error) return databaseError(res, result.error);
-    return res.json({ message: action === "approve" ? "Approved. Automatic retraining queued; keep the Python worker running. Activation remains a separate super-admin action." : "Dataset status updated. History preserved." });
+    return res.json({ message: action === "approve" ? "Approved for the training pool. Queue training separately; activation remains a separate super-admin action." : action === "restore" ? "Dataset restored for review. Examples and history preserved; training is not queued." : "Dataset status updated. History preserved." });
   } catch (error) { return failure(res, error); }
 };
 

@@ -18,7 +18,7 @@ export default function ProfileCompletionGate() {
         <Text style={s.body}>These details help keep community reports accountable, allow follow-up when more information is needed, and associate reports with the correct area.</Text>
         {(missing || []).length ? <Text style={s.requiredLabel}>Still needed:</Text> : null}
         {(missing || []).map(field => <Text key={field} style={s.field}>• {field}</Text>)}
-        <Text style={s.body}>Open Profile Details, tap Edit, complete the required fields, and Save. For Address, allow location access and enter your address. Middle name is optional.</Text>
+        <Text style={s.body}>Open Profile Details, tap Edit, complete the required fields, and Save. Enter your full home or permanent address, including barangay, city/municipality and province. Addresses outside Argao are accepted. No location permission is needed. Middle name and house number are optional.</Text>
         <Text style={s.body}>You can still browse reports and safety information.</Text>
       </ScrollView>
       <Pressable accessibilityRole="button" style={s.primary} onPress={() => {

@@ -17,6 +17,7 @@ const sample = (text = "Maayo kaayo", label = "positive") => ({ text, language: 
 let sequence = 0;
 const mutate = async (actor, action, payload) => (await db.query("select public.manage_sentiment_dataset($1, $2, $3::jsonb) as result", [actor, action, JSON.stringify(payload)])).rows[0].result;
 const submit = (rows = [sample(`Example ${++sequence}`)], actor = actors.admin) => mutate(actor, "submit", { name: "Test batch", source: "manual", rows, privacy_reviewed: true });
+const restore = async (actor, payload) => (await db.query("select public.restore_sentiment_dataset($1, $2::jsonb) as result", [actor, JSON.stringify(payload)])).rows[0].result;
 
 before(async () => {
   await db.exec(`
@@ -32,6 +33,9 @@ before(async () => {
   const sql = await readFile(new URL("../../DB_Schema/migrations/sentiment_datasets.sql", import.meta.url), "utf8");
   await db.exec(sql);
   await db.exec(sql); // Deployment migration is safely repeatable.
+  const restoreSql = await readFile(new URL("../../DB_Schema/migrations/sentiment_dataset_restore.sql", import.meta.url), "utf8");
+  await db.exec(restoreSql);
+  await db.exec(restoreSql);
 });
 after(async () => { await db.close(); });
 
@@ -102,8 +106,46 @@ test("rejected data retains history but no longer blocks corrected submissions",
 
 test("anonymous/authenticated clients cannot bypass the API using tables or RPC", async () => {
   for (const role of ["anon", "authenticated"]) {
+    assert.equal((await db.query("select has_function_privilege($1, 'public.restore_sentiment_dataset(uuid,jsonb)', 'execute') as allowed", [role])).rows[0].allowed, false);
     assert.equal((await db.query("select has_function_privilege($1, 'public.manage_sentiment_dataset(uuid,text,jsonb)', 'execute') as allowed", [role])).rows[0].allowed, false);
     assert.equal((await db.query("select has_table_privilege($1, 'public.sentiment_training_samples', 'insert') as allowed", [role])).rows[0].allowed, false);
     assert.equal((await db.query("select has_table_privilege($1, 'public.sentiment_dataset_events', 'delete') as allowed", [role])).rows[0].allowed, false);
   }
+});
+
+test("restore preserves examples/history and requires super admin, archived status and current version", async () => {
+  const { id } = await submit();
+  await assert.rejects(restore(actors.super, { dataset_id: id, version: 1 }), { code: "22023" });
+  await mutate(actors.super, "approve", { dataset_id: id, version: 1, note: "Original review" });
+  const samples = (await db.query("select id,text,language,label,text_key from public.sentiment_training_samples where dataset_id=$1", [id])).rows;
+  await mutate(actors.super, "archive", { dataset_id: id, version: 2 });
+  for (const actor of [actors.admin, actors.other, actors.user, actors.disabled]) {
+    await assert.rejects(restore(actor, { dataset_id: id, version: 3 }), { code: "42501" });
+  }
+  await assert.rejects(restore(actors.super, { dataset_id: id, version: 2 }), { code: "40001" });
+  await assert.rejects(restore(actors.super, { dataset_id: id }), { code: "40001" });
+  const restored = await restore(actors.super, { dataset_id: id, version: 3 });
+  assert.equal(restored.version, 4);
+  const batch = (await db.query("select * from public.sentiment_datasets where id=$1", [id])).rows[0];
+  assert.equal(batch.status, "pending"); assert.equal(batch.reviewed_by, null); assert.equal(batch.review_note, "");
+  assert.deepEqual((await db.query("select id,text,language,label,text_key from public.sentiment_training_samples where dataset_id=$1", [id])).rows, samples);
+  assert.equal((await db.query("select active from public.sentiment_training_samples where dataset_id=$1", [id])).rows[0].active, false);
+  const events = (await db.query("select * from public.sentiment_dataset_events where dataset_id=$1", [id])).rows;
+  assert.equal(events.length, 4);
+  assert.equal(events.find((event) => event.action === "restored").details.previous_review_note, "Original review");
+  await assert.rejects(restore(actors.super, { dataset_id: id, version: 3 }), { code: "40001" });
+  await mutate(actors.super, "approve", { dataset_id: id, version: 4 });
+  assert.equal((await db.query("select active from public.sentiment_training_samples where dataset_id=$1", [id])).rows[0].active, true);
+});
+
+test("restore tolerates replacement duplicates but reapproval rolls back safely", async () => {
+  const example = sample(`Restore conflict ${++sequence}`);
+  const { id } = await submit([example]);
+  await mutate(actors.admin, "archive", { dataset_id: id, version: 1 });
+  await submit([{ ...example, label: "negative" }]);
+  await restore(actors.super, { dataset_id: id, version: 2 });
+  await assert.rejects(mutate(actors.super, "approve", { dataset_id: id, version: 3 }), { code: "23505" });
+  const batch = (await db.query("select status,version from public.sentiment_datasets where id=$1", [id])).rows[0];
+  assert.equal(batch.status, "pending"); assert.equal(batch.version, 3);
+  assert.equal((await db.query("select active from public.sentiment_training_samples where dataset_id=$1", [id])).rows[0].active, false);
 });
