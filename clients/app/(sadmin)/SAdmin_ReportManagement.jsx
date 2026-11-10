@@ -659,9 +659,9 @@ function SAdmin_ReportManagementPage() {
 
   const handlePrintPreview = async () => {
     if (!previewRecord) return;
-    const html = buildRecordDocumentHtml(previewRecord);
 
     try {
+      const html = buildRecordDocumentHtml(previewRecord);
       if (Platform.OS === "web") {
         const printWindow = window.open("", "_blank");
         if (!printWindow) {

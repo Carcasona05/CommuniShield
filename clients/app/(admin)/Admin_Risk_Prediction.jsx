@@ -12,6 +12,8 @@ import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import { getReportBarangay } from "../../services/argaoLocation";
 import { ARGAO_BARANGAYS as ARGAO_BARANGAY_DATA } from "../../constants/argaoMapData";
 import { isActiveRiskReport } from "../../services/riskZones";
+import QueryErrorNotice from "../../components/QueryErrorNotice";
+import useAdminReportDetails from "../../hooks/useAdminReportDetails";
 
 const ARGAO_BARANGAYS = [
   "All Barangays",
@@ -49,12 +51,13 @@ export default function Admin_Risk_Prediction() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const { data: outlook, loading, refreshing, checkedAt, errorMessage } = useRetainedApiQuery({
+  const { data: outlook, loading, refreshing, checkedAt, errorMessage, reload } = useRetainedApiQuery({
     endpoint: "/admin/risk-outlook",
     params: { view: "current" },
     validate: validOutlookResponse,
   });
   const reports = outlook?.reports || EMPTY_REPORTS;
+  const detailQuery = useAdminReportDetails([selectedMarkerReport?.id]);
 
   const reportsByBarangay = useMemo(() => {
     const grouped = new Map();
@@ -131,7 +134,7 @@ export default function Admin_Risk_Prediction() {
     setSelectedMarkerReport(report);
   };
 
-  const selectedComments = selectedMarkerReport?.comments || [];
+  const selectedComments = detailQuery.data?.reports.find(report => report.id === selectedMarkerReport?.id)?.comments || [];
   const totalCommentPages = Math.max(1, Math.ceil(selectedComments.length / COMMENTS_PER_PAGE));
   const paginatedComments = selectedComments.slice(
     (commentPage - 1) * COMMENTS_PER_PAGE,
@@ -156,7 +159,7 @@ export default function Admin_Risk_Prediction() {
       >
         
         {!!checkedAt && <Text style={styles.muted} testID="risk-refresh-status">{refreshing ? "Checking for updates… · " : ""}{errorMessage ? "Refresh failed; current indicators show previous results · " : ""}Last checked {new Date(checkedAt).toLocaleTimeString()}</Text>}
-        {!!errorMessage && <Text style={[styles.emptyText, { color: "#B93838" }]}>{errorMessage}</Text>}
+        <QueryErrorNotice message={errorMessage} onRetry={reload} refreshing={refreshing} hasData={Boolean(outlook)} />
 
         {/* Current report map and evidence. */}
         <View style={styles.splitMainRow}>
@@ -268,6 +271,7 @@ export default function Admin_Risk_Prediction() {
                       <Text style={[styles.listValue, { color: "#C25E00" }]}>Status: {selectedMarkerReport.status}</Text>
                     </View>
                     <View style={styles.sentimentSection}>
+                      <QueryErrorNotice message={detailQuery.errorMessage} onRetry={detailQuery.reload} refreshing={detailQuery.refreshing} hasData={Boolean(detailQuery.data)} />
                       <View style={styles.commentsHeading}>
                         <Text style={styles.infoLabel}>Comments & sentiment</Text>
                         <Text style={styles.commentCount}>{selectedComments.length}</Text>
@@ -278,7 +282,7 @@ export default function Admin_Risk_Prediction() {
                           <Text style={styles.commentMeta}>{comment.user || "User"}{comment.sentiment ? ` · ${comment.sentiment}` : ""}</Text>
                         </View>
                       )) : (
-                        <Text style={styles.emptyText}>No comments or sentiment data available.</Text>
+                        <Text style={styles.emptyText}>{detailQuery.loading ? "Loading comments…" : detailQuery.data ? "No comments or sentiment data available." : "Comments are unavailable. Please retry."}</Text>
                       )}
                       {selectedComments.length > COMMENTS_PER_PAGE && (
                         <View style={styles.paginationRow}>

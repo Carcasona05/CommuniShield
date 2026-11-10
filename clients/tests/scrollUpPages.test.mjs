@@ -15,7 +15,8 @@ const pages = [
 
 for (const page of pages) {
   test(`${page} connects its scroll-up button to the shared animation`, () => {
-    const source = readFileSync(new URL(`../app/${page}`, import.meta.url), "utf8");
+    const route = readFileSync(new URL(`../app/${page}`, import.meta.url), "utf8");
+    const source = /<ValidationPage Layout=/.test(route) ? readFileSync(new URL("../components/Admin_compo/ValidationPage.jsx", import.meta.url), "utf8") : route;
     assert.match(source, /useSmoothScrollToTop\(scroll(?:View)?Ref\)/);
     assert.match(source, /onPress=\{scrollToTop\}/);
     assert.match(source, /trackScroll\((?:event|e)\)/);

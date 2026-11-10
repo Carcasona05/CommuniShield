@@ -37,6 +37,12 @@ type SentimentRow = {
   analyzed_at: string | null;
 };
 
+type DashboardRow = { id: string; user_id: string | null; location: string | null; latitude: number | string | null;
+  longitude: number | string | null; poster_name: string | null; status: string | null; is_verified: boolean | null;
+  created_at: string | null; incident_type_id: string; role: string | null; details?: string | null };
+type DashboardAnalysis = { report_id: string; ai_score: number | null; severity: string | null; credibility_review?: string | null };
+type DashboardComment = { id: string; report_id: string; created_at: string; user_id?: string | null; content?: string };
+
 const asTrimmedString = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
 
@@ -52,6 +58,30 @@ async function loadDashboardRelations<T>(
     const { data, error } = await load(uniqueIds.slice(offset, offset + 100));
     if (error) return { data: null, error };
     rows.push(...(data || []));
+  }
+  return { data: rows, error: null };
+}
+
+// A hundred report IDs can still own thousands of comments/images. Follow the
+// database row cap as well as the URL-size cap, and refuse incomplete evidence.
+async function loadCompleteDashboardRelations<T>(ids: string[], load: (batch: string[], from: number, to: number) =>
+  PromiseLike<{ data: T[] | null; error: { message: string } | null; count: number | null }>) {
+  const rows: T[] = [];
+  const unique = [...new Set(ids)];
+  for (let offset = 0; offset < unique.length; offset += 100) {
+    const batch = unique.slice(offset, offset + 100);
+    let read = 0, total = Infinity;
+    while (read < total) {
+      const result = await load(batch, read, read + 499);
+      if (result.error) return { data: null, error: result.error };
+      if (result.count == null || result.count > 50000 || (!result.data?.length && read < result.count)) {
+        return { data: null, error: { message: "Complete report relations unavailable. Please retry." } };
+      }
+      rows.push(...(result.data || []));
+      read += result.data?.length || 0;
+      total = result.count;
+      if (read > total) return { data: null, error: { message: "Report relations changed during loading. Please retry." } };
+    }
   }
   return { data: rows, error: null };
 }
@@ -835,7 +865,7 @@ export const reportService = {
 
   async listAuditLogs(
     actorRole?: string,
-    filters: { from?: string; to?: string } = {}
+    filters: { from?: string; to?: string; limit?: number } = {}
   ) {
     let auditQuery = supabaseAdmin
       .from("audit_logs")
@@ -847,7 +877,7 @@ export const reportService = {
 
     const { data, error } = await auditQuery
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(filters.limit ?? 200);
 
     if (error) return { data: null, error: error.message };
 
@@ -891,10 +921,23 @@ export const reportService = {
 
   async getAdminDashboard(filters: {
     status?: string;
+    statuses?: string[];
     source?: string;
     from?: string;
     to?: string;
+    mappedOnly?: boolean;
+    includeImages?: boolean;
+    includeComments?: boolean;
+    mode?: "map" | "list" | "evidence";
+    ids?: string[];
+    limit?: number;
+    allPages?: boolean;
+    includeArchived?: boolean;
   } = {}) {
+    const mapOnly = filters.mode === "map";
+    const evidenceOnly = filters.mode === "evidence";
+    const compact = Boolean(filters.mode);
+    const completeRelations = Boolean(filters.allPages || filters.ids);
     const { data: types, error: typesError } = await supabaseAdmin
       .from("incident_types")
       .select("id, name, incident_categories(id, name)");
@@ -917,27 +960,49 @@ export const reportService = {
     let reportQuery = supabaseAdmin
       .from("reports")
       .select(
-        "id, user_id, location, latitude, longitude, details, poster_name, status, is_verified, created_at, incident_type_id, role"
+        "id, user_id, location, latitude, longitude, poster_name, status, is_verified, created_at, incident_type_id, role" + (compact ? "" : ", details"),
+        filters.allPages ? { count: "exact" } : {}
       );
     if (filters.status === "Archived") {
       // Explicit archived view used by the Logs archive tab.
       reportQuery = reportQuery.eq("status", "Archived");
-    } else {
+    } else if (!filters.includeArchived) {
       reportQuery = reportQuery.neq("status", "Archived");
       if (filters.status) reportQuery = reportQuery.eq("status", filters.status);
     }
     if (filters.source?.toLowerCase() === "admin") {
       reportQuery = reportQuery.in("role", ["admin", "super_admin"]);
     }
+    if (filters.ids) reportQuery = reportQuery.in("id", filters.ids);
     if (filters.from) reportQuery = reportQuery.gte("created_at", filters.from);
     if (filters.to) reportQuery = reportQuery.lte("created_at", filters.to);
+    if (filters.statuses) reportQuery = reportQuery.in("status", filters.statuses);
+    if (filters.mappedOnly) reportQuery = reportQuery.not("latitude", "is", null).not("longitude", "is", null);
 
-    const { data: reports, error: reportError } = await reportQuery.order(
+    const orderedReports = reportQuery.order(
       "created_at",
       { ascending: false }
     );
-
-    if (reportError) return { data: null, error: reportError.message };
+    // Stable tie-breaking is required when walking database pages.
+    const query = filters.allPages || filters.limit ? orderedReports.order("id", { ascending: false }) : orderedReports;
+    const first = await (filters.allPages ? query.range(0, 499) : filters.limit ? query.limit(filters.limit) : query);
+    if (first.error) return { data: null, error: first.error.message };
+    // The selected columns vary by payload mode; keep their optional fields
+    // explicit rather than relying on PostgREST's literal-string type parser.
+    const reports = [...(first.data || [])] as unknown as DashboardRow[];
+    if (filters.allPages) {
+      const total = first.count;
+      if (total == null || total > 50000) return { data: null, error: "Complete report snapshot unavailable; no partial results are shown." };
+      while (reports.length < total) {
+        const next = await query.range(reports.length, reports.length + 499);
+        if (next.error) return { data: null, error: next.error.message };
+        if (!next.data?.length) return { data: null, error: "Report snapshot changed during loading. Please retry." };
+        reports.push(...next.data as unknown as DashboardRow[]);
+      }
+      if (new Set(reports.map(row => row.id)).size !== total || reports.length !== total) {
+        return { data: null, error: "Report snapshot changed during loading. Please retry." };
+      }
+    }
 
     const reportIds = (reports || []).map((r) => r.id);
 
@@ -952,19 +1017,27 @@ export const reportService = {
     // These lookups depend only on the report snapshot, not on each other.
     // Fetch together so hotspot/dashboard loads do not pay five network waits.
     const [reporterResult, analysisResult, sentimentResult, commentsResult, imagesResult] = await Promise.all([
-      loadDashboardRelations(reporterIds, (batch) => supabaseAdmin
+      mapOnly || evidenceOnly ? Promise.resolve({ data: [], error: null }) : loadDashboardRelations(reporterIds, (batch) => supabaseAdmin
         .from("profiles").select("id, fullname, user_name").in("id", batch)),
       loadDashboardRelations(reportIds, (batch) => supabaseAdmin
-        .from("report_credibility_analysis").select("report_id, ai_score, severity, credibility_review").in("report_id", batch)),
-      loadDashboardRelations(reportIds, (batch) => supabaseAdmin
+        .from("report_credibility_analysis").select("report_id, ai_score, severity" + (mapOnly || evidenceOnly ? "" : ", credibility_review")).in("report_id", batch)),
+      mapOnly ? Promise.resolve({ data: [], error: null }) : loadDashboardRelations(reportIds, (batch) => supabaseAdmin
         .from("sentiment_analysis")
         .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
         .eq("subject_type", "report").in("subject_id", batch)),
-      loadDashboardRelations(reportIds, (batch) => supabaseAdmin
-        .from("report_comments").select("id, report_id, user_id, content, created_at")
+      mapOnly || filters.mode === "list" || filters.includeComments === false ? Promise.resolve({ data: [], error: null }) : completeRelations
+        ? loadCompleteDashboardRelations(reportIds, (batch, from, to) => supabaseAdmin.from("report_comments")
+          .select("id, report_id, created_at" + (evidenceOnly ? "" : ", user_id, content"), { count: "exact" })
+          .in("report_id", batch).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to))
+        : loadDashboardRelations(reportIds, (batch) => supabaseAdmin
+        .from("report_comments").select("id, report_id, created_at" + (evidenceOnly ? "" : ", user_id, content"))
         .in("report_id", batch).order("created_at", { ascending: true })),
-      loadDashboardRelations(reportIds, (batch) => supabaseAdmin
-        .from("report_images").select("report_id, image_url")
+      compact || filters.includeImages === false ? Promise.resolve({ data: [], error: null }) : completeRelations
+        ? loadCompleteDashboardRelations(reportIds, (batch, from, to) => supabaseAdmin.from("report_images")
+          .select("report_id, image_url", { count: "exact" }).in("report_id", batch)
+          .order("report_id", { ascending: true }).order("position", { ascending: true }).order("image_url", { ascending: true }).range(from, to))
+        : loadDashboardRelations(reportIds, (batch) => supabaseAdmin
+         .from("report_images").select("report_id, image_url")
         .in("report_id", batch).order("position", { ascending: true })),
     ]);
     if (reporterIds.length > 0) {
@@ -977,7 +1050,7 @@ export const reportService = {
       );
     }
 
-    const { data: analyses, error: analysisError } = analysisResult;
+    const { data: analyses, error: analysisError } = analysisResult as unknown as { data: DashboardAnalysis[] | null; error: { message: string } | null };
 
     if (analysisError) return { data: null, error: analysisError.message };
 
@@ -997,12 +1070,7 @@ export const reportService = {
       }
     >();
     (analyses || []).forEach(
-      (a: {
-        report_id: string;
-        ai_score: number | null;
-        severity: string | null;
-        credibility_review: string | null;
-      }) => {
+      (a) => {
         analysisMap.set(a.report_id, {
           ai_score: a.ai_score ?? null,
           severity: a.severity ?? "Medium",
@@ -1011,15 +1079,15 @@ export const reportService = {
       }
     );
 
-    const { data: commentRows, error: commentsError } = commentsResult;
+    const { data: commentRows, error: commentsError } = commentsResult as unknown as { data: DashboardComment[] | null; error: { message: string } | null };
 
     if (commentsError) return { data: null, error: commentsError.message };
 
     const dashboardUserIds = [
       ...new Set(
         (commentRows || [])
-          .map((c: { user_id: string | null }) => c.user_id)
-          .filter((id: string | null): id is string => Boolean(id))
+          .map((c) => c.user_id)
+          .filter((id: string | null | undefined): id is string => Boolean(id))
       ),
     ];
     const dashboardNameByUser = new Map<string, string>();
@@ -1058,13 +1126,7 @@ export const reportService = {
 
     const commentsByReport = new Map<string, Array<Record<string, unknown>>>();
     (commentRows || []).forEach(
-      (c: {
-        id: string;
-        report_id: string;
-        user_id: string | null;
-        content: string;
-        created_at: string;
-      }) => {
+      (c) => {
         const list = commentsByReport.get(c.report_id) || [];
         list.push({
           id: c.id,

@@ -11,6 +11,7 @@ const source = path => text(path).replace(/^import .*;\r?\n/gm, "");
 function retainedPage(data, get) {
   let automatic, state;
   const context = vm.createContext({
+    setTimeout, clearTimeout,
     useCallback: fn => fn, useRef: current => ({ current }),
     useState: init => {
       state = init();
@@ -105,6 +106,7 @@ test("retained queries reuse warm data on focus, while explicit reload forces th
   let automatic;
   const calls = [];
   const context = vm.createContext({
+    setTimeout, clearTimeout,
     useCallback: fn => fn, useRef: current => ({ current }),
     useState: init => [typeof init === "function" ? init() : init, () => {}],
     useEffect: effect => { effect(); },

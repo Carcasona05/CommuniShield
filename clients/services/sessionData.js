@@ -6,6 +6,7 @@ const PAGE_PATHS = new Set([
   "/reports", "/reports/mine", "/admin/posts", "/incidents/options",
   "/notifications", "/notifications/login-activity", "/facilities/nearby",
   "/admin/overview", "/admin/dashboard", "/admin/analytics", "/admin/logs", "/admin/notifications",
+  "/admin/map-reports", "/admin/report-details", "/admin/validation-groups",
   "/admin/accounts", "/admin/settings", "/admin/announcements", "/admin/blotters",
   "/admin/clusters", "/admin/risk-outlook", "/sentiment/datasets",
   "/sentiment/training", "/sentiment/supporting-models",
@@ -29,6 +30,7 @@ export function mutationInvalidationPaths(path) {
   if (/^\/(?:reports|admin\/(?:reports|posts|announcements)|ai)(?:\/|$)/.test(path)) return [
     "/reports", "/reports/mine", "/admin/posts", "/admin/dashboard", "/admin/overview", "/admin/logs",
     "/admin/analytics", "/admin/announcements", "/admin/clusters", "/admin/risk-outlook",
+    "/admin/map-reports", "/admin/report-details", "/admin/validation-groups",
     "/notifications", "/admin/notifications",
   ];
   return null;
@@ -57,11 +59,9 @@ export function prefetchPlan(role) {
   const common = ["/profile", "/incidents/options"];
   if (role === "user") return ["/reports", ...common,
     "/reports/mine", "/notifications", "/notifications/login-activity", "/profile/notification-preferences"];
-  return ["/admin/dashboard", ...common, "/admin/notifications",
-    ...(role === "super_admin" ? ["/admin/accounts"] : []),
-    "/admin/analytics", "/admin/logs", "/admin/settings", "/admin/announcements",
-    "/admin/blotters", "/admin/clusters", "/admin/risk-outlook",
-    ...(role === "super_admin" ? ["/sentiment/datasets", "/sentiment/training", "/sentiment/supporting-models"] : [])];
+  // Warm only small, commonly used data. Heavy analytics, models and complete
+  // report datasets load when visited, not during every sign-in/idle sweep.
+  return ["/admin/overview", ...common, "/admin/notifications", "/admin/settings"];
 }
 
 // Tokens and transport responses stay in memory. On web, browserPageCache may
@@ -189,7 +189,7 @@ export function createSessionData({ now = () => Date.now() } = {}) {
       });
     }
     const method = (config.method || "get").toLowerCase();
-    const cacheable = authenticated && method === "get" && PAGE_PATHS.has(path) && !config.url.includes("?") &&
+    const cacheable = authenticated && method === "get" && config.cacheMode !== "no-store" && PAGE_PATHS.has(path) && !config.url.includes("?") &&
       !config.responseType && !config.signal && !config.cancelToken;
     // Share simultaneous security probes, but never return a cached /session
     // response: disabled-account detection must always reach the backend.
@@ -205,7 +205,18 @@ export function createSessionData({ now = () => Date.now() } = {}) {
       if (cacheable && config.cacheMode !== "network" && fresh(config)) {
         return { ...cached.response, config };
       }
-      if (pending.has(key)) return pending.get(key).promise.then(response => ({ ...response, config }));
+      if (pending.has(key)) {
+        const shared = pending.get(key);
+        return shared.promise.then(response => ({ ...response, config })).catch(error => {
+          // A visible page may join an optional 20s preload. If that preload
+          // times out, retry with the page's own budget instead of inheriting
+          // its failure. Never retry denied, invalidated or old-session reads.
+          const status = error.response?.status;
+          const transient = ["ECONNABORTED", "ETIMEDOUT", "ERR_NETWORK"].includes(error.code) || [502, 503, 504].includes(status);
+          if (shared.background && !config.background && transient && !stale()) return run(config, transport);
+          throw error;
+        });
+      }
     }
     const controller = new AbortController();
     const liveConfig = shareable ? { ...config, signal: controller.signal } : config;
@@ -240,7 +251,7 @@ export function createSessionData({ now = () => Date.now() } = {}) {
         if (pending.get(key)?.promise === promise) pending.delete(key);
       }
     });
-    if (shareable) pending.set(key, { promise, controller, path });
+    if (shareable) pending.set(key, { promise, controller, path, background: Boolean(config.background) });
     return promise;
   };
   return { begin, reset, invalidate, current, get, set, run, fresh,

@@ -10,12 +10,14 @@ import { sessionData } from "../services/sessionData";
  * logout clears dataStore. No tokens are stored in snapshot keys or values.
  * Never use a different filter's payload, an expired/previous-day forecast,
  * or cached results after an authorization error. Forecasts still expire. */
-export default function useRetainedApiQuery({ endpoint, params, validate, interval = 60000 }) {
+export default function useRetainedApiQuery({ endpoint, params, validate, interval = 60000, enabled = true, fetcher }) {
   const cacheKey = querySnapshotKey(endpoint, params);
   const [epoch, setEpoch] = useState(() => sessionData.epoch());
   const key = `${epoch}:${cacheKey}`;
   const validator = useRef(validate);
   validator.current = validate;
+  const request = useRef(fetcher);
+  request.current = fetcher;
   const readSnapshot = useCallback(() => {
     const cached = getCache(cacheKey);
     return usableQuerySnapshot(cached) && validator.current(cached.data) ? cached : null;
@@ -51,9 +53,10 @@ export default function useRetainedApiQuery({ endpoint, params, validate, interv
     }
   }), [key, cacheKey, epoch, endpoint]);
 
-  const load = useCallback(({ force = false, cancelRetry = false } = {}) => {
-    if (sessionData.changing()) return Promise.resolve();
+  const load = useCallback(({ force = false, cancelRetry = false, errorRetry = false } = {}) => {
+    if (!enabled || sessionData.changing()) return Promise.resolve();
     if (inFlight.current?.key === key && inFlight.current.version === sequence.current) return inFlight.current.promise;
+    clearTimeout(retryTimer.current);
     const version = ++sequence.current;
     const previous = stateRef.current.key === key && usableQuerySnapshot(stateRef.current.snapshot) ? stateRef.current.snapshot : readSnapshot();
     if (!force && previous && sessionData.fresh({ url: endpoint, params: JSON.parse(serializedParams) })) return Promise.resolve();
@@ -67,7 +70,7 @@ export default function useRetainedApiQuery({ endpoint, params, validate, interv
           error.status = 401;
           throw error;
         }
-        const response = await apiClient.get(endpoint, {
+        const response = await (request.current || apiClient.get)(endpoint, {
           params: JSON.parse(serializedParams), headers: { Authorization: `Bearer ${token}` },
           background: Boolean(previous),
           ...(force ? { cacheMode: "network" } : {}),
@@ -90,31 +93,38 @@ export default function useRetainedApiQuery({ endpoint, params, validate, interv
         }
         const status = error?.response?.status || error.status;
         const denied = status === 401 || status === 403;
+        const transient = ["ECONNABORTED", "ETIMEDOUT", "ERR_NETWORK"].includes(error.code) || [502, 503, 504].includes(status);
         if (denied) setCache(cacheKey, undefined);
         setState({ key, snapshot: denied ? null : previous,
           error: denied ? "Access denied. Please sign in with an administrator account." : error?.response?.data?.error || error.message || "Could not refresh this page.", fetching: false });
+        if (transient && !errorRetry) {
+          retryTimer.current = setTimeout(() => { if (current()) load({ force: true, cancelRetry: true, errorRetry: true }); }, 1000);
+        }
       } finally {
         if (inFlight.current?.version === version) inFlight.current = null;
       }
     })();
     inFlight.current = { key, version, promise };
     return promise;
-  }, [key, cacheKey, epoch, endpoint, serializedParams, readSnapshot]);
+  }, [key, cacheKey, epoch, endpoint, serializedParams, readSnapshot, enabled]);
 
   useAutoRefresh(load, interval);
-  const previousKey = useRef(key);
+  const previousKey = useRef(enabled ? key : null);
   useEffect(() => {
-    if (previousKey.current === key) return;
-    previousKey.current = key;
-    load();
-  }, [key, load]);
+    const next = enabled ? key : null;
+    if (previousKey.current === next) return;
+    previousKey.current = next;
+    sequence.current++;
+    clearTimeout(retryTimer.current);
+    if (enabled) load();
+  }, [key, load, enabled]);
 
   const scoped = state.key === key ? state : { snapshot: readSnapshot(), error: "", fetching: true };
   const snapshot = usableQuerySnapshot(scoped.snapshot) ? scoped.snapshot : null;
   return {
-    data: snapshot?.data || null,
-    loading: !snapshot && (scoped.fetching || !scoped.error),
-    refreshing: Boolean(snapshot && scoped.fetching),
+    data: enabled ? snapshot?.data || null : null,
+    loading: enabled && !snapshot && (scoped.fetching || !scoped.error),
+    refreshing: enabled && Boolean(snapshot && scoped.fetching),
     checkedAt: snapshot?.checkedAt || null,
     errorMessage: scoped.error,
     reload: () => load({ force: true }),

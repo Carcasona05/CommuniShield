@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Modal,
   View,
@@ -10,8 +10,8 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import apiClient from "../../services/apiClient";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import useAdminReportDetails from "../../hooks/useAdminReportDetails";
+import QueryErrorNotice from "../QueryErrorNotice";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -29,53 +29,19 @@ export default function Admin_ViewSimilarReportsModal({
   validating = false,
 }) {
   const [openMenuReportId, setOpenMenuReportId] = useState(null);
-  const [freshComments, setFreshComments] = useState({});
-
-  // Fetch fresh comments with sentiment for each report in the group
-  useEffect(() => {
-    if (!visible || !compiledGroup || reanalyzing) return;
-    let active = true;
-
-    const loadComments = async () => {
-      try {
-        const token = await AsyncStorage.getItem("access_token");
-        if (!token) return;
-
-        const commentPromises = (compiledGroup.reports || []).map(async (report) => {
-          try {
-            const response = await apiClient.get(`/reports/${report.id}/comments`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            return { reportId: report.id, comments: response.data?.comments || [] };
-          } catch {
-            // A failed refresh is not evidence that this report has no comments.
-            // Fall back to the dashboard snapshot so unresolved IDs remain retryable.
-            return { reportId: report.id, comments: null };
-          }
-        });
-
-        const results = await Promise.all(commentPromises);
-        if (active) {
-          const commentsMap = {};
-          results.forEach(({ reportId, comments }) => {
-            if (Array.isArray(comments)) commentsMap[reportId] = comments;
-          });
-          setFreshComments(commentsMap);
-        }
-      } catch {}
-    };
-
-    loadComments();
-    return () => { active = false; };
-  }, [visible, compiledGroup, reanalyzing]);
+  const detailQuery = useAdminReportDetails((compiledGroup?.reports || []).map(report => report.id), visible);
 
   if (!compiledGroup) return null;
 
   // Merge fresh comments with grouped reports
-  const reportsWithFreshComments = (compiledGroup.reports || []).map((report) => ({
-    ...report,
-    comments: freshComments[report.id] || report.comments || [],
-  }));
+  const details = new Map((detailQuery.data?.reports || []).map(report => [report.id, report]));
+  const reportsWithFreshComments = (compiledGroup.reports || []).map((report) => {
+    const fresh = details.get(report.id);
+    return fresh ? { ...report, ...fresh, category: fresh.incident_category, type: fresh.incident_type,
+      aiScore: fresh.ai_score ?? 0, credibilityReview: fresh.credibility_review, submittedBy: fresh.reporter_name } : {
+        ...report, details: detailQuery.loading ? "Loading report details…" : "Report details unavailable. Please retry.",
+      };
+  });
 
   const allGatheredComments =
     reportsWithFreshComments.flatMap((report) =>
@@ -366,6 +332,8 @@ export default function Admin_ViewSimilarReportsModal({
             <TouchableOpacity
               style={styles.closeButton}
               onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close similar reports"
               activeOpacity={0.8}
             >
               <Ionicons name="close" size={22} color="#5D6F92" />
@@ -387,7 +355,9 @@ export default function Admin_ViewSimilarReportsModal({
                 contentContainerStyle={styles.reportListContent}
                 showsVerticalScrollIndicator={false}
               >
-                {compiledGroup.reports?.map((report) => {
+                <QueryErrorNotice message={detailQuery.errorMessage} onRetry={detailQuery.reload} refreshing={detailQuery.refreshing} hasData={Boolean(detailQuery.data)} />
+                {detailQuery.loading ? <ActivityIndicator color={COMMUNISHIELD_BLUE} /> : null}
+                {reportsWithFreshComments.map((report) => {
                   const statusStyle = getStatusStyle(report.status);
                   const severityStyle = getSeverityStyle(report.severity);
                   const reportImages = getReportImages(report);
@@ -686,6 +656,7 @@ export default function Admin_ViewSimilarReportsModal({
                     </View>
                   </View>
 
+                  {!detailQuery.data ? <Text style={styles.sentimentTitle}>{detailQuery.loading ? "Loading comment evidence…" : "Comment evidence is unavailable. Please retry."}</Text> : (
                   <View style={styles.sentimentBox}>
                     <View style={styles.sentimentTopRow}>
                       <View style={styles.sentimentTitleRow}>
@@ -810,11 +781,12 @@ export default function Admin_ViewSimilarReportsModal({
                       <View style={styles.sentimentStatItem}>
                         <Text style={styles.sentimentStatLabel}>Neutral</Text>
                         <Text style={styles.sentimentStatValue}>
-                          {groupSentimentAnalysis.neutral}
+                           {groupSentimentAnalysis.neutral}
                         </Text>
                       </View>
                     </View>
                   </View>
+                  )}
                 </View>
               </ScrollView>
             </View>

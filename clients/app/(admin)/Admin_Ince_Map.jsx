@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -9,7 +9,6 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts } from "expo-font";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
@@ -18,9 +17,9 @@ import {
   BatchDateRangeDropdown,
 } from "../../components/Admin_compo/AdminBatchFilters";
 import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
-import useAutoRefresh from "../../hooks/useAutoRefresh";
-import apiClient from "../../services/apiClient";
-import { getCache, setCache } from "../../services/dataStore";
+import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
+import useAdminReportDetails from "../../hooks/useAdminReportDetails";
+import QueryErrorNotice from "../../components/QueryErrorNotice";
 import { getReportBarangay, getReportLocationHierarchy } from "../../services/argaoLocation";
 
 const INCIDENT_CATEGORIES = [
@@ -64,6 +63,8 @@ const ARGAO_BARANGAY_COORDINATES = Object.fromEntries(
 ARGAO_BARANGAY_COORDINATES.Default = { latitude: 9.8816, longitude: 123.5953, zoom: 14 };
 
 const normalizeText = (value) => String(value ?? "").trim();
+const EMPTY_REPORTS = [];
+const validMap = data => data?.complete === true && Array.isArray(data.reports);
 
 const getReportDate = (report) => {
   const value = report?.created_at || report?.reported_at || report?.date;
@@ -161,8 +162,8 @@ export default function Admin_Ince_Map() {
   const mapWorkspaceHeight = Math.max(380, viewportHeight - filtersHeight - 64);
   
   // Backend data states with local caching support
-  const [reports, setReports] = useState(() => getCache("api:/admin/dashboard")?.reports || []);
-  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
+  const { data, loading, refreshing, errorMessage, reload } = useRetainedApiQuery({ endpoint: "/admin/map-reports", validate: validMap });
+  const reports = data?.reports || EMPTY_REPORTS;
 
   const [selectedBarangay, setSelectedBarangay] = useState("All");
   const [selectedCategory, setSelectedCategory] = useState("All");
@@ -172,6 +173,7 @@ export default function Admin_Ince_Map() {
 
   const [selectedReportId, setSelectedReportId] = useState(null);
   const [selectedHotspotKey, setSelectedHotspotKey] = useState(null);
+  const detailQuery = useAdminReportDetails([selectedReportId], detailsOpen);
 
   // Comment pagination state (limit 5 per page)
   const [commentPage, setCommentPage] = useState(1);
@@ -182,27 +184,6 @@ export default function Admin_Ince_Map() {
     PoppinsMedium: require("../../assets/fonts/Poppins-Medium.ttf"),
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
-
-  // Backend Data Fetching Logic via apiClient
-  const loadReports = useCallback(async () => {
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-      
-      const headers = { Authorization: `Bearer ${token}` };
-      const response = await apiClient.get("/admin/dashboard", { headers });
-      const data = response.data ?? {};
-      setCache("api:/admin/dashboard", data);
-      if (Array.isArray(data.reports)) setReports(data.reports);
-    } catch {
-      const cached = getCache("api:/admin/dashboard");
-      if (Array.isArray(cached?.reports)) setReports(cached.reports);
-    } finally {
-      setLoading(false);
-    }
-  }, [from, to]);
-
-  useAutoRefresh(loadReports, 60000);
 
   useEffect(() => {
     if (selectedCategory === "All") {
@@ -279,7 +260,8 @@ export default function Admin_Ince_Map() {
     return getMapCenterCoordinates(filteredReports, selectedBarangay);
   }, [filteredReports, selectedBarangay]);
 
-  const selectedReport = filteredReports.find((report) => report.id === selectedReportId) || null;
+  const selectedMapReport = filteredReports.find((report) => report.id === selectedReportId) || null;
+  const selectedReport = selectedMapReport ? detailQuery.data?.reports.find(report => report.id === selectedReportId) || selectedMapReport : null;
 
   useEffect(() => {
     // Filtering/refreshing must not silently select the first unrelated report.
@@ -353,6 +335,7 @@ export default function Admin_Ince_Map() {
         contentContainerStyle={styles.page}
         showsVerticalScrollIndicator={false}
       >
+        <QueryErrorNotice message={errorMessage} onRetry={reload} refreshing={refreshing} hasData={Boolean(data)} />
         <View
           style={[styles.filters, isNarrow && styles.filtersNarrow]}
           onLayout={(event) => setFiltersHeight(event.nativeEvent.layout.height)}
@@ -466,7 +449,8 @@ export default function Admin_Ince_Map() {
               </Pressable>
               </View>
             </View>
-            {selectedReport ? (
+            <QueryErrorNotice message={detailQuery.errorMessage} onRetry={detailQuery.reload} refreshing={detailQuery.refreshing} hasData={Boolean(detailQuery.data)} />
+            {selectedReport && detailQuery.loading ? <ActivityIndicator color="#294880" /> : selectedReport && detailQuery.data ? (
               <ScrollView
                 key={`report-detail-${selectedReport.id}`}
                 contentContainerStyle={styles.detailContent}
@@ -585,8 +569,8 @@ export default function Admin_Ince_Map() {
             ) : (
               <View style={styles.emptyState}>
                 <Ionicons name="pin-outline" size={28} color="#78918A" />
-                <Text style={styles.emptyTitle}>{loading ? "Loading reports" : "No report selected"}</Text>
-                <Text style={styles.emptyText}>{loading ? "Incident locations will appear on the map." : "Select a map pin or adjust the filters."}</Text>
+                <Text style={styles.emptyTitle}>{loading ? "Loading reports" : selectedReport ? "Report details unavailable" : "No report selected"}</Text>
+                <Text style={styles.emptyText}>{loading ? "Incident locations will appear on the map." : selectedReport ? "Use Retry above to load this report's details." : "Select a map pin or adjust the filters."}</Text>
               </View>
             )}
           </View>

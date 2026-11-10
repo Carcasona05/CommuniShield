@@ -17,24 +17,32 @@ export const getReportImages = (record) => {
 };
 
 export const waitForReportImages = async (document) => {
-  await Promise.all(Array.from(document.images).map((image) => new Promise((resolve, reject) => {
-    const timeout = image.complete ? undefined : setTimeout(() => failed(), 30000);
-    const finish = (error) => {
+  // A missing remote logo or attachment must not prevent the print dialog.
+  // Mark unavailable images explicitly so the exported record is not misleading.
+  await Promise.all(Array.from(document.images).map((image) => new Promise((resolve) => {
+    let timeout;
+    const finish = () => {
       clearTimeout(timeout);
       image.removeEventListener("load", loaded);
       image.removeEventListener("error", failed);
-      if (error) reject(error);
-      else resolve();
+      resolve();
     };
     const loaded = () => finish();
-    const failed = () => finish(new Error("An attached picture could not be loaded. Please try exporting the PDF again."));
+    const failed = () => {
+      const placeholder = document.createElement("div");
+      placeholder.textContent = `Image unavailable: ${image.alt || "Report attachment"}`;
+      placeholder.style.cssText = "border: 1px solid #777; padding: 8px; font-size: 9pt; text-align: center;";
+      image.replaceWith(placeholder);
+      finish();
+    };
     if (image.complete) {
-      if (image.naturalWidth > 0) resolve();
+      if (image.naturalWidth > 0) finish();
       else failed();
       return;
     }
     image.addEventListener("load", loaded);
     image.addEventListener("error", failed);
+    timeout = setTimeout(failed, 10000);
   })));
 };
 

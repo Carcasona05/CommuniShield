@@ -21,11 +21,11 @@ const response = (data = { reports: [] }) => ({ data, status: 200, headers: {} }
 test("preload permissions and priority are role-specific, never super-admin data for an admin", () => {
   assert.deepEqual(prefetchPlan(null), []);
   assert.deepEqual(prefetchPlan("unknown"), []);
-  assert.equal(prefetchPlan("admin")[0], "/admin/dashboard");
-  assert.equal(prefetchPlan("admin").includes("/admin/overview"), false);
+  assert.equal(prefetchPlan("admin")[0], "/admin/overview");
+  assert.equal(prefetchPlan("admin").includes("/admin/dashboard"), false);
   assert.equal(prefetchPlan("user")[0], "/reports");
   assert.equal(prefetchPlan("admin").includes("/admin/accounts"), false);
-  assert.equal(prefetchPlan("super_admin").includes("/admin/accounts"), true);
+  assert.equal(prefetchPlan("super_admin").includes("/admin/accounts"), false);
   assert.equal(prefetchPlan("user").some(path => path.startsWith("/admin/")), false);
 });
 

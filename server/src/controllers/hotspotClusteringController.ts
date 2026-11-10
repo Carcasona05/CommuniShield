@@ -3,6 +3,7 @@ import { profileService } from "../services/authService.js";
 import { reportService } from "../services/reportService.js";
 import { clusterHotspots } from "../services/hotspotClusteringService.js";
 import { summarizeHotspotEvidence } from "../services/hotspotSentimentService.js";
+import { mapReportPayload } from "../services/adminFetchService.js";
 
 type AuthRequest = Request & { user?: { id: string } };
 
@@ -16,7 +17,7 @@ export async function getHotspotClusters(req: AuthRequest, res: Response) {
   const category = typeof req.query.category === "string" ? req.query.category : "";
   const incidentType = typeof req.query.incidentType === "string" ? req.query.incidentType : "";
   try {
-    const { data, error } = await reportService.getAdminDashboard();
+    const { data, error } = await reportService.getAdminDashboard({ mode: "evidence", allPages: true });
     if (error || !data) return res.status(500).json({ error: error || "No report data" });
     const now = Date.now();
     const windowDays = windows[period]!;
@@ -28,7 +29,7 @@ export async function getHotspotClusters(req: AuthRequest, res: Response) {
     })) };
     // Keep the source reports for map/details/filter options in the same
     // response snapshot as memberships. Never persist into dashboard cache.
-    return res.json({ reports: data.reports, clustering });
+    return res.json({ reports: data.reports.map(mapReportPayload), clustering });
   } catch {
     return res.status(500).json({ error: "Unable to compute hotspot clusters." });
   }

@@ -1,15 +1,17 @@
-import React, { useCallback, useState } from "react";
+import React, { useState } from "react";
 import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFonts } from "expo-font";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
-import apiClient from "../../services/apiClient";
-import useAutoRefresh from "../../hooks/useAutoRefresh";
-import { getCache, setCache } from "../../services/dataStore";
+import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
+import QueryErrorNotice from "../../components/QueryErrorNotice";
 import { AdminDashboardSkeleton } from "../../components/AdminSkeleton";
+
+const validDashboard = (data) => Array.isArray(data?.reports) &&
+  ["total", "pending", "verified", "rejected", "hotspots"].every((key) => Number.isFinite(data?.summary?.[key]));
+const validMap = data => data?.complete === true && Array.isArray(data.reports);
 
 const formatFeedTime = (iso) => {
   if (!iso) return "";
@@ -47,15 +49,10 @@ const sentimentColor = (label) => {
 export default function Admin_Dashboard() {
   const router = useRouter();
 
-  const [summary, setSummary] = useState(() => {
-    const cached = getCache("api:/admin/dashboard");
-    return cached?.summary || { total: 0, pending: 0, verified: 0, rejected: 0, hotspots: 0 };
+  const { data, loading, refreshing, errorMessage, reload } = useRetainedApiQuery({
+    endpoint: "/admin/overview", validate: validDashboard,
   });
-  const [reports, setReports] = useState(() => {
-    const cached = getCache("api:/admin/dashboard");
-    return cached?.reports || [];
-  });
-  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
+  const mapQuery = useRetainedApiQuery({ endpoint: "/admin/map-reports", validate: validMap });
   const [showFilter, setShowFilter] = useState(false);
   const [selectedSeverity, setSelectedSeverity] = useState("All");
 
@@ -64,41 +61,6 @@ export default function Admin_Dashboard() {
     PoppinsMedium: require("../../assets/fonts/Poppins-Medium.ttf"),
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
-
-  const loadDashboard = useCallback(async () => {
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const cached = getCache("api:/admin/dashboard");
-      if (cached) {
-        if (cached.summary) {
-          setSummary((prev) => ({ ...prev, ...cached.summary }));
-        }
-        if (Array.isArray(cached.reports)) {
-          setReports(cached.reports);
-        }
-      }
-
-      await apiClient.get("/admin/dashboard", { headers }).then((res) => {
-          setCache("api:/admin/dashboard", res.data ?? {});
-          const data = res.data ?? {};
-          if (data.summary) {
-            setSummary((prev) => ({ ...prev, ...data.summary }));
-          }
-          if (Array.isArray(data.reports)) {
-            setReports(data.reports);
-          }
-        });
-    } catch {
-      // keep last loaded data on failure
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useAutoRefresh(loadDashboard, 60000);
 
   if (!fontsLoaded) {
     return null;
@@ -111,6 +73,11 @@ export default function Admin_Dashboard() {
       </Admin_Layout>
     );
   }
+
+  if (!data) {
+    return <Admin_Layout><QueryErrorNotice message={errorMessage || "Please retry."} onRetry={reload} refreshing={refreshing} /></Admin_Layout>;
+  }
+  const { summary, reports } = data;
 
   const summaryCards = [
     {
@@ -182,7 +149,7 @@ export default function Admin_Dashboard() {
     };
   });
 
-  const mapReports = reports.filter(
+  const mapReports = (mapQuery.data?.reports || []).filter(
     (r) =>
       r.latitude != null &&
       r.longitude != null &&
@@ -209,6 +176,8 @@ export default function Admin_Dashboard() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.contentWrap}>
+          <QueryErrorNotice message={errorMessage} onRetry={reload} refreshing={refreshing} hasData />
+          <QueryErrorNotice message={mapQuery.errorMessage} onRetry={mapQuery.reload} refreshing={mapQuery.refreshing} hasData={Boolean(mapQuery.data)} />
           <View style={styles.summaryRow}>
             {summaryCards.map((card, index) => (
               <TouchableOpacity
@@ -356,7 +325,7 @@ export default function Admin_Dashboard() {
 
                 <View style={styles.mapCardBody}>
                   <View style={styles.mapArea}>
-                    <AdminHeatMap reports={filteredMapReports} />
+                    <AdminHeatMap reports={filteredMapReports} loading={mapQuery.loading} />
 
                     <View style={styles.legendCard}>
                       <Text style={styles.legendTitle}>Severity</Text>

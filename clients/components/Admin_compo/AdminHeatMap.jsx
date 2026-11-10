@@ -1,8 +1,9 @@
-﻿import React, { useEffect, useRef } from "react";
+﻿import React, { useEffect, useMemo, useRef } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
 import useMapReadiness from "../../hooks/useMapReadiness";
 import MapLoadingOverlay from "../MapLoadingOverlay";
+import { mapPayload } from "../../services/mapPayload";
 
 const MAP_HTML = `
 <!DOCTYPE html>
@@ -20,6 +21,7 @@ const MAP_HTML = `
   .leaflet-popup-content{margin:0;}
   .cs-dot{filter:drop-shadow(0 1px 2px rgba(15,30,60,0.35));transition:stroke-width 0.15s ease;}
   .cs-dot:hover{stroke-width:4;}
+  .leaflet-heatmap-layer{pointer-events:none;}
   .cs-pop{min-width:214px;font-family:Arial,Helvetica,sans-serif;color:#1E2B45;padding:10px 12px;}
   .cs-pop-top{display:flex;align-items:center;gap:8px;margin-bottom:5px;}
   .cs-pop-badge{font-size:9.5px;font-weight:700;letter-spacing:0.5px;color:#FFFFFF;border-radius:999px;padding:2px 8px;text-transform:uppercase;white-space:nowrap;}
@@ -54,6 +56,10 @@ const MAP_HTML = `
       maxBoundsViscosity: 0.85,
       scrollWheelZoom: true,
     });
+    // Keep the original SVG pins (including their shadow and hover outline).
+    // The heat canvas lives in overlayPane at z-index 400, below these pins.
+    map.createPane("report-pins");
+    map.getPane("report-pins").style.zIndex = "450";
     // Remove Leaflet's documentation link; retain tile-provider attribution.
     map.attributionControl.setPrefix(false);
 
@@ -156,6 +162,9 @@ const MAP_HTML = `
     var markerLayer = L.layerGroup().addTo(map);
     var heatLayer = null;
     var groups = {};
+    var lastData = null;
+    var lastPoints = null;
+    var lastFocus = null;
 
     // The heat canvas is not interactive: use its visible radius to find the
     // nearest real marker, rather than selecting an unrelated report.
@@ -267,13 +276,10 @@ const MAP_HTML = `
     });
 
     function render(list) {
-      markerLayer.clearLayers();
-
-      if (heatLayer) {
-        map.removeLayer(heatLayer);
-        heatLayer = null;
-      }
-
+      var signature = JSON.stringify(list || []);
+      if (signature === lastData) return;
+      lastData = signature;
+      var previous = groups;
       groups = {};
 
       var points = [];
@@ -311,8 +317,16 @@ const MAP_HTML = `
         var group = groups[key];
         var first = group.list[0];
         var sev = worstSeverity(group.list);
-
-        var marker = L.circleMarker(
+        var old = previous[key];
+        group.signature = JSON.stringify(group.list);
+        if (old && old.signature === group.signature) {
+          groups[key] = old;
+          return;
+        }
+        if (old) {
+          group.idx = Math.max(0, group.list.findIndex(function (r) { return r.id === old.list[old.idx].id; }));
+        }
+        var marker = old ? old.marker : L.circleMarker(
           [Number(first.latitude), Number(first.longitude)],
           {
             radius: DOT_RADIUS[sev] || 8,
@@ -321,21 +335,38 @@ const MAP_HTML = `
             fillColor: SEVERITY_COLOR[sev] || "#294880",
             fillOpacity: 0.95,
             className: "cs-dot",
+            pane: "report-pins",
             bubblingMouseEvents: false,
           }
         );
 
-        marker.bindPopup(popupHtml(key));
-
-        marker.on("click", function () {
-          emitSelection(group.list[group.idx]);
-        });
-
         group.marker = marker;
-        markerLayer.addLayer(marker);
+        if (old) {
+          marker.setLatLng([Number(first.latitude), Number(first.longitude)]);
+          marker.setRadius(DOT_RADIUS[sev] || 8);
+          marker.setStyle({ fillColor: SEVERITY_COLOR[sev] || "#294880" });
+          marker.setPopupContent(popupHtml(key));
+        } else {
+          marker.bindPopup(popupHtml(key));
+          marker.on("click", function () {
+            var current = groups[key];
+            if (current) emitSelection(current.list[current.idx]);
+          });
+          markerLayer.addLayer(marker);
+        }
+      });
+      Object.keys(previous).forEach(function (key) {
+        if (!groups[key]) markerLayer.removeLayer(previous[key].marker);
       });
 
-      if (points.length > 0) {
+      var pointSignature = JSON.stringify(points);
+      if (pointSignature === lastPoints) return;
+      lastPoints = pointSignature;
+      if (heatLayer) {
+        // Leaflet.heat already aggregates points into a zoom-dependent grid.
+        // Reuse its canvas; do not discard and reconstruct the layer on refresh.
+        heatLayer.setLatLngs(points);
+      } else if (points.length > 0) {
         heatLayer = L.heatLayer(points, {
           radius: 32,
           blur: 28,
@@ -352,6 +383,9 @@ const MAP_HTML = `
       render(cfg.reports || []);
 
       var target = cfg.focusTarget;
+      var focusSignature = JSON.stringify({ target: target || null, reset: Boolean(cfg.resetView) });
+      if (focusSignature === lastFocus) return;
+      lastFocus = focusSignature;
 
       if (
         target &&
@@ -410,6 +444,9 @@ const AdminHeatMap = ({
   reportsRef.current = reports;
   const onReportSelectRef = useRef(onReportSelect);
   onReportSelectRef.current = onReportSelect;
+  const mapReports = useMemo(() => mapPayload(reports), [reports]);
+  const mapData = useMemo(() => JSON.stringify(mapReports), [mapReports]);
+  const focusData = JSON.stringify(focusTarget);
 
   const selectReport = (data) => {
     const payload = typeof data === "string" ? JSON.parse(data) : data;
@@ -443,7 +480,7 @@ const AdminHeatMap = ({
 
     const cfg = JSON.stringify({
       type: "init",
-      reports: reportsRef.current,
+      reports: mapReports,
       focusTarget,
       resetView,
     });
@@ -460,7 +497,7 @@ const AdminHeatMap = ({
   useEffect(() => {
     if (!loaded) return;
     pushInit();
-  }, [loaded, reports, focusTarget, resetView]);
+  }, [loaded, mapData, focusData, resetView]);
 
   if (isWeb) {
     return (

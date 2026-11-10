@@ -5,8 +5,7 @@ import { test } from "node:test";
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 // Archived reports live only in Logs > Archived reports. Every other screen
-// filters them out on its own, so a stale cache or an outdated server cannot
-// leak them back into a feed.
+// filters them out in its screen or shared server read model.
 const screens = [
   {
     page: "app/(tabs)/User_Home.jsx",
@@ -25,14 +24,14 @@ const screens = [
   {
     page: "app/(admin)/Admin_Validation.jsx",
     patterns: [
-      /\.filter\(\(r\) => r\.status !== "Archived"\)/,
+      /endpoint: "\/admin\/validation-groups"/,
       /handleArchiveReport = \(report, group, message\) => \{\s*applyValidation\(report, "Archived", message\);/,
     ],
   },
   {
     page: "app/(sadmin)/SAdmin_Validation.jsx",
     patterns: [
-      /\.filter\(\(r\) => r\.status !== "Archived"\)/,
+      /endpoint: "\/admin\/validation-groups"/,
       /handleArchiveReport = \(report, group, message\) => \{\s*applyValidation\(report, "Archived", message\);/,
     ],
   },
@@ -55,7 +54,12 @@ const screens = [
 
 for (const screen of screens) {
   test(`${screen.page} keeps archived reports out of its list`, () => {
-    const source = read(screen.page);
+    const route = read(screen.page);
+    const source = /<ValidationPage Layout=/.test(route) ? read("components/Admin_compo/ValidationPage.jsx") : route;
+    if (/<ValidationPage Layout=/.test(route)) {
+      const service = readFileSync(new URL("../../server/src/services/validationGroupsService.ts", import.meta.url), "utf8");
+      assert.match(service, /report\.status !== "Archived"/);
+    }
     for (const pattern of screen.patterns) {
       assert.match(source, pattern);
     }
@@ -69,7 +73,7 @@ test("the archive action is wired from the similar-reports menu", () => {
 });
 
 test("the super admin status filter no longer offers Archived", () => {
-  const source = read("app/(sadmin)/SAdmin_Validation.jsx");
+  const source = read("components/Admin_compo/ValidationPage.jsx");
   const filters = /const statusFilters = \[[^\]]*\]/.exec(source);
   assert.ok(filters, "statusFilters must exist");
   assert.doesNotMatch(filters[0], /"Archived"/);

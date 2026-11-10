@@ -44,8 +44,8 @@ test("preload does nothing before verified auth, then schedules only allowed rol
     assert.equal(f.intervals.size, 0);
     f.sessionData.begin("approved-token", role);
     await f.store.prefetchAllData();
-    assert.equal(f.calls[0].url, role === "user" ? "/reports" : "/admin/dashboard");
-    assert.equal(f.calls.some(c => c.url === "/admin/accounts"), role === "super_admin");
+    assert.equal(f.calls[0].url, role === "user" ? "/reports" : "/admin/overview");
+    assert.equal(f.calls.some(c => c.url === "/admin/accounts"), false);
     assert.ok(f.calls.every(c => c.headers.Authorization === "Bearer approved-token"));
     assert.equal(f.intervals.size, 1);
     await f.store.prefetchAllData();
@@ -117,7 +117,7 @@ test("notification writes keep unrelated pages warm and do not trigger an immedi
   await f.store.prefetchAllData();
   const before = f.calls.length;
   await f.sessionData.run({ method: "put", url: "/admin/notifications/one/read", sessionToken: "a", sessionEpoch: f.sessionData.epoch() }, async () => ({ data: {} }));
-  assert.ok(f.store.getCache("api:/admin/dashboard"));
+  assert.ok(f.store.getCache("api:/admin/overview"));
   await Promise.resolve();
   assert.equal(f.calls.length, before);
   await f.store.prefetchAllData();
@@ -128,7 +128,7 @@ test("foreground completion during the worker's idle delay prevents a duplicate 
   const f = storeFixture({ autoTimers: false });
   f.sessionData.begin("a", "admin");
   const warm = f.store.prefetchAllData();
-  await f.sessionData.run({ url: "/admin/dashboard", sessionToken: "a", sessionEpoch: f.sessionData.epoch() }, async () => ({ data: { summary: {} } }));
+  await f.sessionData.run({ url: "/admin/overview", sessionToken: "a", sessionEpoch: f.sessionData.epoch() }, async () => ({ data: { summary: {} } }));
   f.timeouts.shift()();
   for (let i = 0; i < 5; i++) await Promise.resolve();
   assert.equal(f.calls.length, 0, "the worker rechecks freshness after yielding");

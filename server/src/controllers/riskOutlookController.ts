@@ -6,6 +6,7 @@ import { buildRiskOutlook } from "../services/riskOutlookService.js";
 import { clusterHotspots } from "../services/hotspotClusteringService.js";
 import { summarizeHotspotEvidence } from "../services/hotspotSentimentService.js";
 import { ARGAO_BARANGAY_NAMES, canonicalBarangay, deriveBarangay, hasReportCoordinates } from "../utils/argaoLocation.js";
+import { mapReportPayload } from "../services/adminFetchService.js";
 
 type AuthRequest = Request & { user?: { id: string } };
 export async function getRiskOutlook(req: AuthRequest, res: Response) {
@@ -21,7 +22,17 @@ export async function getRiskOutlook(req: AuthRequest, res: Response) {
   try {
     const now = Date.now();
     const [dashboard, history] = await Promise.all([
-      reportService.getAdminDashboard(),
+      // Filter before loading relations. The current map never needs old,
+      // inactive or unmapped reports, nor image attachments.
+      reportService.getAdminDashboard({
+        statuses: ["Pending Review", "Under Verification"],
+        from: new Date(now - 30 * 86400000).toISOString(),
+        to: new Date(now).toISOString(),
+        mappedOnly: true,
+        includeImages: false,
+        mode: "evidence",
+        allPages: true,
+      }),
       currentOnly ? Promise.resolve({ data: null, error: null })
         : riskOutlookHistory.load(now).catch(() => ({ data: null, error: "History unavailable" })),
     ]);
@@ -49,7 +60,7 @@ export async function getRiskOutlook(req: AuthRequest, res: Response) {
         severity[level]!++;
       }
       return { windowDays: 30, activeReportCount: selected.length, spatialHotspotCount: clusters.length, severity, evidence, clusters,
-        snapshotMayBeLimited: dashboard.data!.reports.length >= 1000,
+        snapshotMayBeLimited: false,
         note: "Current active reports and intersecting DBSCAN clusters, not forecast danger. Map and barangay counts are descriptive." };
     };
     // One snapshot includes every barangay, so changing the UI filter does not
@@ -58,7 +69,7 @@ export async function getRiskOutlook(req: AuthRequest, res: Response) {
     const forecast = currentOnly ? { status: "not_requested" } : history.error || !history.data ? {
       status: "unavailable", reasons: ["Complete forecast history could not be loaded; no estimate is shown."], dataMode: "synthetic",
     } : buildRiskOutlook(history.data, { now, ...(barangay ? { barangay } : {}) });
-    return res.json({ asOf: new Date(now).toISOString(), dataMode: "synthetic", scope: barangay || "All Barangays", reports,
+    return res.json({ asOf: new Date(now).toISOString(), dataMode: "synthetic", scope: barangay || "All Barangays", reports: reports.map(mapReportPayload),
       current: barangay ? currentByBarangay[barangay] : summarize(reports), currentByBarangay,
       forecast });
   } catch {

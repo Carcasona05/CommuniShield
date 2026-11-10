@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React from "react";
 import {
   View,
   Text,
@@ -9,12 +9,13 @@ import {
 import { Ionicons, MaterialIcons, Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFonts } from "expo-font";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import SAdmin_Layout from "../../components/SAdmin_Compo/SAdmin_Layout";
-import apiClient from "../../services/apiClient";
-import useAutoRefresh from "../../hooks/useAutoRefresh";
-import { getCache, setCache } from "../../services/dataStore";
+import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
+import QueryErrorNotice from "../../components/QueryErrorNotice";
 import { SAdminDashboardSkeleton } from "../../components/AdminSkeleton";
+
+const validDashboard = (data) => ["total", "pending", "verified", "rejected"].every((key) => Number.isFinite(data?.summary?.[key])) &&
+  ["activeAdmins", "admins", "superAdmins", "disabled", "logsToday"].every(key => Number.isFinite(data?.management?.[key])) && Array.isArray(data?.logs);
 
 const formatRelativeTime = (iso) => {
   if (!iso) return "";
@@ -94,93 +95,12 @@ export default function SAdmin_Dashboard() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const [summary, setSummary] = useState(() => {
-    const cached = getCache("api:/admin/dashboard");
-    return cached?.summary || { total: 0, pending: 0, verified: 0, rejected: 0 };
-  });
-  const [accounts, setAccounts] = useState(() => {
-    const cached = getCache("api:/admin/accounts");
-    return cached?.accounts || [];
-  });
-  const [logs, setLogs] = useState(() => {
-    const cached = getCache("api:/admin/logs");
-    return cached?.logs || [];
-  });
-  const [loading, setLoading] = useState(() => getCache("api:/admin/dashboard") === undefined);
-
-  const fetchDashboard = useCallback(async () => {
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-
-      const cached = getCache("api:/admin/dashboard");
-      if (cached?.summary) {
-        setSummary(cached.summary);
-      }
-
-      const res = await apiClient.get("/admin/dashboard", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      setCache("api:/admin/dashboard", res.data ?? {});
-      setSummary(res.data?.summary ?? {});
-    } catch {
-      // keep last loaded data on failure
-    }
-  }, []);
-
-  const fetchAccounts = useCallback(async () => {
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-
-      const cached = getCache("api:/admin/accounts");
-      if (cached && Array.isArray(cached.accounts)) {
-        setAccounts(cached.accounts);
-      }
-
-      const res = await apiClient.get("/admin/accounts", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      setCache("api:/admin/accounts", res.data ?? {});
-      setAccounts(res.data?.accounts || []);
-    } catch {
-      // keep last loaded data on failure
-    }
-  }, []);
-
-  const fetchLogs = useCallback(async () => {
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-
-      const cached = getCache("api:/admin/logs");
-      if (cached && Array.isArray(cached.logs)) {
-        setLogs(cached.logs);
-      }
-
-      const res = await apiClient.get("/admin/logs", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      setCache("api:/admin/logs", res.data ?? {});
-      setLogs(res.data?.logs || []);
-    } catch {
-      // keep last loaded data on failure
-    }
-  }, []);
-
-  const loadDashboard = useCallback(async () => {
-    await Promise.allSettled([
-      fetchDashboard(),
-      fetchAccounts(),
-      fetchLogs(),
-    ]);
-    setLoading(false);
-  }, [fetchDashboard, fetchAccounts, fetchLogs]);
-
-  useAutoRefresh(loadDashboard, 60000);
+  const today = new Date();
+  const dashboardQuery = useRetainedApiQuery({ endpoint: "/admin/overview", validate: validDashboard,
+    params: { dayStart: new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString(),
+      dayEnd: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString() } });
+  const { data, loading, refreshing, errorMessage, reload } = dashboardQuery;
+  const logs = data?.logs || [];
 
   if (!fontsLoaded) {
     return null;
@@ -194,22 +114,15 @@ export default function SAdmin_Dashboard() {
     );
   }
 
+  if (!data) {
+    return <SAdmin_Layout><QueryErrorNotice message={errorMessage || "Please retry."} onRetry={reload} refreshing={refreshing} /></SAdmin_Layout>;
+  }
+  const { summary, management } = data;
+
   const totalReports = summary.total || 0;
   const pendingReports = summary.pending || 0;
   const verifiedReports = summary.verified || 0;
   const rejectedReports = summary.rejected || 0;
-
-  const activeAdmins = accounts.filter(
-    (a) => a.role === "admin" && a.status === "Active"
-  ).length;
-
-  const auditLogsToday = logs.filter((log) => {
-    const date = new Date(log.dateTime);
-    return (
-      !Number.isNaN(date.getTime()) &&
-      date.toDateString() === new Date().toDateString()
-    );
-  }).length;
 
   const pct = (value) =>
     totalReports ? Math.round((value / totalReports) * 100) : 0;
@@ -253,7 +166,7 @@ export default function SAdmin_Dashboard() {
     },
     {
       title: "Active Admins",
-      value: formatCount(activeAdmins),
+      value: formatCount(management.activeAdmins),
       note: "Normal admins currently registered",
       icon: "people-outline",
       iconType: "Ionicons",
@@ -262,7 +175,7 @@ export default function SAdmin_Dashboard() {
     },
     {
       title: "Logs Today",
-      value: formatCount(auditLogsToday),
+      value: formatCount(management.logsToday),
       note: "System and admin activities",
       icon: "list-outline",
       iconType: "Ionicons",
@@ -274,15 +187,13 @@ export default function SAdmin_Dashboard() {
   const adminSummary = [
     {
       label: "SuperAdmin Accounts",
-      value: formatCount(
-        accounts.filter((a) => a.role === "super_admin").length
-      ),
+      value: formatCount(management.superAdmins),
       icon: "star-outline",
       color: "#294880",
     },
     {
       label: "Normal Admin Accounts",
-      value: formatCount(accounts.filter((a) => a.role === "admin").length),
+      value: formatCount(management.admins),
       icon: "person-outline",
       color: "#2563EB",
     },
@@ -294,9 +205,7 @@ export default function SAdmin_Dashboard() {
     },
     {
       label: "Disabled Accounts",
-      value: formatCount(
-        accounts.filter((a) => a.status === "Disabled").length
-      ),
+      value: formatCount(management.disabled),
       icon: "person-remove-outline",
       color: "#DC2626",
     },
@@ -377,6 +286,7 @@ export default function SAdmin_Dashboard() {
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
       >
+        <QueryErrorNotice message={errorMessage} onRetry={reload} refreshing={refreshing} hasData />
         <View style={styles.overviewGrid}>
           {overviewCards.map((item, index) => (
             <View key={index} style={styles.overviewCard}>

@@ -160,6 +160,11 @@ test("current-only risk view returns all barangay evidence in one snapshot witho
   await getRiskOutlook({ user: { id: "u" }, query: { view: "current" } } as unknown as Request, result.res);
   assert.equal(result.output.status, 200);
   assert.equal(dashboard.mock.callCount(), 1);
+  assert.deepEqual(dashboard.mock.calls[0]!.arguments[0], {
+    statuses: ["Pending Review", "Under Verification"],
+    from: new Date(now - 30 * DAY).toISOString(), to: new Date(now).toISOString(),
+    mappedOnly: true, includeImages: false, mode: "evidence", allPages: true,
+  });
   assert.equal(loadHistory.mock.callCount(), 0);
   assert.equal((result.output.body.forecast as { status: string }).status, "not_requested");
   const scopes = result.output.body.currentByBarangay as Record<string, {
@@ -185,6 +190,42 @@ test("an unsupported risk view fails before loading the dashboard or history", a
   await getRiskOutlook({ user: { id: "u" }, query: { view: "unknown" } } as unknown as Request, result.res);
   assert.equal(result.output.status, 400);
   assert.equal(dashboard.mock.callCount(), 0);
+});
+
+test("current-risk filters run in the database before relation reads, and skip unused images only for risk", async t => {
+  const operations: { table: string; method: string; args: unknown[] }[] = [];
+  const tables: string[] = [];
+  const row = { id: "active", user_id: null, incident_type_id: "type", status: "Pending Review",
+    created_at: new Date(now - DAY).toISOString(), location: "Lamacan, Argao", latitude: 9.8784487, longitude: 123.5950192 };
+  t.mock.method(supabaseAdmin, "from", ((table: string) => {
+    tables.push(table);
+    const builder: Record<string, unknown> = {};
+    for (const method of ["select", "eq", "neq", "in", "gte", "lte", "not", "order"]) {
+      builder[method] = (...args: unknown[]) => { operations.push({ table, method, args }); return builder; };
+    }
+    builder.then = (resolve: (value: unknown) => unknown) => Promise.resolve(resolve({
+      data: table === "reports" ? [row] : [], error: null,
+    }));
+    return builder;
+  }) as unknown as typeof supabaseAdmin.from);
+  const filters = { from: new Date(now - 30 * DAY).toISOString(), to: new Date(now).toISOString(),
+    statuses: ["Pending Review", "Under Verification"], mappedOnly: true, includeImages: false };
+  const risk = await reportService.getAdminDashboard(filters);
+  assert.equal(risk.error, null);
+  assert.equal(risk.data?.reports.length, 1);
+  assert.equal(tables.includes("report_images"), false);
+  for (const [method, args] of [
+    ["in", ["status", filters.statuses]], ["gte", ["created_at", filters.from]], ["lte", ["created_at", filters.to]],
+    ["not", ["latitude", "is", null]], ["not", ["longitude", "is", null]],
+  ] as const) {
+    assert.ok(operations.some(op => op.table === "reports" && op.method === method && JSON.stringify(op.args) === JSON.stringify(args)));
+  }
+  assert.ok(tables.includes("report_comments"), "Comment evidence is still required in the risk view");
+  tables.length = 0;
+  operations.length = 0;
+  await reportService.getAdminDashboard();
+  assert.ok(tables.includes("report_images"), "Ordinary dashboard/report exports must retain their images");
+  assert.equal(operations.some(op => op.table === "reports" && ["in", "gte", "lte", "not"].includes(op.method)), false);
 });
 
 test("forecast history explicitly paginates and retains resolved statuses", async (t) => {

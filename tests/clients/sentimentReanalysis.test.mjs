@@ -39,7 +39,9 @@ test("selection deduplicates IDs and tolerates missing comments and malformed en
 });
 
 for (const role of ["admin", "sadmin"]) {
-  const source = readFileSync(new URL(`../../clients/app/(${role})/${role === "admin" ? "Admin" : "SAdmin"}_Validation.jsx`, import.meta.url), "utf8");
+  const route = readFileSync(new URL(`../../clients/app/(${role})/${role === "admin" ? "Admin" : "SAdmin"}_Validation.jsx`, import.meta.url), "utf8");
+  assert.match(route, /<ValidationPage Layout=/);
+  const source = readFileSync(new URL("../../clients/components/Admin_compo/ValidationPage.jsx", import.meta.url), "utf8");
   const match = /const handleReanalyze = async \(group\) => \{([\s\S]*?)\n  \};/.exec(source);
   async function run(group, payload = {}) {
     assert.ok(match, "reanalysis handler must exist");
@@ -92,8 +94,9 @@ for (const role of ["admin", "sadmin"]) {
 test("modal retries its freshest comments and refreshes after reanalysis completes", () => {
   const source = readFileSync(new URL("../../clients/components/Admin_compo/Admin_ViewSimilarReportsModal.jsx", import.meta.url), "utf8");
   assert.match(source, /onReanalyze\?\.\(\{ \.\.\.compiledGroup, reports: reportsWithFreshComments \}\)/);
-  assert.match(source, /if \(!visible \|\| !compiledGroup \|\| reanalyzing\) return;/);
-  assert.match(source, /\[visible, compiledGroup, reanalyzing\]/);
-  assert.match(source, /return \{ reportId: report\.id, comments: null \};/);
-  assert.match(source, /if \(Array\.isArray\(comments\)\) commentsMap\[reportId\] = comments;/);
+  assert.match(source, /useAdminReportDetails\(\(compiledGroup\?\.reports \|\| \[\]\)\.map\(report => report.id\), visible\)/);
+  assert.match(source, /detailQuery\.data\?\.reports/);
+  assert.match(source, /onRetry=\{detailQuery.reload\}/);
+  const cache = readFileSync(new URL("../../clients/services/sessionData.js", import.meta.url), "utf8");
+  assert.match(cache, /"\/admin\/report-details"/);
 });
