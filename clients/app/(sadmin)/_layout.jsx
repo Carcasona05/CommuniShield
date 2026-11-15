@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { Slot, useRouter } from "expo-router";
-import { ActivityIndicator, Platform, View } from "react-native";
+import { Platform } from "react-native";
 import useSessionEpoch from "../../hooks/useSessionEpoch";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ROLE_KEY } from "../../services/auth";
@@ -8,13 +8,12 @@ import { getLastPage } from "../../services/lastPage";
 import BrowserSessionGate from "../../components/BrowserSessionGate";
 
 export default function SAdminLayout() {
-  return <BrowserSessionGate><SAdminLayoutInner /></BrowserSessionGate>;
+  return <BrowserSessionGate nonBlocking><SAdminLayoutInner /></BrowserSessionGate>;
 }
 
 function SAdminLayoutInner() {
   const epoch = useSessionEpoch();
   const router = useRouter();
-  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
     const guard = async () => {
@@ -40,10 +39,7 @@ function SAdminLayoutInner() {
           } else {
             router.replace(target);
           }
-          return;
         }
-
-        setChecked(true);
       } catch {
         if (Platform.OS === "web") {
           window.location.href = "/(auth)/Admin_Login";
@@ -54,9 +50,7 @@ function SAdminLayoutInner() {
     };
 
     guard();
-  }, []);
-
-  if (!checked) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><ActivityIndicator size="large" color="#294880" /></View>;
+  }, [epoch, router]);
 
   return <Slot key={epoch} />;
 }

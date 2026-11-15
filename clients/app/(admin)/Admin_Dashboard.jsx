@@ -8,6 +8,7 @@ import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
 import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
 import QueryErrorNotice from "../../components/QueryErrorNotice";
 import { AdminDashboardSkeleton } from "../../components/AdminSkeleton";
+import { DASHBOARD_MAP_PERIODS, filterDashboardMapReports } from "../../services/dashboardMap";
 
 const validDashboard = (data) => Array.isArray(data?.reports) &&
   ["total", "pending", "verified", "rejected", "hotspots"].every((key) => Number.isFinite(data?.summary?.[key]));
@@ -55,6 +56,8 @@ export default function Admin_Dashboard() {
   const mapQuery = useRetainedApiQuery({ endpoint: "/admin/map-reports", validate: validMap });
   const [showFilter, setShowFilter] = useState(false);
   const [selectedSeverity, setSelectedSeverity] = useState("All");
+  const [showDateFilter, setShowDateFilter] = useState(false);
+  const [selectedMapPeriod, setSelectedMapPeriod] = useState("All dates");
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -141,7 +144,7 @@ export default function Admin_Dashboard() {
       sentiment: r.sentiment ?? null,
       sentimentStatus: r.sentiment_status ?? "unavailable",
       sentimentColor: sentimentColor(r.sentiment || r.sentiment_status),
-      status: r.is_verified ? "Verified" : r.status || "Pending",
+      status: r.status || (r.is_verified ? "Verified" : "Pending"),
       source: r.source || "User",
       time: formatFeedTime(r.created_at),
       statusColor: style.color,
@@ -149,24 +152,9 @@ export default function Admin_Dashboard() {
     };
   });
 
-  const mapReports = (mapQuery.data?.reports || []).filter(
-    (r) =>
-      r.latitude != null &&
-      r.longitude != null &&
-      Number.isFinite(Number(r.latitude)) &&
-      Number.isFinite(Number(r.longitude)) &&
-      r.status !== "Rejected" &&
-      r.status !== "Archived"
+  const filteredMapReports = filterDashboardMapReports(
+    mapQuery.data?.reports || [], selectedSeverity, selectedMapPeriod
   );
-
-  const filteredMapReports =
-    selectedSeverity === "All"
-      ? mapReports
-      : mapReports.filter(
-          (r) =>
-            (r.severity || "Medium").toLowerCase() ===
-            selectedSeverity.toLowerCase()
-        );
 
   return (
     <Admin_Layout>
@@ -259,7 +247,7 @@ export default function Admin_Dashboard() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.cardTitle}>Verified Incident Map</Text>
                       <Text style={styles.cardSubtitle}>
-                        Report pins and heatmap around Argao.
+                        Verified report pins and heatmap around Argao. Dates use report submission time.
                       </Text>
                     </View>
                   </View>
@@ -268,7 +256,37 @@ export default function Admin_Dashboard() {
                     <View style={{ position: "relative" }}>
                       <TouchableOpacity
                         style={styles.controlButton}
-                        onPress={() => setShowFilter(!showFilter)}
+                        onPress={() => { setShowDateFilter(!showDateFilter); setShowFilter(false); }}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Map date: ${selectedMapPeriod}`}
+                        accessibilityState={{ expanded: showDateFilter }}
+                      >
+                        <Ionicons name="calendar-outline" size={16} color="#5D6F92" />
+                        <Text style={styles.controlButtonText}>{selectedMapPeriod}</Text>
+                        <Ionicons name={showDateFilter ? "chevron-up" : "chevron-down"} size={14} color="#5D6F92" />
+                      </TouchableOpacity>
+                      {showDateFilter ? (
+                        <View style={styles.filterDropdown}>
+                          {DASHBOARD_MAP_PERIODS.map(period => (
+                            <TouchableOpacity
+                              key={period}
+                              style={[styles.filterOption, selectedMapPeriod === period && styles.filterOptionActive]}
+                              onPress={() => { setSelectedMapPeriod(period); setShowDateFilter(false); }}
+                              activeOpacity={0.7}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected: selectedMapPeriod === period }}
+                            >
+                              <Text style={[styles.filterOptionText, selectedMapPeriod === period && styles.filterOptionTextActive]}>{period}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                    <View style={{ position: "relative" }}>
+                      <TouchableOpacity
+                        style={styles.controlButton}
+                        onPress={() => { setShowFilter(!showFilter); setShowDateFilter(false); }}
                         activeOpacity={0.8}
                       >
                         <Ionicons
@@ -574,6 +592,7 @@ const styles = {
     paddingHorizontal: 20,
     paddingVertical: 10,
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: "#FFFFFF",

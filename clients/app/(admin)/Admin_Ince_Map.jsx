@@ -12,15 +12,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
 import AdminHeatMap from "../../components/Admin_compo/AdminHeatMap";
+import ReportCommentCard from "../../components/Admin_compo/ReportCommentCard";
 import {
   BatchFilterDropdown,
-  BatchDateRangeDropdown,
 } from "../../components/Admin_compo/AdminBatchFilters";
 import { ARGAO_BARANGAYS } from "../../constants/argaoMapData";
 import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
 import useAdminReportDetails from "../../hooks/useAdminReportDetails";
 import QueryErrorNotice from "../../components/QueryErrorNotice";
 import { getReportBarangay, getReportLocationHierarchy } from "../../services/argaoLocation";
+import { MAP_DATE_PERIODS, createMapDateFilter } from "../../services/mapDateFilter";
 
 const INCIDENT_CATEGORIES = [
   {
@@ -66,6 +67,7 @@ const normalizeText = (value) => String(value ?? "").trim();
 const EMPTY_REPORTS = [];
 const validMap = data => data?.complete === true && Array.isArray(data.reports);
 
+// The selected-pin details still need a display date, independently of filtering.
 const getReportDate = (report) => {
   const value = report?.created_at || report?.reported_at || report?.date;
   if (!value) return null;
@@ -168,8 +170,7 @@ export default function Admin_Ince_Map() {
   const [selectedBarangay, setSelectedBarangay] = useState("All");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedIncidentType, setSelectedIncidentType] = useState("All");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [selectedMapPeriod, setSelectedMapPeriod] = useState("All dates");
 
   const [selectedReportId, setSelectedReportId] = useState(null);
   const [selectedHotspotKey, setSelectedHotspotKey] = useState(null);
@@ -206,8 +207,7 @@ export default function Admin_Ince_Map() {
   }, [selectedCategory]);
 
   const filteredReports = useMemo(() => {
-    const start = from ? new Date(`${from}T00:00:00`) : null;
-    const end = to ? new Date(`${to}T23:59:59.999`) : null;
+    const matchesDate = createMapDateFilter(selectedMapPeriod);
 
     return reports.filter((report) => {
       if (report.status === "Rejected" || report.status === "Archived")
@@ -218,14 +218,9 @@ export default function Admin_Ince_Map() {
       if (selectedCategory !== "All" && normalizeText(report.incident_category || report.category) !== selectedCategory) return false;
       if (selectedIncidentType !== "All" && normalizeText(report.incident_type || report.type) !== selectedIncidentType) return false;
 
-      const date = getReportDate(report);
-      const matchesDate =
-        (!start || (date && Number.isFinite(date.getTime()) && date >= start)) &&
-        (!end || (date && Number.isFinite(date.getTime()) && date <= end));
-
-      return matchesDate;
+      return matchesDate(report.created_at);
     });
-  }, [from, reports, selectedBarangay, selectedCategory, selectedIncidentType, to]);
+  }, [reports, selectedBarangay, selectedCategory, selectedIncidentType, selectedMapPeriod]);
 
   const mapReports = useMemo(() => filteredReports.map((report) => ({
     ...report,
@@ -367,15 +362,12 @@ export default function Admin_Ince_Map() {
               clearSelection();
             }}
           />
-          <BatchDateRangeDropdown
-            from={from}
-            to={to}
-            onChangeFrom={(value) => {
-              setFrom(value);
-              clearSelection();
-            }}
-            onChangeTo={(value) => {
-              setTo(value);
+          <BatchFilterDropdown
+            label="Date"
+            value={selectedMapPeriod}
+            options={MAP_DATE_PERIODS.map(period => ({ value: period, label: period }))}
+            onChange={(value) => {
+              setSelectedMapPeriod(value);
               clearSelection();
             }}
           />
@@ -516,7 +508,7 @@ export default function Admin_Ince_Map() {
                 {/* Comments Section (Limit 5 per page with Pagination) */}
                 <View style={styles.commentsSection}>
                   <View style={styles.commentsHeading}>
-                    <Text style={styles.infoLabel}>Comments</Text>
+                    <Text style={styles.commentsTitle}>Comments</Text>
                     <Text style={styles.commentCount}>{allComments.length}</Text>
                   </View>
                   {sentimentTotal > 0 ? (
@@ -529,10 +521,7 @@ export default function Admin_Ince_Map() {
 
                   {paginatedComments.length > 0 ? (
                     paginatedComments.map((comment, index) => (
-                      <View key={comment.id || index} style={styles.commentItem}>
-                        <Text style={styles.commentBody}>{comment.text || ""}</Text>
-                        <Text style={styles.commentMeta}>{comment.user || "User"}{comment.sentiment ? ` · ${comment.sentiment}` : ""}</Text>
-                      </View>
+                      <ReportCommentCard key={comment.id || index} comment={comment} />
                     ))
                   ) : (
                     <Text style={styles.emptyComments}>No comments found.</Text>
@@ -651,13 +640,11 @@ const styles = {
   
   commentsSection: { borderTopWidth: 1, borderTopColor: "#E9EFEB", paddingTop: 10, marginTop: 12 },
   commentsHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  commentCount: { fontFamily: "PoppinsSemiBold", fontSize: 11, color: "#2C403A" },
-  sentimentSummary: { flexDirection: "row", justifyContent: "space-between", gap: 4, backgroundColor: "#F3F7F4", borderRadius: 7, padding: 8, marginTop: 6 },
-  sentimentText: { fontFamily: "PoppinsMedium", fontSize: 10, color: "#52675F" },
-  emptyComments: { fontFamily: "PoppinsRegular", fontSize: 11, color: "#71847D", marginTop: 8 },
-  commentItem: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#EFF2F0", gap: 3 },
-  commentBody: { fontFamily: "PoppinsRegular", fontSize: 11, lineHeight: 16, color: "#344A43" },
-  commentMeta: { fontFamily: "PoppinsMedium", fontSize: 9, color: "#71847D" },
+  commentsTitle: { fontFamily: "PoppinsSemiBold", fontSize: 14, color: "#243B5A" },
+  commentCount: { fontFamily: "PoppinsSemiBold", fontSize: 12, color: "#294880", backgroundColor: "#EAF0FA", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  sentimentSummary: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 8, backgroundColor: "#F7F9FC", borderRadius: 7, padding: 10, marginTop: 8 },
+  sentimentText: { fontFamily: "PoppinsMedium", fontSize: 12, color: "#40516F" },
+  emptyComments: { fontFamily: "PoppinsRegular", fontSize: 12, color: "#52627A", marginTop: 8 },
   
   paginationRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#E2E8F0" },
   pageButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: "#EDF2F7" },

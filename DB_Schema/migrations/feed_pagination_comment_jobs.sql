@@ -62,7 +62,7 @@ returns jsonb language sql stable security invoker set search_path = public as $
     'incident_type',t.name,'severity',coalesce(a.severity,'Unknown'))), '[]'::jsonb)
   from reports r left join incident_types t on t.id=r.incident_type_id
     left join report_credibility_analysis a on a.report_id=r.id
-  where r.created_at between p_from and p_to and r.status in ('Pending Review','Under Verification')
+   where r.created_at between p_from and p_to and r.status in ('Pending Review','Under Verification','Verified')
     and r.latitude is not null and r.longitude is not null;
 $$;
 revoke all on function public.feed_safety_reports(timestamptz,timestamptz) from public, anon, authenticated;

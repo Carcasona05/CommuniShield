@@ -158,13 +158,22 @@ export const toggleStatus = async (req: AuthRequest, res: Response) => {
 
     const { id } = req.params;
 
-    const { data: target } = await supabaseAdmin
+    const requestedStatus = req.body?.status;
+    if (requestedStatus !== undefined && !["Active", "Disabled"].includes(requestedStatus)) {
+      return res.status(400).json({ error: "Status must be Active or Disabled" });
+    }
+    const { data: target, error: targetError } = await supabaseAdmin
       .from("profiles")
       .select("status")
       .eq("id", id)
       .single();
 
-    const newStatus = target?.status === "Active" ? "Disabled" : "Active";
+    if (targetError) return res.status(500).json({ error: targetError.message });
+    if (!target) return res.status(404).json({ error: "Admin account not found" });
+    // Explicit intent keeps confirmation safe if another admin or a refresh
+    // changed the status while the dialog was open. Empty legacy requests toggle.
+    const newStatus = requestedStatus ?? (target.status === "Active" ? "Disabled" : "Active");
+    if (newStatus === target.status) return res.json({ message: `Account is already ${newStatus.toLowerCase()}`, status: newStatus });
 
     const { error } = await supabaseAdmin
       .from("profiles")

@@ -5,9 +5,9 @@ export function normalizeReportStatus(value, verified = false) {
   if (current.includes("resolved")) return "Resolved";
   if (current.includes("reject")) return "Rejected";
   if (current.includes("archive")) return "Archived";
-  if (current === "verified") return "Resolved";
+  if (current === "verified") return "Verified";
   if (current.includes("pending")) return "Pending Review";
-  return verified ? "Resolved" : "Pending Review";
+  return verified ? "Verified" : "Pending Review";
 }
 
 // Feed cards use camelCase while GET /reports/:id returns database field names.

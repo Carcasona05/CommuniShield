@@ -29,6 +29,8 @@ import {
 import useAutoRefresh from "../../hooks/useAutoRefresh";
 import { useToast } from "../../components/Toast";
 import ConfirmModal from "../../components/modals/ConfirmModal";
+import QueryErrorNotice from "../../components/QueryErrorNotice";
+import useSystemSettingsSave from "../../hooks/useSystemSettingsSave";
 
 const validateNewPassword = (value) => {
   if (!value) return "Password is required.";
@@ -116,7 +118,7 @@ function SummaryCard({ icon, title, value, subtext, tone = "primary" }) {
   );
 }
 
-function SettingRow({ icon, title, description, rightContent, isLast = false }) {
+function SettingRow({ icon, title, description, rightContent, saveState, isLast = false }) {
   return (
     <View style={[styles.settingRow, !isLast && styles.settingRowBorder]}>
       <View style={styles.settingLeft}>
@@ -130,7 +132,12 @@ function SettingRow({ icon, title, description, rightContent, isLast = false }) 
         </View>
       </View>
 
-      <View style={styles.settingRight}>{rightContent}</View>
+      <View style={styles.settingRight}>
+        {rightContent}
+        {!!saveState && <Text accessibilityLiveRegion="polite" style={[styles.saveState, saveState === "error" && styles.saveError]}>
+          {saveState === "saving" ? "Saving…" : saveState === "error" ? "Not saved" : "Saved"}
+        </Text>}
+      </View>
     </View>
   );
 }
@@ -199,22 +206,12 @@ function SAdmin_SettingsContent() {
     }
   };
 
-  const [autoMapVerified, setAutoMapVerified] = useState(true);
-  const [aiCredibilityEnabled, setAiCredibilityEnabled] = useState(true);
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(false);
-  const [clusterOverlay, setClusterOverlay] = useState(true);
-  const [heatmapOverlay, setHeatmapOverlay] = useState(true);
-
-  const [highThreshold, setHighThreshold] = useState("85");
-  const [mediumThreshold, setMediumThreshold] = useState("60");
-  const [defaultMapZoom, setDefaultMapZoom] = useState("13");
-  const [mapCenter, setMapCenter] = useState("Argao, Cebu");
-  const [modelVersion, setModelVersion] = useState("CommuniShield-AI v1.0");
-  const [apiEndpoint, setApiEndpoint] = useState("");
-  const [localModelEnabled, setLocalModelEnabled] = useState(true);
-  const [geminiEnabled, setGeminiEnabled] = useState(true);
-  const [cebuanoMode, setCebuanoMode] = useState("gemini");
+  const { values, status: saveStates, ready: settingsReady, saveSetting, hydrateSettings, settingsRevision } = useSystemSettingsSave(toast);
+  const aiCredibilityEnabled = values.ai_scoring_enabled === "true";
+  const localModelEnabled = values.sentiment_local_model_enabled === "true";
+  const geminiEnabled = values.sentiment_gemini_enabled === "true";
+  const cebuanoMode = values.sentiment_cebuano_mode;
+  const [settingsLoadError, setSettingsLoadError] = useState("");
   const [initialEmail, setInitialEmail] = useState(
     () => getCache("api:/profile")?.email || ""
   );
@@ -241,6 +238,7 @@ function SAdmin_SettingsContent() {
   });
 
   const loadAccountData = useCallback(async () => {
+    const revision = settingsRevision();
     try {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
@@ -269,22 +267,7 @@ function SAdmin_SettingsContent() {
 
       const cachedSettings = getCache("api:/admin/settings");
       if (cachedSettings?.settings) {
-        const s = cachedSettings.settings;
-        setAutoMapVerified(s.map_auto_map_verified !== "false");
-        setAiCredibilityEnabled(s.ai_scoring_enabled !== "false");
-        setEmailNotifications(s.notification_email !== "false");
-        setPushNotifications(s.notification_push === "true");
-        setClusterOverlay(s.map_cluster_overlay !== "false");
-        setHeatmapOverlay(s.map_heatmap_overlay !== "false");
-        setHighThreshold(s.ai_high_threshold || "85");
-        setMediumThreshold(s.ai_medium_threshold || "60");
-        setDefaultMapZoom(s.map_default_zoom || "13");
-        setMapCenter(s.map_center || "Argao, Cebu");
-        setModelVersion(s.ai_model_version || "CommuniShield-AI v1.0");
-        setApiEndpoint(s.ai_api_endpoint || "");
-        setLocalModelEnabled(s.sentiment_local_model_enabled !== "false");
-        setGeminiEnabled(s.sentiment_gemini_enabled !== "false");
-        setCebuanoMode(s.sentiment_cebuano_mode || "local");
+        hydrateSettings(cachedSettings.settings, revision);
       }
 
       const [profileRes, settingsRes] = await Promise.all([
@@ -318,29 +301,15 @@ function SAdmin_SettingsContent() {
       };
 
       const settingsData = settingsRes.data ?? {};
-      setCache("api:/admin/settings", settingsData);
       const settings = settingsData.settings ?? {};
-      setAutoMapVerified(settings.map_auto_map_verified !== "false");
-      setAiCredibilityEnabled(settings.ai_scoring_enabled !== "false");
-      setEmailNotifications(settings.notification_email !== "false");
-      setPushNotifications(settings.notification_push === "true");
-      setClusterOverlay(settings.map_cluster_overlay !== "false");
-      setHeatmapOverlay(settings.map_heatmap_overlay !== "false");
-      setHighThreshold(settings.ai_high_threshold || "85");
-      setMediumThreshold(settings.ai_medium_threshold || "60");
-      setDefaultMapZoom(settings.map_default_zoom || "13");
-      setMapCenter(settings.map_center || "Argao, Cebu");
-      setModelVersion(settings.ai_model_version || "CommuniShield-AI v1.0");
-      setApiEndpoint(settings.ai_api_endpoint || "");
-      setLocalModelEnabled(settings.sentiment_local_model_enabled !== "false");
-      setGeminiEnabled(settings.sentiment_gemini_enabled !== "false");
-      setCebuanoMode(settings.sentiment_cebuano_mode || "local");
+      if (hydrateSettings(settings, revision)) setCache("api:/admin/settings", settingsData);
+      setSettingsLoadError("");
     } catch {
-      // keep existing defaults on failure
+      setSettingsLoadError("Could not refresh account settings. Retry to load the saved configuration.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [hydrateSettings, settingsRevision]);
 
   useAutoRefresh(loadAccountData, 60000);
 
@@ -348,52 +317,19 @@ function SAdmin_SettingsContent() {
     loadAccountData();
   }, [loadAccountData]);
 
-  const saveSetting = useCallback(async (key, value) => {
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-
-      await apiClient.put(
-        "/admin/settings",
-        { settings: { [key]: String(value) } },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      setCache("api:/admin/settings", {
-        ...(getCache("api:/admin/settings") || {}),
-        settings: {
-          ...((getCache("api:/admin/settings") || {}).settings || {}),
-          [key]: String(value),
-        },
-      });
-
-      toast.success("Setting saved.");
-    } catch (error) {
-      toast.error(error.response?.data?.error || "Could not save setting.");
-    }
-  }, [toast]);
-
-  const confirmToggleOff = useCallback((label, currentValue, setter, key) => {
+  const confirmToggleOff = useCallback((label, currentValue, key) => {
     if (currentValue) {
-      setConfirmData({ label, setter, key });
+      setConfirmData({ label, key });
       setConfirmVisible(true);
     } else {
-      setter(true);
-      saveSetting(key, true);
+      void saveSetting(key, true);
     }
   }, [saveSetting]);
 
   const handleConfirmToggle = () => {
     if (confirmData) {
-      confirmData.setter(false);
-      saveSetting(confirmData.key, false);
-      if (
-        confirmData.key === "sentiment_gemini_enabled" &&
-        cebuanoMode === "gemini"
-      ) {
-        setCebuanoMode("local");
-        saveSetting("sentiment_cebuano_mode", "local");
-      }
+      void saveSetting(confirmData.key, false);
+      setConfirmVisible(false);
       setConfirmData(null);
     }
   };
@@ -595,6 +531,8 @@ function SAdmin_SettingsContent() {
         >
           <View style={styles.contentWrap}>
             <View style={styles.leftSection}>
+              <QueryErrorNotice message={settingsLoadError} onRetry={loadAccountData} hasData={settingsReady} />
+              {!settingsReady && !settingsLoadError ? <Text style={styles.saveState}>Loading saved settings…</Text> : null}
               <View style={styles.summaryRow}>
                 <SummaryCard
                   icon="person-circle-outline"
@@ -605,25 +543,24 @@ function SAdmin_SettingsContent() {
 
                 <SummaryCard
                   icon="hardware-chip-outline"
-                  title="AI Rules"
+                  title="AI Analysis"
                   value={aiCredibilityEnabled ? "Enabled" : "Off"}
                   subtext="Validation"
-                  tone="success"
+                  tone={aiCredibilityEnabled ? "success" : "danger"}
                 />
 
                 <SummaryCard
-                  icon="map-outline"
-                  title="Map Scope"
-                  value="Argao"
-                  subtext="Cebu"
+                  icon="hardware-chip-outline"
+                  title="Local Sentiment"
+                  value={localModelEnabled ? "Enabled" : "Off"}
+                  subtext="Server"
                 />
 
                 <SummaryCard
-                  icon="notifications-outline"
-                  title="Alerts"
-                  value={emailNotifications || pushNotifications ? "Live" : "Off"}
-                  subtext="System"
-                  tone="warning"
+                  icon="cloud-outline"
+                  title="Gemini Sentiment"
+                  value={geminiEnabled ? "Enabled" : "Off"}
+                  subtext="Cloud"
                 />
               </View>
 
@@ -901,11 +838,11 @@ function SAdmin_SettingsContent() {
                 <View style={styles.sectionHeader}>
                   <View style={styles.sectionHeaderText}>
                     <Text style={styles.sectionTitle}>
-                      AI Threshold Configuration
+                      AI Credibility Analysis
                     </Text>
                     <Text style={styles.sectionDescription}>
-                      Configure AI credibility scoring used during report
-                      validation.
+                      Control new AI credibility scores and written reviews.
+                      Existing results and manual verification are unchanged.
                     </Text>
                   </View>
 
@@ -917,16 +854,18 @@ function SAdmin_SettingsContent() {
 
                 <SettingRow
                   icon="analytics-outline"
-                  title="Enable AI Credibility Scoring"
-                  description="Use AI to score credibility and support validation decisions."
+                  title="Enable AI Credibility Analysis"
+                  description="Generate both a credibility score and an AI review. Disabling skips new analyses; requests already running may finish."
+                  saveState={saveStates.ai_scoring_enabled}
+                  isLast
                   rightContent={
                     <Switch
                       value={aiCredibilityEnabled}
+                      disabled={!settingsReady || saveStates.ai_scoring_enabled === "saving"}
                       onValueChange={() =>
                         confirmToggleOff(
-                          "AI Credibility Scoring",
+                          "AI Credibility Analysis",
                           aiCredibilityEnabled,
-                          setAiCredibilityEnabled,
                           "ai_scoring_enabled"
                         )
                       }
@@ -936,43 +875,6 @@ function SAdmin_SettingsContent() {
                   }
                 />
 
-                <View style={styles.inputGrid}>
-                  <View style={styles.inputCard}>
-                    <Text style={styles.inputLabel}>
-                      High Credibility Threshold
-                    </Text>
-                    <TextInput
-                      value={highThreshold}
-                      onChangeText={setHighThreshold}
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      placeholder="85"
-                      placeholderTextColor="#5D6F92"
-                      onSubmitEditing={() =>
-                        saveSetting("ai_high_threshold", highThreshold)
-                      }
-                      returnKeyType="done"
-                    />
-                  </View>
-
-                  <View style={styles.inputCard}>
-                    <Text style={styles.inputLabel}>
-                      Medium Credibility Threshold
-                    </Text>
-                    <TextInput
-                      value={mediumThreshold}
-                      onChangeText={setMediumThreshold}
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      placeholder="60"
-                      placeholderTextColor="#5D6F92"
-                      onSubmitEditing={() =>
-                        saveSetting("ai_medium_threshold", mediumThreshold)
-                      }
-                      returnKeyType="done"
-                    />
-                  </View>
-                </View>
               </View>
 
               <View style={styles.sectionCard}>
@@ -1002,15 +904,16 @@ function SAdmin_SettingsContent() {
                 <SettingRow
                   icon="hardware-chip-outline"
                   title="Local Sentiment Model"
-                  description="Run the on-device sentiment models for reports and comments in all three languages."
+                  description="Use server-side local sentiment models. Cebuano also follows the handling mode below."
+                  saveState={saveStates.sentiment_local_model_enabled}
                   rightContent={
                     <Switch
                       value={localModelEnabled}
+                      disabled={!settingsReady || saveStates.sentiment_local_model_enabled === "saving"}
                       onValueChange={() =>
                         confirmToggleOff(
                           "Local Sentiment Model",
                           localModelEnabled,
-                          setLocalModelEnabled,
                           "sentiment_local_model_enabled"
                         )
                       }
@@ -1023,15 +926,18 @@ function SAdmin_SettingsContent() {
                 <SettingRow
                   icon="cloud-outline"
                   title="Gemini Sentiment"
-                  description="Optional cloud second opinion for sentiment. Off by default; all languages use the local models unless enabled."
+                  description={cebuanoMode === "gemini" && !geminiEnabled
+                    ? "Gemini is off. Cebuano is in Gemini-only mode and cannot be analyzed until Gemini is enabled or its handling mode is changed."
+                    : "Use Gemini for sentiment when configured. Local and cloud results follow the existing confidence policy."}
+                  saveState={saveStates.sentiment_gemini_enabled}
                   rightContent={
                     <Switch
                       value={geminiEnabled}
+                      disabled={!settingsReady || saveStates.sentiment_gemini_enabled === "saving"}
                       onValueChange={() =>
                         confirmToggleOff(
                           "Gemini Sentiment",
                           geminiEnabled,
-                          setGeminiEnabled,
                           "sentiment_gemini_enabled"
                         )
                       }
@@ -1048,26 +954,19 @@ function SAdmin_SettingsContent() {
                     cebuanoMode === "disabled"
                       ? "Cebuano text is marked unavailable instead of analyzed."
                       : cebuanoMode === "local"
-                        ? "Cebuano text uses the local Cebuano model."
-                        : "Cebuano text is sent to Gemini only; the local model is never used."
+                         ? "Use the local Cebuano model when enabled; Gemini may also participate when enabled."
+                         : "Gemini only. Requires Gemini Sentiment and a configured API key; the local Cebuano model is not used."
                   }
                   isLast
+                  saveState={saveStates.sentiment_cebuano_mode}
                   rightContent={
                     <TouchableOpacity
                       style={styles.secondaryButton}
                       activeOpacity={0.85}
+                      disabled={!settingsReady || saveStates.sentiment_cebuano_mode === "saving"}
                       onPress={() => {
-                        const next = !geminiEnabled
-                          ? cebuanoMode === "disabled"
-                            ? "local"
-                            : "disabled"
-                          : cebuanoMode === "gemini"
-                            ? "local"
-                            : cebuanoMode === "local"
-                              ? "disabled"
-                              : "gemini";
-                        setCebuanoMode(next);
-                        saveSetting("sentiment_cebuano_mode", next);
+                        const next = cebuanoMode === "gemini" ? "local" : cebuanoMode === "local" ? "disabled" : "gemini";
+                        void saveSetting("sentiment_cebuano_mode", next);
                       }}
                     >
                       <Text style={styles.secondaryButtonText}>
@@ -1080,232 +979,6 @@ function SAdmin_SettingsContent() {
                     </TouchableOpacity>
                   }
                 />
-              </View>
-
-              <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                  <View style={styles.sectionHeaderText}>
-                    <Text style={styles.sectionTitle}>Map Settings</Text>
-                    <Text style={styles.sectionDescription}>
-                      Control how verified reports appear on the Argao incident
-                      map.
-                    </Text>
-                  </View>
-
-                  <StatusBadge label="Argao Map" tone="primary" />
-                </View>
-
-                <SettingRow
-                  icon="map-outline"
-                  title="Auto-map verified reports"
-                  description="Automatically display verified reports on the incident map."
-                  rightContent={
-                    <Switch
-                      value={autoMapVerified}
-                      onValueChange={() =>
-                        confirmToggleOff(
-                          "Auto-map verified reports",
-                          autoMapVerified,
-                          setAutoMapVerified,
-                          "map_auto_map_verified"
-                        )
-                      }
-                      trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
-                      thumbColor={autoMapVerified ? "#294880" : "#FFFFFF"}
-                    />
-                  }
-                />
-
-                <SettingRow
-                  icon="git-network-outline"
-                  title="Show clustering overlay"
-                  description="Display grouped incident patterns on the map."
-                  rightContent={
-                    <Switch
-                      value={clusterOverlay}
-                      onValueChange={() =>
-                        confirmToggleOff(
-                          "Clustering Overlay",
-                          clusterOverlay,
-                          setClusterOverlay,
-                          "map_cluster_overlay"
-                        )
-                      }
-                      trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
-                      thumbColor={clusterOverlay ? "#294880" : "#FFFFFF"}
-                    />
-                  }
-                />
-
-                <SettingRow
-                  icon="flame-outline"
-                  title="Show heatmap overlay"
-                  description="Visualize high-density incident areas as heat zones."
-                  isLast
-                  rightContent={
-                    <Switch
-                      value={heatmapOverlay}
-                      onValueChange={() =>
-                        confirmToggleOff(
-                          "Heatmap Overlay",
-                          heatmapOverlay,
-                          setHeatmapOverlay,
-                          "map_heatmap_overlay"
-                        )
-                      }
-                      trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
-                      thumbColor={heatmapOverlay ? "#294880" : "#FFFFFF"}
-                    />
-                  }
-                />
-
-                <View style={styles.inputGrid}>
-                  <View style={styles.inputCard}>
-                    <Text style={styles.inputLabel}>Default Map Zoom</Text>
-                    <TextInput
-                      value={defaultMapZoom}
-                      onChangeText={setDefaultMapZoom}
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      placeholder="13"
-                      placeholderTextColor="#5D6F92"
-                      onSubmitEditing={() =>
-                        saveSetting("map_default_zoom", defaultMapZoom)
-                      }
-                      returnKeyType="done"
-                    />
-                  </View>
-
-                  <View style={styles.inputCard}>
-                    <Text style={styles.inputLabel}>Default Map Center</Text>
-                    <TextInput
-                      value={mapCenter}
-                      onChangeText={setMapCenter}
-                      style={styles.textInput}
-                      placeholder="Argao, Cebu"
-                      placeholderTextColor="#5D6F92"
-                      onSubmitEditing={() =>
-                        saveSetting("map_center", mapCenter)
-                      }
-                      returnKeyType="done"
-                    />
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                  <View style={styles.sectionHeaderText}>
-                    <Text style={styles.sectionTitle}>
-                      Notification Preferences
-                    </Text>
-                    <Text style={styles.sectionDescription}>
-                      Configure SuperAdmin system alerts and notification channels.
-                    </Text>
-                  </View>
-
-                  <StatusBadge label="Configurable" tone="warning" />
-                </View>
-
-                <SettingRow
-                  icon="mail-outline"
-                  title="Email Notifications"
-                  description="Send validation and system activity updates by email."
-                  rightContent={
-                    <Switch
-                      value={emailNotifications}
-                      onValueChange={() =>
-                        confirmToggleOff(
-                          "Email Notifications",
-                          emailNotifications,
-                          setEmailNotifications,
-                          "notification_email"
-                        )
-                      }
-                      trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
-                      thumbColor={emailNotifications ? "#294880" : "#FFFFFF"}
-                    />
-                  }
-                />
-
-                <SettingRow
-                  icon="notifications-outline"
-                  title="Push Notifications"
-                  description="Receive in-app alerts for validation activity and system events."
-                  isLast
-                  rightContent={
-                    <Switch
-                      value={pushNotifications}
-                      onValueChange={() =>
-                        confirmToggleOff(
-                          "Push Notifications",
-                          pushNotifications,
-                          setPushNotifications,
-                          "notification_push"
-                        )
-                      }
-                      trackColor={{ false: "#D9E2F0", true: "#BFD4FF" }}
-                      thumbColor={pushNotifications ? "#294880" : "#FFFFFF"}
-                    />
-                  }
-                />
-              </View>
-
-              <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                  <View style={styles.sectionHeaderText}>
-                    <Text style={styles.sectionTitle}>
-                      API and Model Settings
-                    </Text>
-                    <Text style={styles.sectionDescription}>
-                      Manage model version and system API endpoint settings.
-                    </Text>
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.secondaryButton}
-                    activeOpacity={0.85}
-                    onPress={() =>
-                      showMessage("Connection Test", "API connection test completed.")
-                    }
-                  >
-                    <Text style={styles.secondaryButtonText}>
-                      Test Connection
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.inputGrid}>
-                  <View style={styles.inputCard}>
-                    <Text style={styles.inputLabel}>Model Version</Text>
-                    <TextInput
-                      value={modelVersion}
-                      onChangeText={setModelVersion}
-                      style={styles.textInput}
-                      placeholder="CommuniShield-AI v4.3.01"
-                      placeholderTextColor="#5D6F92"
-                      onSubmitEditing={() =>
-                        saveSetting("ai_model_version", modelVersion)
-                      }
-                      returnKeyType="done"
-                    />
-                  </View>
-
-                  <View style={styles.inputCard}>
-                    <Text style={styles.inputLabel}>API Endpoint</Text>
-                    <TextInput
-                      value={apiEndpoint}
-                      onChangeText={setApiEndpoint}
-                      style={styles.textInput}
-                      placeholder="https://api.communishield.local/v1"
-                      placeholderTextColor="#5D6F92"
-                      onSubmitEditing={() =>
-                        saveSetting("ai_api_endpoint", apiEndpoint)
-                      }
-                      returnKeyType="done"
-                    />
-                  </View>
-                </View>
               </View>
 
             </View>
@@ -1325,18 +998,13 @@ function SAdmin_SettingsContent() {
                 </View>
 
                 <View style={styles.breakdownRow}>
-                  <Text style={styles.breakdownText}>AI Threshold Rules</Text>
-                  <Text style={styles.breakdownCount}>2</Text>
+                  <Text style={styles.breakdownText}>AI Credibility Analysis</Text>
+                  <Text style={styles.breakdownCount}>1</Text>
                 </View>
 
                 <View style={styles.breakdownRow}>
-                  <Text style={styles.breakdownText}>Map Preferences</Text>
-                  <Text style={styles.breakdownCount}>4</Text>
-                </View>
-
-                <View style={styles.breakdownRow}>
-                  <Text style={styles.breakdownText}>Notifications</Text>
-                  <Text style={styles.breakdownCount}>2</Text>
+                  <Text style={styles.breakdownText}>Sentiment Controls</Text>
+                  <Text style={styles.breakdownCount}>3</Text>
                 </View>
               </View>
 
@@ -1348,11 +1016,9 @@ function SAdmin_SettingsContent() {
                   <Text style={styles.notesText}>
                     • SuperAdmin own profile{"\n"}
                     • Change own password{"\n"}
-                    • Configure AI thresholds{"\n"}
-                    • Review incident categories{"\n"}
-                    • Change map settings{"\n"}
-                    • Notification preferences{"\n"}
-                    • API or model settings
+                    • Enable or disable AI scores and reviews{"\n"}
+                    • Choose sentiment providers{"\n"}
+                    • Set Cebuano handling
                   </Text>
 
                   <Text style={[styles.notesHeading, styles.notesHeadingSpacing]}>
@@ -1370,9 +1036,8 @@ function SAdmin_SettingsContent() {
 
                 <View style={styles.notesContent}>
                   <Text style={styles.notesText}>
-                    Password changes should be verified before saving. In the final
-                    backend version, the current password should be checked against
-                    the database before allowing updates.
+                    Use your current password to authorize a password change.
+                    Keep account credentials private.
                   </Text>
                 </View>
               </View>
@@ -1397,6 +1062,8 @@ function SAdmin_SettingsContent() {
 }
 
 const styles = StyleSheet.create({
+  saveState: { fontFamily: "PoppinsRegular", fontSize: 11, color: "#40516F", paddingTop: 3 },
+  saveError: { color: "#B93838" },
   mainWrapper: {
     flex: 1,
     backgroundColor: "#F5F8FC",

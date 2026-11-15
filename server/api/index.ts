@@ -10,11 +10,25 @@ import settingsRoutes from "../src/routes/settingsRoute.js";
 import aiRoutes from "../src/routes/aiRoute.js";
 import { errorHandler } from "../src/middlewares/errorHandler.js";
 import { commentSentimentJobs } from "../src/services/commentSentimentJobs.js";
+import { adminAnalysisJobs } from "../src/services/adminAnalysisJobs.js";
+import { analysisSnapshots } from "../src/services/analysisSnapshots.js";
 
 const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: "5mb" }));
+app.use((req, res, next) => {
+  if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && /^\/api\/(?:reports|ai|admin\/(?:posts|reports))\b/.test(req.path) && !req.path.startsWith("/api/ai/analysis-jobs")) {
+    res.on("finish", () => { if (res.statusCode < 400) analysisSnapshots.invalidate(); });
+  }
+  next();
+});
+
+app.get("/api/jobs/admin-analysis", async (req: Request, res: Response) => {
+  if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).json({ error: "Unauthorized" });
+  try { await adminAnalysisJobs.drain(1); return res.json({ ok: true }); }
+  catch (error) { console.error("Admin analysis worker failed:", error); return res.status(500).json({ error: "Worker failed" }); }
+});
 
 // Vercel Cron or an external scheduler calls this protected recovery endpoint.
 app.get("/api/jobs/comment-sentiment", async (req: Request, res: Response) => {

@@ -146,6 +146,28 @@ test("endpoint keeps active indicators separate from resolved historical submiss
   assert.equal((output.body.forecast as { stats: { reports: number } }).stats.reports, 160);
 });
 
+test("recent report counts use the last seven complete UTC days and the selected barangay", () => {
+  const extra = (id: string, time: number, changes: Partial<HistoryReport> = {}): HistoryReport => ({
+    ...history[159]!, id, created_at: new Date(time).toISOString(), ...changes,
+  });
+  const rows = [...history,
+    extra("boundary", end - 7 * DAY),
+    extra("too-old", end - 7 * DAY - 1),
+    extra("latest", end - 1, { status: "Resolved" }),
+    extra("today", end),
+    extra("fake", end - DAY, { status: "Marked Fake" }),
+    extra("other-barangay", end - DAY, { location: "Tulic, Argao", latitude: null, longitude: null }),
+  ];
+  const lamacan = buildRiskOutlook([...rows, rows[160]!], { now, barangay: "Lamacan" });
+  assert.deepEqual(lamacan.recentReports, { count: 9, startDate: "2026-10-15", endDate: "2026-10-21", windowDays: 7 });
+  assert.equal(buildRiskOutlook(rows, { now }).recentReports.count, 10);
+  assert.equal(buildRiskOutlook(rows, { now, barangay: "Tulic" }).recentReports.count, 1);
+  assert.equal(buildRiskOutlook(history, { now, barangay: "Tulic" }).recentReports.count, 0);
+  const original = buildRiskOutlook(history, { now, barangay: "Lamacan" });
+  assert.equal(original.recentReports.count, 7);
+  if (original.status === "available") assert.equal(original.expectedReports, 7);
+});
+
 test("current-only risk view returns all barangay evidence in one snapshot without loading forecast history", async t => {
   t.mock.method(Date, "now", () => now);
   t.mock.method(profileService, "getProfile", async () => ({ data: { role: "admin" }, error: null }));
@@ -161,7 +183,7 @@ test("current-only risk view returns all barangay evidence in one snapshot witho
   assert.equal(result.output.status, 200);
   assert.equal(dashboard.mock.callCount(), 1);
   assert.deepEqual(dashboard.mock.calls[0]!.arguments[0], {
-    statuses: ["Pending Review", "Under Verification"],
+    statuses: ["Pending Review", "Under Verification", "Verified"],
     from: new Date(now - 30 * DAY).toISOString(), to: new Date(now).toISOString(),
     mappedOnly: true, includeImages: false, mode: "evidence", allPages: true,
   });
@@ -209,7 +231,7 @@ test("current-risk filters run in the database before relation reads, and skip u
     return builder;
   }) as unknown as typeof supabaseAdmin.from);
   const filters = { from: new Date(now - 30 * DAY).toISOString(), to: new Date(now).toISOString(),
-    statuses: ["Pending Review", "Under Verification"], mappedOnly: true, includeImages: false };
+    statuses: ["Pending Review", "Under Verification", "Verified"], mappedOnly: true, includeImages: false };
   const risk = await reportService.getAdminDashboard(filters);
   assert.equal(risk.error, null);
   assert.equal(risk.data?.reports.length, 1);

@@ -278,7 +278,7 @@ export default function Admin_Analytics() {
       r.longitude != null &&
       Number.isFinite(Number(r.latitude)) &&
       Number.isFinite(Number(r.longitude)) &&
-      ["Pending Review", "Under Verification"].includes(r.status)
+      ["Pending Review", "Under Verification", "Verified"].includes(r.status)
   );
 
   const filteredMapReports =

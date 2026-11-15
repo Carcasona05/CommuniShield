@@ -56,8 +56,13 @@ test("unresponsive images time out with a placeholder instead of aborting export
 
 test("both admin PDF exports wait for images before opening the print dialog", () => {
   for (const path of ["(admin)/Admin_ReportManagement.jsx", "(sadmin)/SAdmin_ReportManagement.jsx"]) {
-    const source = readFileSync(new URL(`../../clients/app/${path}`, import.meta.url), "utf8");
-    assert.match(source, /await waitForReportImages\(printWindow.document\);\s*printWindow.focus\(\);\s*printWindow.print\(\)/);
+    assert.match(readFileSync(new URL(`../../clients/app/${path}`, import.meta.url), "utf8"), /<RecordManagementPage Layout=/);
+    const source = readFileSync(new URL("../../clients/components/Admin_compo/RecordManagementPage.jsx", import.meta.url), "utf8");
+    assert.match(source, /await printReportInFrame\(html\)/);
+    const printer = readFileSync(new URL("../../clients/utils/printReportInFrame.js", import.meta.url), "utf8");
+    assert.match(printer, /prepareImages = waitForReportImages/);
+    assert.ok(printer.indexOf("await prepareImages(printDocument)") < printer.indexOf("printWindow.print()"));
+    assert.doesNotMatch(source, /window.open/);
     assert.match(source, /try \{\s*const html = buildRecordDocumentHtml\(previewRecord\);/);
   }
 });

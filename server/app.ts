@@ -1,6 +1,7 @@
 import "dotenv/config";
 import app from "./api/index.js";
 import { commentSentimentJobs } from "./src/services/commentSentimentJobs.js";
+import { adminAnalysisJobs } from "./src/services/adminAnalysisJobs.js";
 
 const PORT = Number(process.env.PORT || 3000);
 
@@ -20,3 +21,14 @@ const recoverComments = async () => {
 };
 void recoverComments();
 setInterval(recoverComments, 15000).unref();
+
+let analysisWorkerBusy = false;
+const recoverAnalysis = async () => {
+    if (analysisWorkerBusy) return;
+    analysisWorkerBusy = true;
+    try { await Promise.all([adminAnalysisJobs.drain(1), adminAnalysisJobs.drain(1)]); }
+    catch (error) { console.error("Admin analysis worker failed:", error); }
+    finally { analysisWorkerBusy = false; }
+};
+void recoverAnalysis();
+setInterval(recoverAnalysis, 5000).unref();

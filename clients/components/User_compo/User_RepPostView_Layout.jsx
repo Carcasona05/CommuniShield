@@ -106,9 +106,10 @@ const User_RepPostView_Layout = ({ post }) => {
           color: PRIMARY,
         };
 
+      case "Verified":
       case "Resolved":
         return {
-          label: "Resolved",
+          label: currentStatus,
           icon: "checkmark-circle-outline",
           color: "#237A4B",
         };

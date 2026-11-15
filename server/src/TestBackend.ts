@@ -35,6 +35,8 @@ import { getAdminDashboard, validateReport } from "./controllers/reportControlle
 import { reportService } from "./services/reportService.js";
 import { supabaseAdmin } from "./config/supabaseAdmin.js";
 import { profileService } from "./services/authService.js";
+import { adminAnalysisJobs } from "./services/adminAnalysisJobs.js";
+import { backgroundTasks } from "./services/backgroundTasks.js";
 
 // Unit/integration tests use bundled artifacts, never the live model pointer.
 process.env.SENTIMENT_MODEL_REGISTRY_ENABLED = "false";
@@ -95,22 +97,10 @@ describe("Argao barangay and street hierarchy", () => {
 describe("archived reports", () => {
   test("archiving records its own audit action and stays off the admin broadcast", async (t) => {
     t.mock.method(profileService, "getProfile", async () => ({ data: { role: "admin", fullname: "Ada Admin" }, error: null }));
-    const statusUpdate = t.mock.method(reportService, "validateReport", async () => ({
-      data: {
-        id: "11111111-1111-4111-8111-111111111111",
-        ownerId: "owner-1",
-        location: "Lamacan, Argao",
-        previousStatus: "Pending Review",
-        previousVerified: true,
-        incidentType: "Theft",
-      },
-      error: null,
+    const statusUpdate = t.mock.method(adminAnalysisJobs, "saveStatus", async () => ({
+      id: "11111111-1111-4111-8111-111111111111", status: "Archived", is_verified: false, jobId: "queued-job",
     }));
-    const auditLogs: Parameters<typeof reportService.insertAuditLog>[0][] = [];
-    t.mock.method(reportService, "insertAuditLog", async (input: Parameters<typeof reportService.insertAuditLog>[0]) => {
-      auditLogs.push(input);
-      return { data: null, error: null };
-    });
+    const scheduled = t.mock.method(backgroundTasks, "schedule", () => Promise.resolve());
     const broadcast = t.mock.method(notificationService, "notifyAllAdmins", async () => ({ data: null, error: null }));
     const ownerNotice = t.mock.method(notificationService, "createNotification", async () => ({ data: null, error: null }));
 
@@ -123,18 +113,16 @@ describe("archived reports", () => {
     const res = {
       json(value: typeof body) { body = value; },
       status() { return this; },
+      setHeader() {},
     } as unknown as Response;
 
     await validateReport(req, res);
 
     assert.equal(statusUpdate.mock.callCount(), 1);
-    assert.deepEqual(statusUpdate.mock.calls[0]?.arguments[1], {
-      status: "Archived",
-      is_verified: false,
-    });
-    assert.equal(auditLogs[0]?.actionType, "Report Archived");
-    assert.equal(auditLogs[0]?.newValue, "Archived");
-    assert.equal(ownerNotice.mock.callCount(), 1);
+    assert.equal(statusUpdate.mock.calls[0]?.arguments[3], "Archived");
+    assert.equal(statusUpdate.mock.calls[0]?.arguments[4], false);
+    assert.equal(scheduled.mock.callCount(), 1);
+    assert.equal(ownerNotice.mock.callCount(), 0, "Notification delivery must not block the status response");
     assert.equal(broadcast.mock.callCount(), 0);
     assert.equal(body?.status, "Archived");
   });
@@ -749,7 +737,7 @@ describe("settingsController", () => {
     assert.deepEqual(validateSetting("ai_scoring_enabled", "true"), {
       value: "true",
     });
-    assert.deepEqual(validateSetting("notification_push", "false"), {
+    assert.deepEqual(validateSetting("sentiment_gemini_enabled", "false"), {
       value: "false",
     });
     assert.ok("error" in validateSetting("ai_scoring_enabled", "yes"));
@@ -768,12 +756,9 @@ describe("settingsController", () => {
     assert.ok("error" in validateSetting("sentiment_cebuano_mode", "transformer"));
   });
 
-  test("validateSetting enforces threshold bounds as integers", () => {
-    assert.deepEqual(validateSetting("ai_high_threshold", "85"), { value: "85" });
-    assert.deepEqual(validateSetting("ai_medium_threshold", "0"), { value: "0" });
-    assert.ok("error" in validateSetting("ai_high_threshold", "101"));
-    assert.ok("error" in validateSetting("ai_medium_threshold", "-1"));
-    assert.ok("error" in validateSetting("ai_high_threshold", "85.5"));
+  test("validateSetting rejects retired credibility thresholds", () => {
+    assert.ok("error" in validateSetting("ai_high_threshold", "85"));
+    assert.ok("error" in validateSetting("ai_medium_threshold", "60"));
   });
 
   test("validateSetting enforces temperature and timeout ranges", () => {
@@ -785,27 +770,19 @@ describe("settingsController", () => {
     assert.ok("error" in validateSetting("ai_timeout", "200000"));
   });
 
-  test("validateSetting enforces map zoom and center bounds", () => {
-    assert.deepEqual(validateSetting("map_default_zoom", "13"), { value: "13" });
-    assert.ok("error" in validateSetting("map_default_zoom", "0"));
-    assert.ok("error" in validateSetting("map_default_zoom", "21"));
-    assert.deepEqual(validateSetting("map_center", "Argao, Cebu"), {
-      value: "Argao, Cebu",
-    });
-    assert.ok("error" in validateSetting("map_center", ""));
-    assert.ok("error" in validateSetting("map_center", "x".repeat(201)));
+  test("validateSetting rejects unused map and notification controls", () => {
+    for (const key of ["map_default_zoom", "map_center", "map_auto_map_verified", "map_cluster_overlay", "map_heatmap_overlay", "notification_email", "notification_push"]) {
+      assert.ok("error" in validateSetting(key, "true"));
+    }
   });
 
-  test("validateSetting validates model names and API endpoints", () => {
+  test("validateSetting validates model names and rejects retired custom API endpoints", () => {
     assert.deepEqual(validateSetting("ai_model_name", "models/gemini-2.5-flash"), {
       value: "gemini-2.5-flash",
     });
     assert.ok("error" in validateSetting("ai_model_name", "gpt-4o"));
-    assert.deepEqual(validateSetting("ai_api_endpoint", ""), { value: "" });
-    assert.deepEqual(
-      validateSetting("ai_api_endpoint", "https://api.example.com/v1"),
-      { value: "https://api.example.com/v1" }
-    );
+    assert.ok("error" in validateSetting("ai_api_endpoint", ""));
+    assert.ok("error" in validateSetting("ai_api_endpoint", "https://api.example.com/v1"));
     assert.ok("error" in validateSetting("ai_api_endpoint", "not-a-url"));
     assert.ok("error" in validateSetting("ai_api_endpoint", "ftp://example.com"));
   });

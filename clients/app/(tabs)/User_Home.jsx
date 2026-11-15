@@ -41,6 +41,7 @@ const statusOptions = [
   "All Status",
   "Pending Review",
   "Under Verification",
+  "Verified",
   "Resolved",
   "Rejected",
 ];

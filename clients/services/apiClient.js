@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { sessionData } from "./sessionData";
 import { notifyProfileRequirement } from "./profileRequirementEvents";
+import { disabledSessionNotice } from "./disabledSessionNotice";
 
 const BASE_URL =  
   Platform.OS === "web"
@@ -29,7 +30,7 @@ export const clearDisabledReason = async () => {
 
 const apiClient = axios.create({
   //baseURL: BASE_URL,
-  baseURL: "http://10.188.30.14:3000/api",
+  baseURL: "http://192.168.1.36:3000/api",
   timeout: 180000,
   headers: {  
     "Content-Type": "application/json",
@@ -56,6 +57,9 @@ apiClient.interceptors.request.use(async (config) => {
   }
   const authorization = config.headers.Authorization;
   if (typeof authorization === "string" && authorization.startsWith("Bearer ")) {
+    // A queued page request must not re-adopt the disabled token after reset
+    // and clear the durable notice through sessionData.begin().
+    if (disabledSessionNotice.snapshot()) throw cancelled();
     const token = authorization.slice(7);
     const role = initialSession?.token === token ? initialSession.role : await AsyncStorage.getItem("user_role");
     if (sessionData.changing()) throw cancelled();

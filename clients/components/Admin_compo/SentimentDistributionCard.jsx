@@ -1,13 +1,34 @@
-import React from "react";
+import React, { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { sentimentDistribution } from "../../services/sentimentDistribution";
+import { DISTRIBUTION_PERIODS, philippineDay, sentimentDistribution } from "../../services/sentimentDistribution";
+import { BatchFilterDropdown } from "./AdminBatchFilters";
+import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
+import useAutoRefresh from "../../hooks/useAutoRefresh";
+import QueryErrorNotice from "../QueryErrorNotice";
 
-export default function SentimentDistributionCard({ summary }) {
-  const model = sentimentDistribution(summary);
+export default function SentimentDistributionCard() {
+  // State and requests belong to this card, never the overview/trend/training UI.
+  const [period, setPeriod] = useState("today");
+  const [day, setDay] = useState(philippineDay);
+  useAutoRefresh(() => setDay(philippineDay()), 60000);
+  const { data, loading, refreshing, errorMessage, reload } = useRetainedApiQuery({
+    endpoint: "/admin/sentiment-distribution", params: { period, day },
+    validate: value => value?.period === period && Number.isFinite(value?.summary?.sentimentTotal) && Array.isArray(value?.summary?.sentimentDistribution),
+  });
+  const model = sentimentDistribution(data?.summary);
   return <View style={s.card} testID="sentiment-distribution-card">
-    <View style={s.header}><View style={s.icon}><Ionicons name="bar-chart-outline" size={21} color="#294880" /></View>
-      <View style={s.flex}><Text style={s.title}>Sentiment distribution</Text><Text style={s.note}>Reports & comments combined</Text></View></View>
+    <View style={s.header}>
+      <View style={s.heading}><View style={s.icon}><Ionicons name="bar-chart-outline" size={21} color="#294880" /></View>
+        <View style={s.flex}><Text style={s.title}>Sentiment distribution</Text><Text style={s.note}>Reports & comments combined</Text></View></View>
+      <BatchFilterDropdown label="Distribution period" value={period} options={DISTRIBUTION_PERIODS} onChange={setPeriod}
+        testID="sentiment-distribution-period" menuTestID="sentiment-distribution-period-menu" width={160} style={s.periodFilter} menuStyle={s.periodMenu} compact hideLabel />
+    </View>
+    <QueryErrorNotice message={errorMessage || data?.snapshot?.error} onRetry={reload} refreshing={refreshing} hasData={Boolean(data)} />
+    {loading ? <View testID="sentiment-distribution-loading" accessibilityLabel="Loading sentiment distribution" style={{ gap: 8 }}>
+      <Text style={s.note}>Loading distribution…</Text>
+      {[1, 2, 3].map(row => <View key={row} style={[s.track, { height: 16, width: `${100 - row * 10}%` }]} />)}
+    </View> : data ? <>
     <View style={s.summary}><Text style={s.total}>{model.usable.toLocaleString()}</Text><Text style={s.summaryLabel}>usable sentiment results</Text></View>
     <Text style={s.note}>Percentages use only positive, neutral, negative{model.rows.some(row => row.key === "mixed") ? " and mixed" : ""} results. Unclear and no-data results are excluded.</Text>
     {!model.usable ? <Text style={s.empty}>No usable sentiment results yet.</Text> : null}
@@ -21,11 +42,15 @@ export default function SentimentDistributionCard({ summary }) {
       <Text style={s.note}>Separate from sentiment percentages. Unclear does not mean neutral.</Text>
       <View style={s.chips}>{model.coverage.map(item => <View key={item.label} style={s.chip}><Text style={s.chipLabel}>{item.label}</Text><Text style={s.chipCount}>{item.count.toLocaleString()}</Text></View>)}</View>
     </View>
+    </> : null}
   </View>;
 }
 const s = StyleSheet.create({
   card: { marginTop: 20, borderWidth: 1, borderColor: "#D5E0EF", borderRadius: 16, padding: 18, gap: 12, backgroundColor: "#FFFFFF" },
-  header: { flexDirection: "row", alignItems: "center", gap: 12 }, flex: { flex: 1, minWidth: 0 },
+  header: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12, zIndex: 10 }, flex: { flex: 1, minWidth: 0 },
+  heading: { flexDirection: "row", alignItems: "center", gap: 12, flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0 },
+  periodFilter: { marginLeft: "auto", maxWidth: "100%" },
+  periodMenu: { minWidth: 0, left: 0, right: 0, top: "100%", marginTop: 6 },
   icon: { width: 42, height: 42, borderRadius: 12, backgroundColor: "#EDF3FC", justifyContent: "center", alignItems: "center" },
   title: { fontFamily: "PoppinsSemiBold", fontSize: 16, color: "#203B66" },
   note: { fontFamily: "PoppinsRegular", fontSize: 11, lineHeight: 18, color: "#596B82" },

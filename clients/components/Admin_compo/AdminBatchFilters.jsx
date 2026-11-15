@@ -52,11 +52,13 @@ export function BatchFilterDropdown({
   style,
   testID,
   menuTestID,
+  menuStyle,
   placeholder,
   searchable = false,
   searchPlaceholder = "Search...",
   disabled = false,
   compact = false,
+  hideLabel = false,
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -83,7 +85,7 @@ export function BatchFilterDropdown({
 
   return (
     <View style={fieldStyle}>
-      <Text style={[styles.label, compact && styles.compactLabel]} numberOfLines={1}>{label}</Text>
+      {!hideLabel && <Text style={[styles.label, compact && styles.compactLabel]} numberOfLines={1}>{label}</Text>}
 
       <View style={styles.control}>
         <TouchableOpacity
@@ -106,7 +108,7 @@ export function BatchFilterDropdown({
             {Platform.OS === "web" && (
               <Pressable style={styles.webDismiss} onPress={close} />
             )}
-            <View testID={menuTestID} style={styles.menu}>
+            <View testID={menuTestID} style={[styles.menu, menuStyle]}>
               {searchable && (
                 <View style={styles.searchRow}>
                   <Ionicons name="search-outline" size={16} color="#5D6F92" />

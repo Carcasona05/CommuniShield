@@ -370,25 +370,10 @@ begin
       limit 1
       on conflict (key) do nothing;
 
-      insert into public.system_settings (key, value)
-      select 'ai_high_threshold', high_credibility_threshold::text
-      from public.app_settings
-      order by updated_at desc
-      limit 1
-      on conflict (key) do nothing;
-
-      insert into public.system_settings (key, value)
-      select 'ai_medium_threshold', medium_credibility_threshold::text
-      from public.app_settings
-      order by updated_at desc
-      limit 1
-      on conflict (key) do nothing;
     end if;
 
     insert into public.system_settings (key, value) values
       ('ai_scoring_enabled', 'true'),
-      ('ai_high_threshold', '85'),
-      ('ai_medium_threshold', '60'),
       ('sentiment_local_model_enabled', 'true'),
       ('sentiment_gemini_enabled', 'true'),
       ('sentiment_cebuano_mode', 'gemini')

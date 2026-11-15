@@ -28,7 +28,7 @@ import {
 import { authenticate, requireRole } from "../middlewares/authMiddleware.js";
 import { getHotspotClusters } from "../controllers/hotspotClusteringController.js";
 import { getRiskOutlook } from "../controllers/riskOutlookController.js";
-import { getAdminOverview, getAdminMapReports, getAdminReportDetails, getValidationGroups } from "../controllers/adminFetchController.js";
+import { getAdminOverview, getAdminMapReports, getAdminReportDetails, getValidationGroups, getAdminBrowsePage, getSentimentDistribution, getSentimentOverview } from "../controllers/adminFetchController.js";
 import { requireCompleteUserProfile } from "../controllers/profileCompletionController.js";
 import { getCredibilityAccess, requireCredibilityEditAccess, requireCredibilityWriteAccess } from "../controllers/credibilityController.js";
 
@@ -58,9 +58,12 @@ router.get("/admin/overview", authenticate, adminOnly, getAdminOverview);
 router.get("/admin/map-reports", authenticate, adminOnly, getAdminMapReports);
 router.get("/admin/report-details", authenticate, adminOnly, getAdminReportDetails);
 router.get("/admin/validation-groups", authenticate, adminOnly, getValidationGroups);
+router.get("/admin/browse", authenticate, adminOnly, getAdminBrowsePage);
 router.get("/admin/clusters", authenticate, adminOnly, getHotspotClusters);
 router.get("/admin/risk-outlook", authenticate, adminOnly, getRiskOutlook);
 router.get("/admin/analytics", authenticate, adminOnly, getAdminAnalytics);
+router.get("/admin/sentiment-distribution", authenticate, adminOnly, getSentimentDistribution);
+router.get("/admin/sentiment-overview", authenticate, adminOnly, getSentimentOverview);
 router.post("/admin/announcements", authenticate, adminOnly, createAdminAnnouncement);
 router.put("/admin/announcements/:id", authenticate, adminOnly, updateAdminAnnouncement);
 router.delete("/admin/announcements/:id", authenticate, adminOnly, deleteAdminAnnouncement);

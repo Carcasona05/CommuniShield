@@ -68,7 +68,7 @@ export function summarizeHotspotEvidence(input: HotspotEvidenceReport[], options
   };
   for (const report of reports) {
     const status = normalized(report.status);
-    if (report.is_verified === true || status === "resolved") verification.verified++;
+    if (report.is_verified === true || status === "verified" || status === "resolved") verification.verified++;
     else if (status === "pending review") verification.pendingReview++;
     else if (status === "under verification") verification.underVerification++;
     else verification.other++;

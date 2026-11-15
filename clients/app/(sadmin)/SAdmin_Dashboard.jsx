@@ -13,6 +13,9 @@ import SAdmin_Layout from "../../components/SAdmin_Compo/SAdmin_Layout";
 import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
 import QueryErrorNotice from "../../components/QueryErrorNotice";
 import { SAdminDashboardSkeleton } from "../../components/AdminSkeleton";
+import { dashboardAiStatus } from "../../services/dashboardAiStatus";
+
+const validSettings = data => !!data?.settings && typeof data.settings === "object" && !Array.isArray(data.settings);
 
 const validDashboard = (data) => ["total", "pending", "verified", "rejected"].every((key) => Number.isFinite(data?.summary?.[key])) &&
   ["activeAdmins", "admins", "superAdmins", "disabled", "logsToday"].every(key => Number.isFinite(data?.management?.[key])) && Array.isArray(data?.logs);
@@ -100,6 +103,7 @@ export default function SAdmin_Dashboard() {
     params: { dayStart: new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString(),
       dayEnd: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString() } });
   const { data, loading, refreshing, errorMessage, reload } = dashboardQuery;
+  const settingsQuery = useRetainedApiQuery({ endpoint: "/admin/settings", validate: validSettings });
   const logs = data?.logs || [];
 
   if (!fontsLoaded) {
@@ -226,28 +230,7 @@ export default function SAdmin_Dashboard() {
     };
   });
 
-  const aiSettings = [
-    {
-      label: "AI Scoring",
-      value: "Enabled",
-      status: "active",
-    },
-    {
-      label: "High Credibility Threshold",
-      value: "90%",
-      status: "normal",
-    },
-    {
-      label: "Medium Credibility Threshold",
-      value: "65%",
-      status: "normal",
-    },
-    {
-      label: "Model Version",
-      value: "CommuniShield-AI v1.0",
-      status: "normal",
-    },
-  ];
+  const aiSettings = dashboardAiStatus(settingsQuery.data?.settings, settingsQuery.loading);
 
   const reportBreakdown = [
     {
@@ -323,7 +306,7 @@ export default function SAdmin_Dashboard() {
 
                 <TouchableOpacity
                   style={styles.smallActionButton}
-                  onPress={() => router.push("/(admin)/Admin_Reports")}
+                  onPress={() => router.push("/(sadmin)/SAdmin_Validation")}
                   activeOpacity={0.8}
                 >
                   <Text style={styles.smallActionText}>View Reports</Text>
@@ -472,22 +455,23 @@ export default function SAdmin_Dashboard() {
             <View style={styles.panel}>
               <View style={styles.panelHeaderCompact}>
                 <View>
-                  <Text style={styles.panelTitle}>AI Configuration Status</Text>
+                  <Text style={styles.panelTitle}>AI &amp; Sentiment Status</Text>
                   <Text style={styles.panelSubtitle}>
-                    Current AI and model settings
+                    Saved configuration, not service health
                   </Text>
                 </View>
               </View>
 
+              <QueryErrorNotice message={settingsQuery.errorMessage ? "Could not refresh AI settings." : ""} onRetry={settingsQuery.reload} refreshing={settingsQuery.refreshing} hasData={Boolean(settingsQuery.data)} />
               <View style={styles.aiList}>
                 {aiSettings.map((item, index) => (
                   <View key={index} style={styles.aiItem}>
-                    <View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={styles.aiLabel}>{item.label}</Text>
-                      <Text style={styles.aiValue}>{item.value}</Text>
+                      {item.status === "version" && <Text style={styles.aiValue}>{item.value}</Text>}
                     </View>
 
-                    <View
+                    {item.status !== "version" && <View
                       style={[
                         styles.statusPill,
                         item.status === "active" && styles.activeStatusPill,
@@ -500,12 +484,16 @@ export default function SAdmin_Dashboard() {
                             styles.activeStatusPillText,
                         ]}
                       >
-                        {item.status === "active" ? "Active" : "Set"}
+                         {item.value}
                       </Text>
-                    </View>
+                    </View>}
                   </View>
                 ))}
               </View>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => router.push("/(sadmin)/SAdmin_Settings")} activeOpacity={0.85} accessibilityRole="button">
+                <Text style={styles.primaryButtonText}>Manage Settings</Text>
+                <Ionicons name="arrow-forward-outline" size={17} color="#FFFFFF" />
+              </TouchableOpacity>
             </View>
           </View>
         </View>

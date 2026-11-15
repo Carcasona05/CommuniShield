@@ -91,9 +91,10 @@ const ReportPost_Layout = ({
           color: PRIMARY,
         };
 
+      case "Verified":
       case "Resolved":
         return {
-          label: "Resolved",
+          label: currentStatus,
           icon: "checkmark-circle-outline",
           color: "#237A4B",
         };

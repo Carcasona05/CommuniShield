@@ -19,7 +19,8 @@ import {
   BatchFilterDropdown,
 } from "../../components/Admin_compo/AdminBatchFilters";
 import apiClient from "../../services/apiClient";
-import useRetainedApiQuery from "../../hooks/useRetainedApiQuery";
+import useViewMoreQuery from "../../hooks/useViewMoreQuery";
+import useAnalysisJobs from "../../hooks/useAnalysisJobs";
 import QueryErrorNotice from "../QueryErrorNotice";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
 import ToastProvider, { useToast } from "../../components/Toast";
@@ -55,7 +56,7 @@ const parseDateBoundary = (value, endOfDay = false) => {
 };
 const VALIDATION_VIEW_STATUSES = {
   pending: "Pending Review",
-  verified: "Resolved",
+  verified: "Verified",
   rejected: "Rejected",
   suspicious: "Marked Fake",
 };
@@ -84,10 +85,9 @@ function ValidationContent({ Layout }) {
   const [selectedCompiledGroup, setSelectedCompiledGroup] = useState(null);
   const [viewVisible, setViewVisible] = useState(false);
   const [validating, setValidating] = useState(false);
-  const [reanalyzing, setReanalyzing] = useState(false);
+  const analysisJobs = useAnalysisJobs();
   const [exporting, setExporting] = useState(false);
 
-  const [pageState, setPageState] = useState({ filterKey: "", page: 1 });
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
   const scrollRef = useRef(null);
@@ -114,18 +114,15 @@ function ValidationContent({ Layout }) {
     ...(viewParam ? { view: viewParam } : {}),
     ...(searchParams.openReport ? { focusReport: Array.isArray(searchParams.openReport) ? searchParams.openReport[0] : searchParams.openReport } : {}),
   };
-  const filterKey = JSON.stringify(queryFilters);
-  const page = pageState.filterKey === filterKey ? pageState.page : 1;
-  const setPage = next => setPageState({ filterKey, page: next });
-  const { data, loading, refreshing, errorMessage, reload: loadValidation } = useRetainedApiQuery({
-    endpoint: "/admin/validation-groups", params: { ...queryFilters, page, pageSize: PAGE_SIZE }, validate: validGroups,
+  const { data, loading, refreshing, loadingMore, hasMore, loadMore, errorMessage, reload: loadValidation } = useViewMoreQuery({
+    endpoint: "/admin/validation-groups", params: queryFilters, itemsKey: "groups", pageSize: PAGE_SIZE, validate: validGroups,
   });
   const groupedReports = data?.groups || [];
   const filteredReports = groupedReports;
   const visibleReports = groupedReports;
   const totalGroups = data?.totalGroups ?? 0;
 
-  const statusFilters = ["All", "Pending Review", "Under Verification", "Resolved", "Rejected"];
+  const statusFilters = ["All", "Pending Review", "Under Verification", "Verified", "Resolved", "Rejected"];
   const incidentTypeOptions = selectedCategory === "All"
     ? [...new Set(Object.values(INCIDENT_TYPES_BY_CATEGORY).flat())]
     : INCIDENT_TYPES_BY_CATEGORY[selectedCategory] || [];
@@ -275,11 +272,12 @@ function ValidationContent({ Layout }) {
   const compiledIncidents = data?.stats.compiledIncidents ?? "—";
   const pendingReports = data?.stats.pending ?? "—";
   const verifyingReports = data?.stats.verifying ?? "—";
+  const verifiedReports = data?.stats.verified ?? "—";
   const resolvedReports = data?.stats.resolved ?? "—";
   const rejectedReports = data?.stats.rejected ?? "—";
 
   const getStatusStyle = (status) => {
-    if (status === "Resolved") {
+    if (status === "Resolved" || status === "Verified") {
       return {
         icon: "checkmark-circle-outline",
         color: "#22A06B",
@@ -369,18 +367,26 @@ function ValidationContent({ Layout }) {
       const token = await AsyncStorage.getItem("access_token");
       if (!token) return;
 
-      await Promise.all(
+      const outcomes = await Promise.allSettled(
         targetIds.map((id) =>
           apiClient.post(
             `/reports/${id}/status`,
             {
               status: newStatus,
-              is_verified: newStatus === "Resolved",
+              is_verified: newStatus === "Verified" || newStatus === "Resolved",
             },
             { headers: { Authorization: `Bearer ${token}` } }
           )
         )
       );
+
+      const failed = outcomes.filter(outcome => outcome.status === "rejected");
+      if (failed.length) {
+        const saved = outcomes.length - failed.length;
+        if (saved) void loadValidation();
+        toast.error(`${saved}/${outcomes.length} status changes saved. ${failed[0].reason?.response?.data?.error || "The remaining reports could not be saved. Please retry."}`);
+        return;
+      }
 
       setViewVisible(false);
       setSelectedCompiledGroup(null);
@@ -403,6 +409,10 @@ function ValidationContent({ Layout }) {
     applyValidation(target, "Rejected");
   };
 
+  const handleConfirmVerified = (target) => {
+    applyValidation(target, "Verified");
+  };
+
   const handleMapAndVerify = (target) => {
     applyValidation(target, "Resolved");
   };
@@ -417,58 +427,17 @@ function ValidationContent({ Layout }) {
 
   const handleReanalyze = async (group) => {
     const targetReports = group?.reports || [];
-    if (!targetReports.length || reanalyzing) return;
-    setReanalyzing(true);
-
+    const ids = targetReports.map(report => report.id);
+    if (!ids.length || analysisJobs.submitting || analysisJobs.isActive(ids)) return;
     try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const calls = [];
-      for (const item of targetReports) {
-        calls.push(apiClient.post(`/ai/analyze/${item.id}`, {}, { headers }));
-        calls.push(
-          apiClient.post(
-            `/ai/sentiment/reanalyze/report/${item.id}`,
-            {},
-            { headers }
-          )
-        );
-      }
-
-      const results = await Promise.allSettled(calls);
-      const succeeded = results.filter(
-        (result) => result.status === "fulfilled" &&
-          Object.values({ ...result.value.data?.results, ...result.value.data?.commentResults })
-            .every(analysis => analysis.status === "succeeded")
-      ).length;
-
-      await loadValidation();
-
-      if (succeeded === 0) {
-        const failure = results.find(
-          (result) => result.status === "rejected"
-        );
-        toast.error(
-          failure?.reason?.response?.data?.error ||
-              "Could not complete reanalysis for all posts and comments."
-        );
-      } else if (succeeded < results.length) {
-        toast.success("AI re-analysis completed with partial results.");
-      } else {
-        toast.success(
-          `AI re-analysis completed for ${targetReports.length} post(s) and their comments.`
-        );
-      }
+      await analysisJobs.enqueue(ids);
+      toast.success("Re-analysis queued. You can continue working; results update when ready.");
     } catch (error) {
       toast.error(
         error?.response?.data?.error ||
           error?.message ||
           "Could not re-run AI analysis."
       );
-    } finally {
-      setReanalyzing(false);
     }
   };
 
@@ -498,6 +467,11 @@ function ValidationContent({ Layout }) {
           onTouchStart={stopScrollAnimation}
           scrollEventThrottle={16}
         >
+          <QueryErrorNotice message={analysisJobs.error} onRetry={analysisJobs.retry} hasData />
+          {analysisJobs.batches.slice(-3).map(batch => <Text key={batch.id} accessibilityLiveRegion="polite" style={{ color: batch.state === "failed" ? "#B93838" : "#294880", paddingVertical: 8 }}>
+            {batch.state === "queued" ? "Analysis queued" : batch.state === "running" ? "Analyzing posts and comments" : batch.state === "failed" ? "Analysis finished with failures — re-run the affected post to retry" : batch.state === "partial" ? "Analysis finished with unavailable/skipped results" : "Analysis complete"}
+            {Number.isFinite(batch.total) ? ` · ${batch.done}/${batch.total} tasks` : ""}
+          </Text>)}
           <View style={styles.statsRow}>
             <StatCard
               icon="documents-outline"
@@ -529,6 +503,14 @@ function ValidationContent({ Layout }) {
               value={verifyingReports}
               color={COMMUNISHIELD_BLUE}
               bg="#EAF2FF"
+            />
+
+            <StatCard
+              icon="checkmark-circle-outline"
+              title="Verified"
+              value={verifiedReports}
+              color="#16794B"
+              bg="#EAF8F1"
             />
 
             <StatCard
@@ -763,21 +745,17 @@ function ValidationContent({ Layout }) {
               })
             )}
 
-            {!!data && totalGroups > PAGE_SIZE && (
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 }}>
+            {!!data && hasMore && (
               <TouchableOpacity
                 style={styles.viewMoreBtn}
-                disabled={loading || data.page <= 1}
-                onPress={() => setPage(data.page - 1)}
+                disabled={loadingMore || refreshing}
+                onPress={loadMore}
+                accessibilityRole="button"
+                accessibilityLabel="View more reports"
                 activeOpacity={0.8}
               >
-                <Text style={styles.viewMoreText}>Previous</Text>
+                <Text style={styles.viewMoreText}>{loadingMore ? "Loading more…" : "View more"}</Text>
               </TouchableOpacity>
-              <Text>Page {data.page} of {Math.max(1, Math.ceil(totalGroups / PAGE_SIZE))}</Text>
-              <TouchableOpacity style={styles.viewMoreBtn} disabled={loading || !data.hasMore} onPress={() => setPage(data.page + 1)} activeOpacity={0.8}>
-                <Text style={styles.viewMoreText}>Next</Text>
-              </TouchableOpacity>
-              </View>
             )}
           </View>
         </ScrollView>
@@ -799,12 +777,14 @@ function ValidationContent({ Layout }) {
         compiledGroup={selectedCompiledGroup}
         onClose={closeReport}
         onVerify={handleVerify}
+        onConfirmVerified={handleConfirmVerified}
         onReject={handleReject}
         onMapAndVerify={handleMapAndVerify}
         onMarkAsFake={handleMarkAsFake}
         onArchiveReport={handleArchiveReport}
         onReanalyze={handleReanalyze}
-        reanalyzing={reanalyzing}
+        reanalyzing={analysisJobs.submitting || analysisJobs.isActive((selectedCompiledGroup?.reports || []).map(report => report.id))}
+        analysisJobs={analysisJobs.forReports((selectedCompiledGroup?.reports || []).map(report => report.id))}
         validating={validating}
     />
 

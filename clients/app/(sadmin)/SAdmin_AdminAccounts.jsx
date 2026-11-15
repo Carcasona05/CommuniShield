@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -49,7 +49,7 @@ function StatusBadge({ label }) {
   );
 }
 
-function AdminAccountRow({ admin, isLast, onEdit, onDelete, onToggleStatus }) {
+function AdminAccountRow({ admin, isLast, onEdit, onDelete, onToggleStatus, actionBusy }) {
   return (
     <View style={[styles.adminRow, !isLast && styles.adminRowBorder]}>
       <View style={styles.adminLeft}>
@@ -81,7 +81,8 @@ function AdminAccountRow({ admin, isLast, onEdit, onDelete, onToggleStatus }) {
         <View style={styles.actionRow}>
           <TouchableOpacity
             style={styles.smallButton}
-            onPress={() => onToggleStatus(admin.id, admin.email)}
+            onPress={() => onToggleStatus(admin)}
+            disabled={actionBusy}
             activeOpacity={0.8}
           >
             <Ionicons
@@ -99,6 +100,7 @@ function AdminAccountRow({ admin, isLast, onEdit, onDelete, onToggleStatus }) {
           <TouchableOpacity
             style={styles.iconButton}
             onPress={() => onEdit(admin)}
+            disabled={actionBusy}
             activeOpacity={0.8}
           >
             <Ionicons name="create-outline" size={17} color="#294880" />
@@ -106,7 +108,9 @@ function AdminAccountRow({ admin, isLast, onEdit, onDelete, onToggleStatus }) {
 
           <TouchableOpacity
             style={styles.deleteButton}
-            onPress={() => onDelete(admin.id, admin.email)}
+            onPress={() => onDelete(admin)}
+            disabled={actionBusy}
+            accessibilityLabel={`Delete ${admin.name || admin.email}`}
             activeOpacity={0.8}
           >
             <Ionicons name="trash-outline" size={17} color="#E45757" />
@@ -132,8 +136,10 @@ function SAdmin_AdminAccounts() {
   const [isAddAdminVisible, setIsAddAdminVisible] = useState(false);
   const [isEditRequestVisible, setIsEditRequestVisible] = useState(false);
   const [selectedAdmin, setSelectedAdmin] = useState(null);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [pendingDeleteId, setPendingDeleteId] = useState(null);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [confirmationVisible, setConfirmationVisible] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const actionBusyRef = useRef(false);
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -276,7 +282,7 @@ function SAdmin_AdminAccounts() {
   };
 
   const handleSaveEdit = async (updatedAdmin) => {
-    if ((updatedAdmin.email || "").toLowerCase() === currentAdminEmail) {
+    if ((selectedAdmin?.email || updatedAdmin.email || "").toLowerCase() === currentAdminEmail) {
       showMessage("Restricted", "You cannot edit your own account here. Use Settings instead.");
       return false;
     }
@@ -295,45 +301,61 @@ function SAdmin_AdminAccounts() {
     }
   };
 
-  const handleDeleteAdmin = (adminId, adminEmail) => {
-    if ((adminEmail || "").toLowerCase() === currentAdminEmail) {
+  const handleDeleteAdmin = (admin) => {
+    if (actionBusyRef.current) return;
+    if ((admin.email || "").toLowerCase() === currentAdminEmail) {
       showMessage("Restricted", "You cannot delete your own account.");
       return;
     }
 
-    setPendingDeleteId(adminId);
-    setShowDeleteModal(true);
+    setPendingAction({ ...admin, action: "Delete" });
+    setConfirmationVisible(true);
   };
 
-  const confirmDeleteAdmin = async () => {
-    if (!pendingDeleteId) return;
-
-    try {
-      const config = await getTokenHeaders();
-      await apiClient.delete(`/admin/accounts/${pendingDeleteId}`, config);
-      showMessage("Admin Deleted", "The admin account has been removed.");
-      fetchAccounts();
-    } catch (error) {
-      showMessage("Error", error.response?.data?.error || "Failed to delete admin");
-    } finally {
-      setShowDeleteModal(false);
-      setPendingDeleteId(null);
-    }
-  };
-
-  const handleToggleStatus = async (adminId, adminEmail) => {
-    if ((adminEmail || "").toLowerCase() === currentAdminEmail) {
+  const handleToggleStatus = (admin) => {
+    if (actionBusyRef.current) return;
+    if ((admin.email || "").toLowerCase() === currentAdminEmail) {
       showMessage("Restricted", "You cannot disable or change your own account status.");
       return;
     }
 
+    setPendingAction({ ...admin, action: admin.status === "Active" ? "Disable" : "Activate",
+      nextStatus: admin.status === "Active" ? "Disabled" : "Active" });
+    setConfirmationVisible(true);
+  };
+
+  const closeConfirmation = () => {
+    // Preserve the account content throughout the native modal's fade-out.
+    if (!actionBusyRef.current) setConfirmationVisible(false);
+  };
+
+  const confirmAccountAction = async () => {
+    if (!confirmationVisible || !pendingAction || actionBusyRef.current) return;
+    const target = pendingAction;
+    actionBusyRef.current = true;
+    setActionBusy(true);
     try {
       const config = await getTokenHeaders();
-      const res = await apiClient.patch(`/admin/accounts/${adminId}/status`, {}, config);
-      showMessage("Status Updated", `Account is now ${res.data?.status || "updated"}.`);
-      fetchAccounts();
+      let updated;
+      if (target.action === "Delete") {
+        await apiClient.delete(`/admin/accounts/${target.id}`, config);
+        updated = adminAccounts.filter(admin => admin.id !== target.id);
+        showMessage("Admin Deleted", "The admin account has been removed.");
+      } else {
+        const res = await apiClient.patch(`/admin/accounts/${target.id}/status`, { status: target.nextStatus }, config);
+        const status = res.data?.status || target.nextStatus;
+        updated = adminAccounts.map(admin => admin.id === target.id ? { ...admin, status } : admin);
+        showMessage("Status Updated", `Account is now ${status}.`);
+      }
+      setAdminAccounts(updated);
+      setCache("api:/admin/accounts", { accounts: updated });
+      setConfirmationVisible(false);
+      void fetchAccounts();
     } catch (error) {
-      showMessage("Error", error.response?.data?.error || "Failed to toggle status");
+      showMessage("Error", error.response?.data?.error || `Failed to ${target.action.toLowerCase()} admin account.`);
+    } finally {
+      actionBusyRef.current = false;
+      setActionBusy(false);
     }
   };
 
@@ -449,6 +471,7 @@ function SAdmin_AdminAccounts() {
                   onEdit={handleOpenEdit}
                   onDelete={handleDeleteAdmin}
                   onToggleStatus={handleToggleStatus}
+                  actionBusy={actionBusy}
                 />
               ))
             )}
@@ -472,41 +495,56 @@ function SAdmin_AdminAccounts() {
         />
 
         <Modal
-          visible={showDeleteModal}
+          visible={confirmationVisible}
           transparent
           animationType="fade"
-          onRequestClose={() => setShowDeleteModal(false)}
+          onRequestClose={closeConfirmation}
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
-              <View style={styles.modalIconWrap}>
-                <Ionicons name="trash-outline" size={28} color="#DC2626" />
+              <View style={[styles.modalIconWrap, { backgroundColor: pendingAction?.action === "Delete" ? "#FEF2F2" : pendingAction?.action === "Activate" ? "#ECFDF3" : "#EEF4FF" }]}>
+                <Ionicons name={pendingAction?.action === "Delete" ? "trash-outline" : pendingAction?.action === "Disable" ? "pause-circle-outline" : "checkmark-circle-outline"} size={28} color={pendingAction?.action === "Delete" ? "#DC2626" : pendingAction?.action === "Activate" ? "#16794B" : "#294880"} />
               </View>
 
-              <Text style={styles.modalTitle}>Delete Admin Account</Text>
+              <Text style={styles.modalTitle}>{pendingAction?.action} Admin Account</Text>
 
-              <Text style={styles.modalSubtitle}>
-                Are you sure you want to delete this admin account? This action cannot be undone.
-              </Text>
+              <Text style={styles.confirmPrompt}>Please confirm the account below.</Text>
+              <View style={styles.confirmAccount}>
+                <View style={styles.confirmAvatar}><Text style={styles.confirmInitial}>{(pendingAction?.name || pendingAction?.email || "A").trim().charAt(0).toUpperCase()}</Text></View>
+                <View style={styles.confirmIdentity}>
+                  <Text style={styles.confirmName}>{pendingAction?.name || pendingAction?.email || "Admin account"}</Text>
+                  <Text style={styles.confirmEmail} selectable>{pendingAction?.email}</Text>
+                  <Text style={styles.confirmRole}>{pendingAction?.role === "super_admin" ? "Super Admin" : "Administrator"}{pendingAction?.department ? ` · ${pendingAction.department}` : ""}</Text>
+                  <View style={styles.confirmStatus}><StatusBadge label={pendingAction?.status || "Unknown"} /></View>
+                </View>
+              </View>
+              <View style={[styles.confirmImpact, pendingAction?.action === "Delete" && styles.confirmDanger]}>
+                <Ionicons name={pendingAction?.action === "Delete" ? "warning-outline" : "information-circle-outline"} size={20} color={pendingAction?.action === "Delete" ? "#B91C1C" : "#294880"} />
+                <Text style={[styles.confirmImpactText, pendingAction?.action === "Delete" && { color: "#991B1B" }]}>{pendingAction?.action === "Delete" ? "This permanently removes the account. This action cannot be undone." : pendingAction?.action === "Disable" ? "Admin access will be blocked until this account is activated again." : "This account will regain access to the admin portal."}</Text>
+              </View>
 
               <View style={styles.modalButtonRow}>
                 <TouchableOpacity
-                  style={styles.modalCancelButton}
-                  onPress={() => {
-                    setShowDeleteModal(false);
-                    setPendingDeleteId(null);
-                  }}
+                  style={[styles.modalCancelButton, actionBusy && styles.actionBusyButton]}
+                  onPress={closeConfirmation}
+                  disabled={actionBusy}
                   activeOpacity={0.85}
                 >
                   <Text style={styles.modalCancelText}>Cancel</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.modalConfirmButton}
-                  onPress={confirmDeleteAdmin}
+                  style={[styles.modalConfirmButton,
+                    pendingAction?.action === "Activate" && styles.activateConfirmButton,
+                    pendingAction?.action === "Disable" && styles.disableConfirmButton,
+                    actionBusy && styles.actionBusyButton]}
+                  onPress={confirmAccountAction}
+                  disabled={actionBusy}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Confirm ${pendingAction?.action || "account action"}`}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.modalConfirmText}>Delete</Text>
+                  <Text style={styles.modalConfirmText}>{actionBusy ? "Processing…" : pendingAction?.action}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -518,6 +556,21 @@ function SAdmin_AdminAccounts() {
 }
 
 const styles = StyleSheet.create({
+  confirmPrompt: { fontFamily: "PoppinsRegular", fontSize: 13, color: "#5D6F92", textAlign: "center", marginBottom: 18 },
+  confirmAccount: { width: "100%", flexDirection: "row", alignItems: "flex-start", gap: 13, padding: 16, borderRadius: 14, backgroundColor: "#F7F9FD", borderWidth: 1, borderColor: "#DCE5F2", marginBottom: 16 },
+  confirmAvatar: { width: 46, height: 46, borderRadius: 14, backgroundColor: "#E4EDFC", alignItems: "center", justifyContent: "center" },
+  confirmInitial: { fontFamily: "PoppinsSemiBold", fontSize: 22, color: "#294880" },
+  confirmIdentity: { flex: 1, minWidth: 0 },
+  confirmName: { fontFamily: "PoppinsSemiBold", fontSize: 16, color: "#203456" },
+  confirmEmail: { fontFamily: "PoppinsRegular", fontSize: 12, lineHeight: 20, color: "#405677" },
+  confirmRole: { fontFamily: "PoppinsRegular", fontSize: 11, color: "#64748B", marginTop: 4 },
+  confirmStatus: { alignSelf: "flex-start", marginTop: 8 },
+  confirmImpact: { width: "100%", flexDirection: "row", gap: 9, padding: 13, borderRadius: 12, backgroundColor: "#EEF4FF", marginBottom: 20 },
+  confirmDanger: { backgroundColor: "#FEF2F2" },
+  confirmImpactText: { flex: 1, fontFamily: "PoppinsRegular", fontSize: 12, lineHeight: 19, color: "#405677" },
+  activateConfirmButton: { backgroundColor: "#16794B" },
+  disableConfirmButton: { backgroundColor: "#294880" },
+  actionBusyButton: { opacity: 0.6 },
   mainWrapper: {
     flex: 1,
     backgroundColor: "#F5F8FC",

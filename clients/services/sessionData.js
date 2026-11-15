@@ -5,8 +5,8 @@ const PAGE_PATHS = new Set([
   "/profile", "/profile/notification-preferences", "/terms/status",
   "/reports", "/reports/mine", "/admin/posts", "/incidents/options",
   "/notifications", "/notifications/login-activity", "/facilities/nearby",
-  "/admin/overview", "/admin/dashboard", "/admin/analytics", "/admin/logs", "/admin/notifications",
-  "/admin/map-reports", "/admin/report-details", "/admin/validation-groups",
+  "/admin/overview", "/admin/dashboard", "/admin/analytics", "/admin/sentiment-distribution", "/admin/sentiment-overview", "/admin/logs", "/admin/notifications",
+  "/admin/map-reports", "/admin/report-details", "/admin/validation-groups", "/admin/browse",
   "/admin/accounts", "/admin/settings", "/admin/announcements", "/admin/blotters",
   "/admin/clusters", "/admin/risk-outlook", "/sentiment/datasets",
   "/sentiment/training", "/sentiment/supporting-models",
@@ -20,17 +20,20 @@ export const PAGE_RETAIN_MS = 5 * 60 * 1000;
 // Invalidate data dependencies, not every page, after a known write. Unknown
 // mutations deliberately retain the conservative full-invalidation fallback.
 export function mutationInvalidationPaths(path) {
+  // Enqueueing does not change analysis results. Completion explicitly invalidates
+  // affected read models; do not blank charts or reload threads at queue time.
+  if (path === "/ai/analysis-jobs") return [];
   if (path === "/sentiment/datasets/preview") return [];
   if (/^\/sentiment(?:\/|$)/.test(path)) return ["/sentiment/datasets", "/sentiment/training", "/sentiment/supporting-models"];
   if (/^\/profile(?:\/|$)/.test(path)) return ["/profile", "/profile/notification-preferences"];
   if (/^\/terms(?:\/|$)/.test(path)) return ["/terms/status"];
   if (/^\/notifications(?:\/|$)/.test(path)) return ["/notifications", "/notifications/login-activity"];
   if (/^\/admin\/notifications(?:\/|$)/.test(path)) return ["/admin/notifications"];
-  if (/^\/admin\/accounts(?:\/|$)/.test(path)) return ["/admin/accounts", "/admin/overview", "/admin/logs"];
+  if (/^\/admin\/accounts(?:\/|$)/.test(path)) return ["/admin/accounts", "/admin/overview", "/admin/logs", "/admin/browse"];
   if (/^\/(?:reports|admin\/(?:reports|posts|announcements)|ai)(?:\/|$)/.test(path)) return [
     "/reports", "/reports/mine", "/admin/posts", "/admin/dashboard", "/admin/overview", "/admin/logs",
-    "/admin/analytics", "/admin/announcements", "/admin/clusters", "/admin/risk-outlook",
-    "/admin/map-reports", "/admin/report-details", "/admin/validation-groups",
+    "/admin/analytics", "/admin/sentiment-distribution", "/admin/sentiment-overview", "/admin/announcements", "/admin/clusters", "/admin/risk-outlook",
+    "/admin/map-reports", "/admin/report-details", "/admin/validation-groups", "/admin/browse",
     "/notifications", "/admin/notifications",
   ];
   return null;

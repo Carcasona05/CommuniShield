@@ -8,7 +8,7 @@ export async function loadAdminOverview(options: { superAdmin: boolean; dayStart
   const [recent, total, pending, verified, rejected, hotspots] = await Promise.all([
     reportService.getAdminDashboard({ limit: 12, mode: "list" }),
     countReports(), countReports().eq("status", "Pending Review"),
-    countReports().or("is_verified.eq.true,status.eq.Resolved"), countReports().eq("status", "Rejected"),
+    countReports().eq("status", "Verified"), countReports().eq("status", "Rejected"),
     supabaseAdmin.from("reports").select("id, report_credibility_analysis!inner(severity)", { count: "exact", head: true })
       .not("status", "in", "(Rejected,Archived)").in("report_credibility_analysis.severity", ["High", "Critical"]),
   ]);

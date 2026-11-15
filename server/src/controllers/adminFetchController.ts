@@ -3,6 +3,9 @@ import { profileService } from "../services/authService.js";
 import { reportService } from "../services/reportService.js";
 import { loadAdminOverview, mapReportPayload } from "../services/adminFetchService.js";
 import { loadValidationGroups } from "../services/validationGroupsService.js";
+import { decodeBrowseCursor, loadAdminBrowsePage } from "../services/adminBrowseService.js";
+import { distributionRange, loadSentimentDistribution, type DistributionPeriod } from "../services/sentimentDistributionService.js";
+import { analysisSnapshots } from "../services/analysisSnapshots.js";
 
 type AuthRequest = Request & { user?: { id: string } };
 async function adminProfile(req: AuthRequest, res: Response) {
@@ -13,6 +16,53 @@ async function adminProfile(req: AuthRequest, res: Response) {
   return profile;
 }
 const timing = (res: Response, start: number) => res.setHeader("Server-Timing", `admin-data;dur=${Date.now() - start}`);
+
+export async function getSentimentDistribution(req: AuthRequest, res: Response) {
+  const start = Date.now();
+  try {
+    const profile = await adminProfile(req, res);
+    if (!profile) return;
+    const period = req.query.period === undefined ? "today" : req.query.period;
+    // Accept the current rolling window and cached clients' calendar-month value.
+    if (typeof period !== "string" || !["today", "7d", "30d", "month", "all"].includes(period)) return res.status(400).json({ error: "Invalid sentiment distribution period" });
+    const cached = await analysisSnapshots.read(JSON.stringify([req.user!.id, profile.role, "sentiment-series-v2", period, distributionRange("today").day]),
+      () => loadSentimentDistribution(period as DistributionPeriod));
+    timing(res, start);
+    return res.json({ ...cached.value, snapshot: cached.snapshot });
+  } catch { return res.status(503).json({ error: "Sentiment distribution unavailable. Please retry." }); }
+}
+
+// Separate frontend queries/filters, shared authoritative subject aggregation.
+export const getSentimentOverview = getSentimentDistribution;
+
+export async function getAdminBrowsePage(req: AuthRequest, res: Response) {
+  const start = Date.now();
+  try {
+    if (!await adminProfile(req, res)) return;
+    const keys = ["view", "page", "pageSize", "from", "to", "status", "kind", "actorRole", "focusReport", "exportAll", "cursor", "sort"];
+    if (keys.some(key => req.query[key] !== undefined && typeof req.query[key] !== "string")) return res.status(400).json({ error: "Invalid browsing filters" });
+    const value = (key: string) => typeof req.query[key] === "string" ? req.query[key].trim() : "";
+    const view = value("view"), page = Number(value("page") || 1), pageSize = Number(value("pageSize") || 10);
+    if (!["records", "logs", "archived"].includes(view) || !Number.isSafeInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50 ||
+      ["from", "to"].some(key => value(key) && !Number.isFinite(Date.parse(value(key)))) ||
+      (value("from") && value("to") && Date.parse(value("from")) > Date.parse(value("to"))) ||
+      (value("kind") && !["Incident", "Announcement", "Activity", "Blotter"].includes(value("kind"))) ||
+      (value("actorRole") && !["user", "admin", "super_admin", "system"].includes(value("actorRole"))) ||
+      (value("focusReport") && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value("focusReport"))) ||
+      (value("exportAll") && value("exportAll") !== "1") ||
+      (value("sort") && value("sort") !== "status-priority-v1")) return res.status(400).json({ error: "Invalid pagination or record filters" });
+    const fields: Record<string, string> = {};
+    for (const key of ["from", "to", "status", "kind", "actorRole", "focusReport"]) if (value(key)) fields[key] = value(key);
+    let cursor;
+    try { if (value("cursor")) cursor = decodeBrowseCursor(value("cursor")); } catch { return res.status(400).json({ error: "Invalid record cursor" }); }
+    const data = await loadAdminBrowsePage({ ...fields, ...(cursor ? { cursor } : {}), view: view as "records" | "logs" | "archived", page, pageSize, exportAll: value("exportAll") === "1" });
+    timing(res, start);
+    return res.json(data);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Records unavailable. Please retry.";
+    return res.status(503).json({ error: /migration|Export exceeds/.test(message) ? message : "Records unavailable. Please retry." });
+  }
+}
 
 export async function getAdminOverview(req: AuthRequest, res: Response) {
   const start = Date.now();

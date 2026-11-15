@@ -111,7 +111,7 @@ export function buildRiskOutlook(rows: HistoryReport[], options: { now: number; 
   for (const row of rows) {
     if (seen.has(row.id)) { excluded.duplicateIds++; continue; }
     seen.add(row.id);
-    if (!["pending review", "under verification", "resolved"].includes(String(row.status || "").trim().toLowerCase())) { excluded.status++; continue; }
+    if (!["pending review", "under verification", "verified", "resolved"].includes(String(row.status || "").trim().toLowerCase())) { excluded.status++; continue; }
     const time = Date.parse(row.created_at || "");
     if (!Number.isFinite(time) || time < cutoff || time >= end) { excluded.date++; continue; }
     const hasAnyCoordinate = row.latitude != null || row.longitude != null;
@@ -129,6 +129,10 @@ export function buildRiskOutlook(rows: HistoryReport[], options: { now: number; 
     ...forecast, dataMode: "synthetic", asOf: new Date(options.now).toISOString(),
     scope: selectedBarangay || "All Barangays", historyStartDate: dates.length ? isoDate(first) : null,
     historyEndDate: isoDate(end - DAY), excluded,
+    recentReports: {
+      count: dates.filter(time => time >= end - 7 * DAY).length,
+      startDate: isoDate(end - 7 * DAY), endDate: isoDate(end - DAY), windowDays: 7,
+    },
     targetDefinition: "Submitted report counts for the next seven full UTC days, starting tomorrow; not incident probability or verified crime counts.",
     assumption: "No stored report on a day is treated as zero submissions, not proof of no incidents. History length starts at the first eligible report, not a verified monitoring start date. Resolved reports remain in history; unverified submissions are included.",
     limitation: "Synthetic prototype only. No real-world prediction accuracy, crime-risk probability or policing effectiveness has been established. Sentiment does not change forecast values.",

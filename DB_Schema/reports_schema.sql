@@ -69,7 +69,7 @@ create table if not exists public.reports (
     check (display_name_type in ('Fullname', 'Username')),
   details text not null default '',
   status text not null default 'Pending Review'
-    check (status in ('Pending Review', 'Under Verification', 'Resolved', 'Rejected', 'Archived', 'Marked Fake')),
+    check (status in ('Pending Review', 'Under Verification', 'Verified', 'Resolved', 'Rejected', 'Archived', 'Marked Fake')),
   is_verified boolean not null default false,
   role text not null default 'user'
     check (role in ('user', 'admin', 'super_admin')),

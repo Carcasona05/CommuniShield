@@ -11,7 +11,7 @@ test("report statuses share one normalization, including fake and explicit pendi
     assert.equal(normalizeReportStatus(status, true), status);
   }
   assert.equal(normalizeReportStatus("fake"), "Marked Fake");
-  assert.equal(normalizeReportStatus("Verified"), "Resolved");
+  assert.equal(normalizeReportStatus("Verified"), "Verified");
   assert.equal(normalizeReportStatus("not verified"), "Pending Review");
   for (const file of ["components/ReportPost_Layout.jsx", "components/User_compo/MyUser_RepPost_Layout.jsx", "components/User_compo/User_RepPostView_Layout.jsx", "components/User_compo/MyUser_RepPostView_Layout.jsx"]) {
     assert.match(read(file), /return normalizeReportStatus\(/);

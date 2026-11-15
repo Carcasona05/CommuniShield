@@ -275,18 +275,8 @@ on conflict (name) do nothing;
 
 -- 10) system settings (idempotent)
 insert into public.system_settings (key, value) values
-  ('map_auto_map_verified', 'true'),
-  ('map_cluster_overlay', 'true'),
-  ('map_heatmap_overlay', 'true'),
-  ('map_default_zoom', '13'),
-  ('map_center', 'Argao, Cebu'),
-  ('notification_email', 'true'),
-  ('notification_push', 'false'),
   ('ai_model_version', 'CommuniShield-AI v1.0'),
-  ('ai_api_endpoint', ''),
   ('ai_scoring_enabled', 'true'),
-  ('ai_high_threshold', '85'),
-  ('ai_medium_threshold', '60'),
   ('sentiment_local_model_enabled', 'true'),
   ('sentiment_gemini_enabled', 'true'),
   ('sentiment_cebuano_mode', 'gemini')

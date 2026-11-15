@@ -92,10 +92,10 @@ columns are stored.
 
 ### 3.3 `system_settings`
 
-Key/value store for the SAdmin Settings page (map preferences, notification
-preferences, AI model/API metadata). A key/value table keeps this extensible
-and avoids a wide settings table. AI credibility toggle + thresholds stay in
-the existing typed `app_settings` table.
+Key/value store for AI model metadata, the credibility-analysis switch and
+sentiment provider/routing controls. Unused map, threshold and global email/push
+settings have been retired. Account settings and per-user notification
+preferences are managed separately.
 
 | Column     | Type        | Notes                                     |
 | ---------- | ----------- | ----------------------------------------- |
@@ -103,10 +103,10 @@ the existing typed `app_settings` table.
 | `value`    | `text`      | Setting value (stored as text)            |
 | `updated_at` | `timestamptz` | Auto-refreshed on update              |
 
-Seeded keys: `map_auto_map_verified`, `map_cluster_overlay`,
-`map_heatmap_overlay`, `map_default_zoom`, `map_center`,
-`notification_email`, `notification_push`, `ai_model_version`,
-`ai_api_endpoint`.
+Active controls: `ai_scoring_enabled`, `sentiment_local_model_enabled`,
+`sentiment_gemini_enabled`, `sentiment_cebuano_mode`.
+Model configuration and `ai_model_version` metadata remain available internally.
+The AI API endpoint is backend-controlled, not an editable database setting.
 
 ### 3.4 `admin_reports` + `admin_report_images` (optional)
 

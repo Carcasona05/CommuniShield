@@ -12,6 +12,7 @@ import { previewDataset, submitDataset, listDatasets, getDataset, editDatasetSam
 import { getSentimentTraining, manageSentimentTraining } from "../controllers/sentimentTrainingController.js";
 import { listSupportingModels, manageSupportingModel, previewSupportingModelDeletion } from "../controllers/supportingModelController.js";
 import { testSentiment, sentimentTestStatus } from "../controllers/sentimentTestController.js";
+import { enqueueAdminAnalysis, getAdminAnalysisProgress, getActiveAdminAnalysis } from "../controllers/adminAnalysisController.js";
 
 const router = express.Router();
 
@@ -38,6 +39,9 @@ router.post("/sentiment/datasets/:id/review", authenticate, adminOnly, reviewDat
 router.get("/sentiment/datasets/:id/export", authenticate, superAdminOnly, exportDataset);
 
 router.get("/ai/status", authenticate, adminOnly, getAIStatus);
+router.post("/ai/analysis-jobs", authenticate, adminOnly, enqueueAdminAnalysis);
+router.get("/ai/analysis-jobs/active", authenticate, adminOnly, getActiveAdminAnalysis);
+router.get("/ai/analysis-jobs/:id", authenticate, adminOnly, getAdminAnalysisProgress);
 router.post("/ai/analyze/:id", authenticate, adminOnly, analyzeReport);
 router.post("/ai/batch-analyze", authenticate, adminOnly, batchAnalyzeReports);
 router.put("/ai/toggle", authenticate, superAdminOnly, toggleAI);

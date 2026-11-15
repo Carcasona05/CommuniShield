@@ -14,6 +14,7 @@ import { ARGAO_BARANGAYS as ARGAO_BARANGAY_DATA } from "../../constants/argaoMap
 import { isActiveRiskReport } from "../../services/riskZones";
 import QueryErrorNotice from "../../components/QueryErrorNotice";
 import useAdminReportDetails from "../../hooks/useAdminReportDetails";
+import RiskForecastPanel from "../../components/Admin_compo/RiskForecastPanel";
 
 const ARGAO_BARANGAYS = [
   "All Barangays",
@@ -158,8 +159,8 @@ export default function Admin_Risk_Prediction() {
         style={{ flex: 1, scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         
-        {!!checkedAt && <Text style={styles.muted} testID="risk-refresh-status">{refreshing ? "Checking for updates… · " : ""}{errorMessage ? "Refresh failed; current indicators show previous results · " : ""}Last checked {new Date(checkedAt).toLocaleTimeString()}</Text>}
-        <QueryErrorNotice message={errorMessage} onRetry={reload} refreshing={refreshing} hasData={Boolean(outlook)} />
+        {!!checkedAt && <Text style={styles.muted} testID="risk-refresh-status">{refreshing || outlook?.snapshot?.refreshing ? "Refreshing in background · " : ""}{errorMessage || outlook?.snapshot?.error ? "Refresh failed; current indicators show previous results · " : ""}Updated {new Date(outlook?.snapshot?.updatedAt || checkedAt).toLocaleString()}</Text>}
+        <QueryErrorNotice message={errorMessage || outlook?.snapshot?.error} onRetry={reload} refreshing={refreshing} hasData={Boolean(outlook)} />
 
         {/* Current report map and evidence. */}
         <View style={styles.splitMainRow}>
@@ -205,6 +206,8 @@ export default function Admin_Risk_Prediction() {
             </View>
 
             
+
+            <RiskForecastPanel scope={selectedBarangay} />
 
             <View style={styles.mapFrame}>
               <AdminHeatMap loading={loading} reports={currentMapReports} focusTarget={mapFocusTarget} resetView={selectedBarangay === "All Barangays"} onReportSelect={handleMarkerSelect} />
@@ -360,10 +363,13 @@ export default function Admin_Risk_Prediction() {
 
         {/* Current sentiment, verification and severity evidence for the selected scope. */}
         <View style={styles.bottomSection} testID="current-sentiment-context">
-          <View style={styles.boxHeader}>
+          <View style={[styles.boxHeader, styles.contextHeader]}>
             <Ionicons name="chatbubbles-outline" size={18} color="#294880" />
-            <Text style={styles.boxHeaderTitle}>Current sentiment & verification context · {selectedBarangay}</Text>
-            {!!checkedAt && <Text style={styles.zoneLimit}>Last 30 days</Text>}
+            <View style={styles.contextHeading}>
+              <Text style={styles.boxHeaderTitle}>Sentiment & verification</Text>
+              <Text style={styles.contextScope}>{selectedBarangay}</Text>
+            </View>
+            <Text style={styles.zoneLimit}>Last 30 days</Text>
           </View>
 
           <View style={styles.contextRow}>
@@ -373,8 +379,8 @@ export default function Admin_Risk_Prediction() {
                   <Ionicons name="pulse-outline" size={16} color="#294880" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.contextCardTitle}>Sentiment evidence</Text>
-                  <Text style={styles.contextCardSubtitle}>Successful multilingual analyses only</Text>
+                  <Text style={styles.contextCardTitle}>Sentiment</Text>
+                  <Text style={styles.contextCardSubtitle}>Tone of reports & comments</Text>
                 </View>
               </View>
               <SentimentEvidenceChart
@@ -390,7 +396,7 @@ export default function Admin_Risk_Prediction() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.contextCardTitle}>Verification & severity</Text>
-                  <Text style={styles.contextCardSubtitle}>Human review status of active reports</Text>
+                  <Text style={styles.contextCardSubtitle}>Active reports</Text>
                 </View>
               </View>
 
@@ -415,7 +421,7 @@ export default function Admin_Risk_Prediction() {
                 )}
               </View>
 
-              <Text style={styles.contextGroupLabel}>Severity of active reports</Text>
+              <Text style={styles.contextGroupLabel}>Severity</Text>
               <View style={styles.chipRow}>
                 {["Critical", "High", "Medium", "Low", "Unknown"].map((level) => {
                   const theme = ZONE_SEVERITY_THEME[level];
@@ -429,7 +435,10 @@ export default function Admin_Risk_Prediction() {
                 })}
               </View>
 
-              <Text style={styles.contextGroupLabel}>Intersecting spatial hotspots</Text>
+              <View style={styles.contextGroupHeader}>
+                <Text style={styles.contextGroupLabel}>Spatial hotspots</Text>
+                <Text style={styles.contextCount}>{(selectedCurrent?.clusters || []).length}</Text>
+              </View>
               {(selectedCurrent?.clusters || []).length ? (
                 selectedCurrent.clusters.map((cluster) => (
                   <View key={`${cluster.location}-${cluster.reportIds?.[0] || cluster.location}`} style={styles.hotspotRow}>
@@ -439,15 +448,18 @@ export default function Admin_Risk_Prediction() {
                   </View>
                 ))
               ) : (
-                <Text style={styles.emptyText}>No DBSCAN hotspot intersects this scope. This is not proof that the area is safe.</Text>
+                <Text style={styles.contextNote}>No spatial hotspots in this area.</Text>
               )}
 
               {selectedCurrent?.snapshotMayBeLimited && <Text style={styles.contextNote}>Current indicators may be limited by the dashboard snapshot.</Text>}
-              <Text style={styles.contextNote}>Severity comes from the automated credibility analysis of each submitted report and still requires human review. These counts are descriptive, not a forecast.</Text>
+              <Text style={styles.contextNote}>Automated severity ratings need human review.</Text>
             </View>
           </View>
 
-          <Text style={styles.contextNote}>Sentiment tone and severity labels describe submitted reports for review; they are not evidence of danger. {selectedCurrent?.note || ""}</Text>
+          <View style={styles.contextFootnote}>
+            <Ionicons name="information-circle-outline" size={16} color="#40516F" />
+            <Text style={[styles.contextNote, { flex: 1 }]}>Reported activity only—not a measure of danger, proof of safety, or a forecast.</Text>
+          </View>
         </View>
 
 
@@ -558,23 +570,29 @@ const styles = StyleSheet.create({
   clearSelectionBtn: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
   clearSelectionText: { color: "#294880", fontFamily: "PoppinsMedium", fontSize: 11, textDecorationLine: "underline" },
 
-  bottomSection: { padding: 16, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 14, backgroundColor: "#FFFFFF", gap: 8 },
+  bottomSection: { padding: 16, borderWidth: 1, borderColor: "#D9E2F0", borderRadius: 14, backgroundColor: "#FFFFFF", gap: 12 },
+  contextHeader: { flexWrap: "wrap" },
+  contextHeading: { flex: 1, minWidth: 160, gap: 2 },
+  contextScope: { color: "#40516F", fontFamily: "PoppinsRegular", fontSize: 12 },
   contextRow: { flexDirection: "row", flexWrap: "wrap", gap: 14, marginTop: 4 },
-  contextCard: { flex: 1, minWidth: 300, gap: 12, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: "#E8EEF7", backgroundColor: "#F9FBFE" },
+  contextCard: { flex: 1, minWidth: 260, gap: 14, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: "#DFE6F0", backgroundColor: "#FFFFFF" },
   contextCardHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
   contextIconBadge: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: 9 },
-  contextCardTitle: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 13 },
-  contextCardSubtitle: { color: "#718096", fontFamily: "PoppinsRegular", fontSize: 10 },
-  contextGroupLabel: { color: "#64748B", fontFamily: "PoppinsSemiBold", fontSize: 10, letterSpacing: 0.3, textTransform: "uppercase", marginTop: 2 },
+  contextCardTitle: { color: "#243B5A", fontFamily: "PoppinsSemiBold", fontSize: 14 },
+  contextCardSubtitle: { color: "#40516F", fontFamily: "PoppinsRegular", fontSize: 12 },
+  contextGroupLabel: { color: "#243B5A", fontFamily: "PoppinsSemiBold", fontSize: 13, marginTop: 2 },
+  contextGroupHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  contextCount: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 12, backgroundColor: "#EDF2F7", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
   statTiles: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  statTile: { flexGrow: 1, flexBasis: 92, maxWidth: 150, gap: 2, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: "#E8EEF7", backgroundColor: "#FFFFFF" },
-  statValue: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 18 },
-  statLabel: { color: "#718096", fontFamily: "PoppinsRegular", fontSize: 10, lineHeight: 14 },
+  statTile: { flexGrow: 1, flexBasis: 92, gap: 3, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 9, borderWidth: 1, borderColor: "#DFE6F0", backgroundColor: "#F7F9FC" },
+  statValue: { color: "#243B5A", fontFamily: "PoppinsSemiBold", fontSize: 22 },
+  statLabel: { color: "#40516F", fontFamily: "PoppinsMedium", fontSize: 12, lineHeight: 18 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  hotspotRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 34, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E8EEF7" },
-  hotspotName: { flex: 1, color: "#3B4A5F", fontFamily: "PoppinsMedium", fontSize: 11 },
-  hotspotMeta: { color: "#718096", fontFamily: "PoppinsRegular", fontSize: 10 },
-  contextNote: { color: "#718096", fontFamily: "PoppinsRegular", fontSize: 10, lineHeight: 16 },
+  hotspotRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, minHeight: 38, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#F7F9FC", borderWidth: 1, borderColor: "#DFE6F0" },
+  hotspotName: { flex: 1, minWidth: 100, color: "#243B5A", fontFamily: "PoppinsMedium", fontSize: 12 },
+  hotspotMeta: { color: "#40516F", fontFamily: "PoppinsRegular", fontSize: 12 },
+  contextNote: { color: "#40516F", fontFamily: "PoppinsRegular", fontSize: 12, lineHeight: 19 },
+  contextFootnote: { flexDirection: "row", alignItems: "flex-start", gap: 7, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#E8EDF3" },
   listRow: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderBottomColor: "#EDF0F4" },
   miniListRow: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 8 },
   zoneMarker: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#E8EFFB" },
@@ -584,8 +602,8 @@ const styles = StyleSheet.create({
   countBadge: { flexDirection: "row", alignItems: "center", gap: 4 },
   zoneLimit: { color: "#64748B", fontFamily: "PoppinsMedium", fontSize: 10, backgroundColor: "#F0F4FA", paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10 },
   zoneSeverity: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12 },
-  zoneSeverityDot: { width: 5, height: 5, borderRadius: 3 },
-  zoneSeverityText: { fontFamily: "PoppinsMedium", fontSize: 10 },
+  zoneSeverityDot: { width: 7, height: 7, borderRadius: 4 },
+  zoneSeverityText: { fontFamily: "PoppinsMedium", fontSize: 12 },
   viewMoreBtn: { alignSelf: "center", marginTop: 16, marginBottom: 6, paddingHorizontal: 30, paddingVertical: 12, borderRadius: 12, backgroundColor: "#294880" },
   viewMoreText: { color: "#FFFFFF", fontSize: 14, fontFamily: "PoppinsSemiBold" },
   scrollTopBtn: { position: "absolute", right: 26, bottom: 30, width: 44, height: 44, borderRadius: 22, backgroundColor: "#294880", alignItems: "center", justifyContent: "center", zIndex: 20, elevation: 6, shadowColor: "#000000", shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },

@@ -104,6 +104,7 @@ async function loadAnalyticsPages<T>(
 const VALID_STATUSES = [
   "Pending Review",
   "Under Verification",
+  "Verified",
   "Resolved",
   "Rejected",
   "Archived",
@@ -1189,7 +1190,7 @@ export const reportService = {
 
     const pending = list.filter((r) => r.status === "Pending Review").length;
     const verified = list.filter(
-      (r) => r.is_verified || r.status === "Resolved"
+      (r) => r.status === "Verified"
     ).length;
     const rejected = list.filter((r) => r.status === "Rejected").length;
     const hotspots = list.filter(
@@ -1253,31 +1254,29 @@ export const reportService = {
 
     const reportIds = (reports || []).map((r) => r.id);
 
-    const { data: analyses, error: analysisError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
+    const [analysisResult, reportSentimentResult, commentResult] = await Promise.all([
+      loadDashboardRelations(reportIds, (batch) => supabaseAdmin
           .from("report_credibility_analysis")
           .select("report_id, ai_score, severity")
-          .in("report_id", batch));
-
-    if (analysisError) return { data: null, error: analysisError.message };
-
-    const { data: sentimentRows, error: sentimentError } = await loadDashboardRelations(reportIds, (batch) => supabaseAdmin
+          .in("report_id", batch)),
+      loadDashboardRelations(reportIds, (batch) => supabaseAdmin
           .from("sentiment_analysis")
           .select("subject_id, label, confidence, language, provider, model, status, error_code, analyzed_at")
           .eq("subject_type", "report")
-          .in("subject_id", batch));
+          .in("subject_id", batch)),
+      loadDashboardRelations(reportIds, (batch) => loadAnalyticsPages((from, to) => supabaseAdmin
+        .from("report_comments").select("id, report_id, created_at").in("report_id", batch).order("id").range(from, to))),
+    ]);
+    const { data: analyses, error: analysisError } = analysisResult;
+    if (analysisError) return { data: null, error: analysisError.message };
+    const { data: sentimentRows, error: sentimentError } = reportSentimentResult;
     if (sentimentError) return { data: null, error: sentimentError.message };
     const sentimentMap = new Map<string, SentimentRow>();
     (sentimentRows || []).forEach((row: SentimentRow) => {
       sentimentMap.set(row.subject_id, row);
     });
 
-    const { data: commentRows, error: commentError } = await loadDashboardRelations(reportIds, (batch) =>
-      loadAnalyticsPages((from, to) => supabaseAdmin
-          .from("report_comments")
-          .select("id, report_id, created_at")
-          .in("report_id", batch)
-          .order("id")
-          .range(from, to)));
+    const { data: commentRows, error: commentError } = commentResult;
     if (commentError) return { data: null, error: commentError.message };
     const commentIds = (commentRows || []).map((c: { id: string }) => c.id);
     const commentSentimentMap = new Map<string, SentimentRow>();
@@ -1400,7 +1399,7 @@ export const reportService = {
 
     const nonRejected = list.filter((r) => r.status !== "Rejected");
     const verifiedCount = nonRejected.filter(
-      (r) => r.is_verified || r.status === "Resolved"
+      (r) => r.status === "Verified"
     ).length;
     const credibilityRate = nonRejected.length
       ? Math.round((verifiedCount / nonRejected.length) * 100)
@@ -1642,6 +1641,8 @@ export const reportService = {
     const updates: Record<string, unknown> = {};
     if (input.status !== undefined) updates.status = input.status;
     if (input.is_verified !== undefined) updates.is_verified = input.is_verified;
+    if (["Verified", "Resolved"].includes(String(input.status))) updates.is_verified = true;
+    if (["Pending Review", "Under Verification"].includes(String(input.status))) updates.is_verified = false;
     if (["Archived", "Rejected", "Marked Fake"].includes(String(updates.status))) updates.is_verified = false;
 
     const { error: updateError } = await supabaseAdmin

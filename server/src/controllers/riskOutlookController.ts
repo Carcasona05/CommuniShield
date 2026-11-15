@@ -7,6 +7,7 @@ import { clusterHotspots } from "../services/hotspotClusteringService.js";
 import { summarizeHotspotEvidence } from "../services/hotspotSentimentService.js";
 import { ARGAO_BARANGAY_NAMES, canonicalBarangay, deriveBarangay, hasReportCoordinates } from "../utils/argaoLocation.js";
 import { mapReportPayload } from "../services/adminFetchService.js";
+import { analysisSnapshots } from "../services/analysisSnapshots.js";
 
 type AuthRequest = Request & { user?: { id: string } };
 export async function getRiskOutlook(req: AuthRequest, res: Response) {
@@ -20,12 +21,14 @@ export async function getRiskOutlook(req: AuthRequest, res: Response) {
   if (req.query.view !== undefined && req.query.view !== "current") return res.status(400).json({ error: "Invalid outlook view." });
   const currentOnly = req.query.view === "current";
   try {
+    const start = Date.now();
+    const cached = await analysisSnapshots.read(JSON.stringify([req.user.id, profile.role, "risk", currentOnly, barangay, new Date().toISOString().slice(0, 10)]), async () => {
     const now = Date.now();
     const [dashboard, history] = await Promise.all([
       // Filter before loading relations. The current map never needs old,
       // inactive or unmapped reports, nor image attachments.
       reportService.getAdminDashboard({
-        statuses: ["Pending Review", "Under Verification"],
+        statuses: ["Pending Review", "Under Verification", "Verified"],
         from: new Date(now - 30 * 86400000).toISOString(),
         to: new Date(now).toISOString(),
         mappedOnly: true,
@@ -36,10 +39,10 @@ export async function getRiskOutlook(req: AuthRequest, res: Response) {
       currentOnly ? Promise.resolve({ data: null, error: null })
         : riskOutlookHistory.load(now).catch(() => ({ data: null, error: "History unavailable" })),
     ]);
-    if (dashboard.error || !dashboard.data) return res.status(500).json({ error: "Current indicators unavailable" });
+    if (dashboard.error || !dashboard.data) throw new Error("Current indicators unavailable");
     const reports = dashboard.data.reports.flatMap((report) => {
       const time = Date.parse(report.created_at || "");
-      if (!["pending review", "under verification"].includes(report.status.toLowerCase()) ||
+      if (!["pending review", "under verification", "verified"].includes(report.status.toLowerCase()) ||
         time < now - 30 * 86400000 || time > now || !Number.isFinite(time) || !hasReportCoordinates(report)) return [];
       const name = deriveBarangay(report.location, report);
       return name ? [{ ...report, barangay: name,
@@ -69,9 +72,12 @@ export async function getRiskOutlook(req: AuthRequest, res: Response) {
     const forecast = currentOnly ? { status: "not_requested" } : history.error || !history.data ? {
       status: "unavailable", reasons: ["Complete forecast history could not be loaded; no estimate is shown."], dataMode: "synthetic",
     } : buildRiskOutlook(history.data, { now, ...(barangay ? { barangay } : {}) });
-    return res.json({ asOf: new Date(now).toISOString(), dataMode: "synthetic", scope: barangay || "All Barangays", reports: reports.map(mapReportPayload),
+    return { asOf: new Date(now).toISOString(), dataMode: "synthetic", scope: barangay || "All Barangays", reports: reports.map(mapReportPayload),
       current: barangay ? currentByBarangay[barangay] : summarize(reports), currentByBarangay,
-      forecast });
+      forecast };
+    });
+    res.setHeader?.("Server-Timing", `risk;dur=${Date.now() - start}`);
+    return res.json({ ...cached.value, snapshot: cached.snapshot });
   } catch {
     return res.status(500).json({ error: "Unable to compute risk outlook" });
   }

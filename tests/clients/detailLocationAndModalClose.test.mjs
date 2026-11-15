@@ -20,14 +20,15 @@ test("dataset sheets use an accessible X button and retain busy protection", () 
 });
 
 test("Super Admin report preview has only a footer Close button beside PDF export", () => {
-  const source = read("app/(sadmin)/SAdmin_ReportManagement.jsx");
+  assert.match(read("app/(sadmin)/SAdmin_ReportManagement.jsx"), /<RecordManagementPage Layout=\{SAdmin_Layout\} superAdmin/);
+  const source = read("components/Admin_compo/RecordManagementPage.jsx");
   const header = source.slice(source.indexOf('<View style={styles.previewHeader}>'), source.indexOf('<ScrollView', source.indexOf('<View style={styles.previewHeader}>')));
-  assert.doesNotMatch(header, /name="close"|setPreviewVisible\(false\)/);
+  assert.match(header, /!superAdmin && <TouchableOpacity/);
   assert.match(source, /Export as PDF<\/Text>[\s\S]*?accessibilityLabel="Close report document">[\s\S]*?styles.previewCloseButtonText[^\n]*>Close<\/Text>/);
   assert.match(source, /\(hovered \|\| pressed\) && styles.previewCloseButtonHovered/);
   assert.match(source, /\(hovered \|\| pressed\) && styles.previewCloseButtonTextHovered/);
   assert.match(source, /<Pressable style=\{\(\{ hovered, pressed \}\) => \[styles.previewPrimaryButton, \(hovered \|\| pressed\) && styles.previewPrimaryButtonHovered\]\} onPress=\{handlePrintPreview\}/);
-  assert.match(source, /previewFooter: \{[^\n]*flexWrap: "wrap"[^\n]*flexShrink: 0/);
-  assert.match(source, /previewScroll: \{[^\n]*flexShrink: 1/);
+  assert.match(source, /styles.previewFooter, superAdmin && \{ flexWrap: "wrap", flexShrink: 0/);
+  assert.match(source, /styles.previewScroll, superAdmin && \{ flexShrink: 1/);
   assert.match(source, /previewCloseButton: \{[^\n]*minHeight: 44[^\n]*borderColor: "#294880"/);
 });

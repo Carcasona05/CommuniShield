@@ -4,6 +4,7 @@ import { test } from "node:test";
 import vm from "node:vm";
 import { createRequire } from "node:module";
 import { createSessionData, prefetchPlan } from "../../clients/services/sessionData.js";
+import { createDisabledSessionNotice } from "../../clients/services/disabledSessionNotice.js";
 import { querySnapshotKey, usableQuerySnapshot } from "../../clients/services/querySnapshots.js";
 
 const require = createRequire(new URL("../../clients/package.json", import.meta.url));
@@ -185,8 +186,9 @@ test("real Axios transformation and adapter integration share GETs, preserve dat
     },
   });
   const code = source("services/apiClient.js").replace("export default apiClient;", "globalThis.client = apiClient;");
+  const disabledSessionNotice = createDisabledSessionNotice(sessionData);
   const context = vm.createContext({
-    axios: fakeAxios, sessionData, process: { env: { EXPO_PUBLIC_API_URL: "https://backend.example/api" } },
+    axios: fakeAxios, sessionData, disabledSessionNotice, process: { env: { EXPO_PUBLIC_API_URL: "https://backend.example/api" } },
     Platform: { OS: "web" },
     clearPageFailure() {}, recordPageFailure() {},
     AsyncStorage: { getItem: async key => storage.get(key) }, setTimeout, console,
@@ -207,6 +209,12 @@ test("real Axios transformation and adapter integration share GETs, preserve dat
   await assert.rejects(context.client.get("/admin/dashboard"), error => axios.isCancel(error));
   assert.equal(calls, 3, "no protected request can observe partially written credentials");
   resume();
+  sessionData.reset("disabled");
+  await assert.rejects(context.client.get("/admin/dashboard"), error => axios.isCancel(error));
+  assert.equal(calls, 3, "queued requests cannot re-adopt a disabled session");
+  assert.equal(sessionData.session(), null);
+  assert.equal(disabledSessionNotice.snapshot(), true);
+  disabledSessionNotice.dispose();
 });
 
 test("overlapping logout and sign-in serialize credential storage and keep the new session isolated", async () => {

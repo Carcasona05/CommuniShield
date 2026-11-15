@@ -21,18 +21,8 @@ const ALLOWED_AI_MODELS = [
 ];
 
 const DEFAULT_SETTINGS: Record<string, string> = {
-  map_auto_map_verified: "true",
-  map_cluster_overlay: "true",
-  map_heatmap_overlay: "true",
-  map_default_zoom: "13",
-  map_center: "Argao, Cebu",
-  notification_email: "true",
-  notification_push: "false",
   ai_model_version: "gemini-3.6-flash",
-  ai_api_endpoint: "",
   ai_scoring_enabled: "true",
-  ai_high_threshold: "85",
-  ai_medium_threshold: "60",
   ai_model_name: "gemini-3.6-flash",
   ai_temperature: "0.1",
   ai_timeout: "30000",
@@ -42,11 +32,6 @@ const DEFAULT_SETTINGS: Record<string, string> = {
 };
 
 const BOOLEAN_KEYS = [
-  "map_auto_map_verified",
-  "map_cluster_overlay",
-  "map_heatmap_overlay",
-  "notification_email",
-  "notification_push",
   "ai_scoring_enabled",
   "sentiment_local_model_enabled",
   "sentiment_gemini_enabled",
@@ -91,14 +76,6 @@ export const validateSetting = (
       }
       return { value: model };
     }
-    case "ai_high_threshold":
-    case "ai_medium_threshold": {
-      const parsed = Number(value);
-      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
-        return { error: `${key} must be an integer between 0 and 100` };
-      }
-      return { value: String(parsed) };
-    }
     case "ai_temperature": {
       const parsed = Number(value);
       if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
@@ -115,35 +92,10 @@ export const validateSetting = (
       }
       return { value: String(parsed) };
     }
-    case "map_default_zoom": {
-      const parsed = Number(value);
-      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
-        return { error: "map_default_zoom must be an integer between 1 and 20" };
-      }
-      return { value: String(parsed) };
-    }
-    case "map_center": {
-      if (!value || value.length > 200) {
-        return { error: "map_center must be 1 to 200 characters" };
-      }
-      return { value };
-    }
-    case "ai_api_endpoint": {
-      if (value) {
-        let url: URL;
-        try {
-          url = new URL(value);
-        } catch {
-          return { error: "ai_api_endpoint must be a valid URL" };
-        }
-        if (url.protocol !== "https:" && url.protocol !== "http:") {
-          return { error: "ai_api_endpoint must use http or https" };
-        }
-      }
-      return { value };
-    }
+    case "ai_api_endpoint":
+      return { error: "Custom AI API endpoints are no longer supported" };
     default:
-      return { value };
+      return { error: "Unsupported system setting" };
   }
 };
 
@@ -225,37 +177,6 @@ export const updateSettings = async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ error: result.error });
       }
       normalizedRows.push({ key, value: result.value });
-    }
-
-    const touchesThresholds = normalizedRows.some(
-      (row) =>
-        row.key === "ai_high_threshold" || row.key === "ai_medium_threshold"
-    );
-    if (touchesThresholds) {
-      const { data: existing, error: readError } = await supabaseAdmin
-        .from("system_settings")
-        .select("key, value")
-        .in("key", ["ai_high_threshold", "ai_medium_threshold"]);
-      if (readError) {
-        return res.status(500).json({ error: readError.message });
-      }
-      const current: Record<string, string> = {
-        ai_high_threshold: DEFAULT_SETTINGS.ai_high_threshold ?? "85",
-        ai_medium_threshold: DEFAULT_SETTINGS.ai_medium_threshold ?? "60",
-      };
-      for (const row of existing || []) {
-        if (row.key in current) current[row.key] = row.value;
-      }
-      for (const row of normalizedRows) {
-        current[row.key] = row.value;
-      }
-      const high = Number(current.ai_high_threshold);
-      const medium = Number(current.ai_medium_threshold);
-      if (!Number.isFinite(high) || !Number.isFinite(medium) || high <= medium) {
-        return res.status(400).json({
-          error: "ai_high_threshold must be greater than ai_medium_threshold",
-        });
-      }
     }
 
     const { error } = await supabaseAdmin

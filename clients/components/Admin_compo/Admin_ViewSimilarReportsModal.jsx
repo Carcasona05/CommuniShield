@@ -20,12 +20,14 @@ export default function Admin_ViewSimilarReportsModal({
   compiledGroup,
   onClose,
   onVerify,
+  onConfirmVerified,
   onReject,
   onMapAndVerify,
   onMarkAsFake,
   onArchiveReport,
   onReanalyze,
   reanalyzing = false,
+  analysisJobs = [],
   validating = false,
 }) {
   const [openMenuReportId, setOpenMenuReportId] = useState(null);
@@ -49,7 +51,7 @@ export default function Admin_ViewSimilarReportsModal({
     ) || [];
 
   const getStatusStyle = (status) => {
-    if (status === "Resolved") {
+    if (status === "Resolved" || status === "Verified") {
       return {
         color: "#22A06B",
         bg: "#EAF8F1",
@@ -367,6 +369,14 @@ export default function Admin_ViewSimilarReportsModal({
                       <View style={styles.reportTopRow}>
                         <View style={styles.reportTitleBox}>
                           <Text style={styles.reportId}>{report.id}</Text>
+                          {analysisJobs.filter(batch => batch.reports?.some(row => row.id === report.id)).slice(-1).map(batch => {
+                            const progress = batch.reports.find(row => row.id === report.id);
+                            const finished = Number.isFinite(progress.total) && progress.done === progress.total;
+                            return <Text key={batch.id} accessibilityLiveRegion="polite" style={{ color: progress.failed ? "#B93838" : "#294880", fontSize: 12 }}>
+                              {progress.failed ? "Analysis has failed tasks" : finished ? "Analysis finished" : batch.state === "queued" ? "Analysis queued" : "Analyzing…"}
+                              {Number.isFinite(progress.total) ? ` (${progress.done}/${progress.total})` : ""}
+                            </Text>;
+                          })}
                           <Text style={styles.reportTitle}>
                             {report.title}
                           </Text>
@@ -805,7 +815,7 @@ export default function Admin_ViewSimilarReportsModal({
                 <Ionicons name="refresh-outline" size={17} color={COMMUNISHIELD_BLUE} />
               )}
               <Text style={styles.reanalyzeText}>
-                {reanalyzing ? "Re-Analyzing..." : "Re-Analyze post"}
+                {reanalyzing ? "Analysis queued / running" : "Re-Analyze post"}
               </Text>
             </TouchableOpacity>
 
@@ -823,6 +833,18 @@ export default function Admin_ViewSimilarReportsModal({
               <Text style={styles.underVerificationText}>
                 {validating ? "Processing..." : "Under Verification"}
               </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.resolvedButton, validating && styles.buttonDisabled]}
+              onPress={() => onConfirmVerified?.(compiledGroup)}
+              activeOpacity={0.85}
+              disabled={validating || !onConfirmVerified}
+              accessibilityRole="button"
+              accessibilityLabel="Mark report Verified"
+            >
+              <Ionicons name="shield-checkmark-outline" size={17} color="#FFFFFF" />
+              <Text style={styles.resolvedButtonText}>{validating ? "Processing..." : "Verified"}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity

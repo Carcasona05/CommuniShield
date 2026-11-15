@@ -19,6 +19,7 @@ import { IMAGES } from "../../constants/assets";
 import ToastProvider, { useToast } from "../../components/Toast";
 import ErrorBoundary from "../../components/ErrorBoundary";
 import PageLoadNotice from "../PageLoadNotice";
+import AccountDisabledNotice from "../modals/AccountDisabledNotice";
 import { saveLastPage } from "../../services/lastPage";
 import { subscribeToAdminNotifications, subscribeToAccountStatusChanges } from "../../services/realtime";
 import { sessionData } from "../../services/sessionData";
@@ -982,37 +983,7 @@ function Admin_Layout({ children }) {
         </View>
       </Modal>
 
-      <Modal
-        visible={showDisabledModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {}}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalIconWrap}>
-              <Ionicons name="ban-outline" size={28} color="#DC2626" />
-            </View>
-
-            <Text style={styles.modalTitle}>Account Disabled</Text>
-
-            <Text style={styles.modalSubtitle}>
-              Your account has been disabled.{"\n\n"}Please contact your
-              supervisor to restore access.
-            </Text>
-
-            <View style={styles.modalButtonRow}>
-              <TouchableOpacity
-                style={styles.modalConfirmButton}
-                onPress={handleDisabledLogout}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.modalConfirmText}>Understood</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <AccountDisabledNotice visible={showDisabledModal} onConfirm={handleDisabledLogout} signOut />
     </View>
   );
 }

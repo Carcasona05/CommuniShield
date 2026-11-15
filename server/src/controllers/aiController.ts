@@ -89,11 +89,13 @@ export const analyzeReport = async (req: AuthRequest, res: Response) => {
     await reportService.insertAuditLog({
       actorId: user.id,
       actorName: profile?.fullname || "Admin",
-      actionType: "AI Analysis Completed",
+      actionType: result.status === "succeeded" ? "AI Analysis Completed" : result.status === "skipped" ? "AI Analysis Skipped" : "AI Analysis Failed",
       title: `AI analysis: ${typeData.name}`,
-      details: `AI credibility analysis completed for report ${toReportCode(reportId)}. Score: ${result?.ai_score ?? "N/A"}, Severity: ${result?.severity ?? "N/A"}.`,
+      details: result.status === "succeeded"
+        ? `AI credibility analysis completed for report ${toReportCode(reportId)}. Score: ${result.ai_score}, Severity: ${result.severity}.`
+        : `AI credibility analysis ${result.status} for report ${toReportCode(reportId)}.`,
       reportId,
-      newValue: result?.ai_score != null ? `Score: ${result.ai_score}` : null,
+      newValue: result.status === "succeeded" ? `Score: ${result.ai_score}` : null,
     }).catch(() => {});
 
     res.json({ analysis: result });

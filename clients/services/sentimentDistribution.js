@@ -4,6 +4,13 @@ export const DISTRIBUTION_LABELS = [
   { key: "negative", title: "Negative", color: "#C44343" },
   { key: "mixed", title: "Mixed", color: "#8654AD" },
 ];
+export const DISTRIBUTION_PERIODS = [
+  { value: "today", label: "Today" },
+  { value: "7d", label: "Past 7 Days" },
+  { value: "30d", label: "Past 30 Days" },
+  { value: "all", label: "All Time" },
+];
+export const philippineDay = (now = Date.now()) => new Date(now + 8 * 3600000).toISOString().slice(0, 10);
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
 export function sentimentDistribution(summary) {
   const counts = new Map();

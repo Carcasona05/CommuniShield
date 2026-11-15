@@ -138,6 +138,7 @@ language plpgsql security definer set search_path=public,pg_temp as $$
 declare s numeric; n numeric; delta numeric; outcome text; effect record;
 begin
   if new.status is not distinct from old.status and new.is_verified is not distinct from old.is_verified then return new; end if;
+  if new.user_id is null then return new; end if;
   if exists(select 1 from profiles where id=new.user_id and role in ('admin','super_admin')) then return new; end if;
   -- Finish any elapsed suspension BEFORE applying this new review outcome.
   perform refresh_credibility_suspension(new.user_id);
@@ -204,7 +205,12 @@ begin
       raise exception 'Only admins can change report review fields';
     end if;
   end if;
-  if new.status in ('Archived','Rejected','Marked Fake') then new.is_verified:=false; end if;
+  -- Keep older verification-only callers compatible with the new status.
+  if tg_op='UPDATE' and new.status is not distinct from old.status and new.is_verified is distinct from old.is_verified then
+    if new.is_verified and new.status in ('Pending Review','Under Verification') then new.status:='Verified';
+    elsif not new.is_verified and new.status='Verified' then new.status:='Under Verification'; end if;
+  end if;
+  new.is_verified:=new.status in ('Verified','Resolved');
   return new;
 end $$;
 drop trigger if exists credibility_protect_review_fields on public.reports;

@@ -76,5 +76,6 @@ export async function loadValidationGroups(filters: ValidationFilters) {
     focusedGroup: filters.focusReport ? groups.find(group => group.reports.some(report => report.id === filters.focusReport)) || null : null,
     stats: { totalReports: reports.length, compiledIncidents: groups.filter(group => group.reportCount > 1).length,
       pending: reports.filter(report => report.status === "Pending Review").length, verifying: reports.filter(report => report.status === "Under Verification").length,
+      verified: reports.filter(report => report.status === "Verified").length,
       resolved: reports.filter(report => report.status === "Resolved").length, rejected: reports.filter(report => report.status === "Rejected").length } };
 }

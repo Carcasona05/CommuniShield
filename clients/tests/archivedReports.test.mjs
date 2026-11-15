@@ -37,7 +37,7 @@ const screens = [
   },
   {
     page: "app/(admin)/Admin_ReportManagement.jsx",
-    patterns: [/\.filter\(\(item\) => item\.status !== "Archived"\)/],
+    patterns: [/r\.status <> 'Archived'/],
   },
   {
     page: "app/(admin)/Admin_Dashboard.jsx",
@@ -55,7 +55,7 @@ const screens = [
 for (const screen of screens) {
   test(`${screen.page} keeps archived reports out of its list`, () => {
     const route = read(screen.page);
-    const source = /<ValidationPage Layout=/.test(route) ? read("components/Admin_compo/ValidationPage.jsx") : route;
+    const source = /<RecordManagementPage Layout=/.test(route) ? readFileSync(new URL("../../DB_Schema/migrations/admin_view_more.sql", import.meta.url), "utf8") : /<ValidationPage Layout=/.test(route) ? read("components/Admin_compo/ValidationPage.jsx") : route;
     if (/<ValidationPage Layout=/.test(route)) {
       const service = readFileSync(new URL("../../server/src/services/validationGroupsService.ts", import.meta.url), "utf8");
       assert.match(service, /report\.status !== "Archived"/);
@@ -80,8 +80,9 @@ test("the super admin status filter no longer offers Archived", () => {
 });
 
 test("admin Logs asks the server for archived reports explicitly", () => {
-  const source = read("app/(admin)/Admin_Logs.jsx");
-  assert.match(source, /params: \{ status: "Archived" \}/);
+  assert.match(read("app/(admin)/Admin_Logs.jsx"), /<LogsPage Layout=/);
+  const source = read("components/Admin_compo/LogsPage.jsx");
+  assert.match(source, /params: \{ view: "archived"/);
   assert.match(source, /\{ key: "archived", label: "Archived reports"/);
   assert.match(source, /\{ key: "activity", label: "Activity logs"/);
   assert.match(source, /testID="archived-report-row"/);

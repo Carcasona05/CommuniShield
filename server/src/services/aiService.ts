@@ -110,15 +110,14 @@ async function loadAIConfig(): Promise<AIConfig> {
     .in("key", [
       "ai_model_name",
       "ai_temperature",
-      "ai_timeout",
-      "ai_api_endpoint"
+      "ai_timeout"
     ]);
 
   const map = new Map<string, string>();
   (data || []).forEach((row) => map.set(row.key, row.value));
 
   const apiKey = DEFAULT_GEMINI_API_KEY;
-  const apiEndpoint = map.get("ai_api_endpoint") || GEMINI_BASE_URL;
+  const apiEndpoint = GEMINI_BASE_URL;
 
   let dbModel = map.get("ai_model_name") || "";
   if (dbModel) {
@@ -490,11 +489,12 @@ export const aiService = {
    * Check if AI analysis is enabled in settings
    */
   async isEnabled(): Promise<boolean> {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("system_settings")
       .select("value")
       .eq("key", "ai_scoring_enabled")
       .maybeSingle();
+    if (error) throw new Error("Could not read AI credibility analysis setting");
     return data?.value === undefined ? true : data.value === "true";
   },
 

@@ -8,7 +8,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "eslint .",
-    "test:admin-fetch": "node --test ../tests/clients/adminLoadingRecovery.test.mjs ../tests/clients/smoothAdminFetching.test.mjs ../tests/clients/sessionData.test.mjs ../tests/clients/sessionLoading.test.mjs ../tests/clients/pageLoadingState.test.mjs ../tests/clients/sentimentReanalysis.test.mjs ../tests/clients/riskPredictionLayout.test.mjs",
+    "test:admin-fetch": "node --test ../tests/clients/sentimentOverview.test.mjs ../tests/clients/sentimentDistribution.test.mjs ../tests/clients/analysisJobs.test.mjs ../tests/clients/viewMoreQuery.test.mjs ../tests/clients/adminLoadingRecovery.test.mjs ../tests/clients/smoothAdminFetching.test.mjs ../tests/clients/sessionData.test.mjs ../tests/clients/sessionLoading.test.mjs ../tests/clients/pageLoadingState.test.mjs ../tests/clients/sentimentReanalysis.test.mjs ../tests/clients/riskPredictionLayout.test.mjs",
     "build:web": "expo export --platform web"
   },
   "dependencies": {

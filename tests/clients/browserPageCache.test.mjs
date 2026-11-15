@@ -181,12 +181,26 @@ test("restoration ignores non-page records and time-expired forecasts", async t 
   assert.ok(refreshed.data.get(querySnapshotKey("/admin/clusters", { period: "30d" })));
 });
 
-test("role layouts gate child mounting behind server verification on web", () => {
+test("role layouts retain server session verification on web", () => {
   for (const group of ["(admin)", "(sadmin)", "(tabs)"]) {
     const layout = readFileSync(new URL(`../../clients/app/${group}/_layout.jsx`, import.meta.url), "utf8");
-    assert.match(layout, /<BrowserSessionGate>/);
+    assert.match(layout, /<BrowserSessionGate(?:\s|>)/);
   }
   const auth = readFileSync(new URL("../../clients/services/auth.js", import.meta.url), "utf8");
   assert.ok(auth.indexOf('apiClient.get("/session"') < auth.indexOf("await hydrateCache({ token"));
   assert.ok(auth.indexOf("await hydrateCache({ token") < auth.indexOf("void prefetchAllData()"));
+});
+
+test("admin login and refresh mount the page directly without a layout loading screen", () => {
+  for (const group of ["(admin)", "(sadmin)"]) {
+    const layout = readFileSync(new URL(`../../clients/app/${group}/_layout.jsx`, import.meta.url), "utf8");
+    assert.doesNotMatch(layout, /ActivityIndicator|DashboardSkeleton|fallback=|if \(!checked\)/);
+    assert.match(layout, /<BrowserSessionGate nonBlocking>/);
+    assert.match(layout, /return <Slot key=\{epoch\} \/>;/);
+  }
+  const gate = readFileSync(new URL("../../clients/components/BrowserSessionGate.jsx", import.meta.url), "utf8");
+  assert.match(gate, /if \(verified\) return children;/);
+  assert.match(gate, /if \(nonBlocking\) return <>\{children\}/);
+  assert.ok(gate.indexOf("if (nonBlocking)") < gate.indexOf("if (verified) return children"));
+  assert.match(gate, /restoreAuth\(\)/);
 });

@@ -1,8 +1,6 @@
 import type { Response } from "express";
 import { reportService } from "../services/reportService.js";
 import { profileService } from "../services/authService.js";
-import { notificationService } from "../services/notificationService.js";
-import { aiService } from "../services/aiService.js";
 import {
   sentimentService,
   type SentimentAnalysis,
@@ -15,6 +13,8 @@ import { buildBlotterUpdates } from "../utils/blotterFields.js";
 import { credibilityFailure } from "./credibilityController.js";
 import { decodeFeedCursor } from "../utils/feedCursor.js";
 import { commentSentimentJobs } from "../services/commentSentimentJobs.js";
+import { adminAnalysisJobs } from "../services/adminAnalysisJobs.js";
+import { analysisSnapshots } from "../services/analysisSnapshots.js";
 
 type AuthRequest = import("express").Request & { user?: { id: string }; token?: string };
 
@@ -40,181 +40,28 @@ export const validateReport = async (req: AuthRequest, res: Response) => {
 
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: "Report id required" });
+  if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return res.status(400).json({ error: "Invalid report id" });
 
   const { status, is_verified } = req.body ?? {};
   const isArchive = status === "Archived";
   const forceUnverified = isArchive || status === "Rejected" || status === "Marked Fake";
   if (is_verified !== undefined && typeof is_verified !== "boolean") return res.status(400).json({ error: "Verification must be true or false." });
 
-  const result = await reportService.validateReport(String(id), {
-    status,
-    // Archived reports are never verified; force the flag off with the status.
-    is_verified: forceUnverified ? false : is_verified,
-  });
-
-  if (result.error) return res.status(400).json({ error: result.error });
-
-  if (result.data?.ownerId) {
-    const prev = result.data;
-    const newStatus = status ?? prev.previousStatus ?? "Pending Review";
-    const verified = forceUnverified
-      ? false
-      : is_verified ?? prev.previousVerified ?? false;
-
-    // Review scoring is committed with the report update by the database trigger.
-
-    await notificationService.createNotification({
-      userId: result.data.ownerId,
-      type: "report_status",
-      title: verified
-        ? "Your report was verified"
-        : isArchive
-          ? "Your report was archived"
-          : `Your report is now "${newStatus}"`,
-      message: verified
-        ? "Your report has been reviewed and marked as VERIFIED by the admin."
-        : isArchive
-          ? "The admin moved this report to archived reports, so it is no longer shown in active feeds."
-          : `The admin updated your report. Current status: "${newStatus}".`,
-      reportId: result.data.id,
-      location: result.data.location,
-      isVerified: verified,
-    });
-
-    const auditActionType = verified
-      ? "Report Verified"
-      : newStatus === "Rejected"
-        ? "Report Rejected"
-        : newStatus === "Marked Fake"
-          ? "Report Rejected"
-          : newStatus === "Archived"
-            ? "Report Archived"
-            : newStatus === "Mapped"
-              ? "Report Mapped"
-              : "Report Verified";
-
-    await reportService.insertAuditLog({
-      actorId: user.id,
-      actorName: profile?.fullname || "Admin",
-      actionType: auditActionType,
-      title: verified
-        ? `Report verified: ${result.data.incidentType}`
-        : newStatus === "Archived"
-          ? `Report archived: ${result.data.incidentType}`
-          : `Report status updated: ${result.data.incidentType}`,
-      details: verified
-        ? `Report ${toReportCode(result.data.id)} was reviewed and verified by ${profile?.fullname || "admin"}.`
-        : newStatus === "Archived"
-          ? `Report ${toReportCode(result.data.id)} was moved to archived reports by ${profile?.fullname || "admin"}.`
-          : `Report ${toReportCode(result.data.id)} status changed from "${result.data.previousStatus}" to "${newStatus}" by ${profile?.fullname || "admin"}.`,
-      reportId: result.data.id,
-      oldValue: result.data.previousStatus,
-      newValue: isArchive ? "Archived" : verified ? "Verified" : newStatus,
-    }).catch(() => {});
-
-    // Archiving is quiet housekeeping: no broadcast to other admins.
-    if (!isArchive) {
-      const reportSeverity = await reportService.getReportSeverity(result.data.id);
-      const statusPriority = severityToPriority(reportSeverity);
-
-      await notificationService
-        .notifyAllAdmins({
-          type: "log",
-          reportId: result.data.id,
-          title: verified
-            ? `Report verified: ${toReportCode(result.data.id)}`
-            : `Report status changed to "${newStatus}"`,
-          message: `${profile?.fullname || "Admin"} updated ${toReportCode(result.data.id)} to "${verified ? "Verified" : newStatus}".`,
-          priority: statusPriority,
-          excludeUserId: user.id,
-        })
-        .catch(() => {});
+  if (status !== undefined && typeof status !== "string") return res.status(400).json({ error: "Invalid report status" });
+  if (status === undefined && is_verified === undefined) return res.status(400).json({ error: "Status or verification required" });
+  const started = Date.now();
+  try {
+    const saved = await adminAnalysisJobs.saveStatus(String(id), user.id, profile.fullname || "Admin", status, forceUnverified ? false : is_verified);
+    if (saved.jobId) {
+      analysisSnapshots.invalidate();
+      backgroundTasks.schedule("status follow-up", () => adminAnalysisJobs.drain(1));
     }
-
-    if (verified || newStatus === "Resolved") {
-      const { data: coords } = await reportService.getReportCoords(
-        result.data.id
-      );
-
-      await notificationService
-        .notifyNearbyUsers({
-          reportId: result.data.id,
-          latitude: coords?.latitude ?? null,
-          longitude: coords?.longitude ?? null,
-          title: verified
-            ? "Verified incident near you"
-            : "Resolved incident near you",
-          message: `An incident report near you was ${
-            verified ? "verified" : "resolved"
-          } by the admin.`,
-          level: "High",
-          excludeUserId: result.data.ownerId,
-        })
-        .catch(() => {});
-    }
-
-    // Re-analyze with AI when report is verified (to update credibility assessment)
-    if (verified && result.data.id) {
-      const { data: fullReport } = await import("../config/supabaseAdmin.js").then(m => m.supabaseAdmin
-        .from("reports")
-        .select(`
-          id,
-          location,
-          latitude,
-          longitude,
-          details,
-          incident_type_id,
-          incident_types!inner (
-            name,
-            incident_categories!inner (name)
-          )
-        `)
-        .eq("id", result.data.id)
-        .maybeSingle());
-
-      if (fullReport) {
-        const typeData = fullReport.incident_types as unknown as {
-          name: string;
-          incident_categories: { name: string };
-        };
-
-        const [credibility, sentiment] = await Promise.all([
-          aiService.analyzeReport(result.data.id, {
-            incident_category: typeData.incident_categories.name,
-            incident_type: typeData.name,
-            location: fullReport.location || "",
-            details: fullReport.details || "",
-            latitude: fullReport.latitude,
-            longitude: fullReport.longitude,
-          }).catch((error) => {
-            console.error("Credibility re-analysis failed:", error);
-            return null;
-          }),
-          sentimentService.analyze("report", result.data.id, { force: true }).catch((error) => {
-            console.error("Sentiment re-analysis failed:", error);
-            return null;
-          }),
-        ]);
-        if (credibility || sentiment) {
-          await reportService.insertAuditLog({
-            actorId: user.id,
-            actorName: profile?.fullname || "Admin",
-            actionType: "AI Analysis Completed",
-            title: `Report analysis refreshed: ${typeData.name}`,
-            details: `Credibility and sentiment analysis refreshed for report ${toReportCode(result.data.id)}.`,
-            reportId: result.data.id,
-            newValue: `Sentiment: ${sentiment?.label ?? "unclear"} (${sentiment?.status ?? "unavailable"})`,
-          }).catch(() => {});
-        }
-      }
-    }
+    res.setHeader("Server-Timing", `status-save;dur=${Date.now() - started}`);
+    return res.json({ message: "Report validated", ...saved, followup: saved.jobId ? "queued" : "not_required" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Status could not be saved";
+    return res.status(/Invalid|not found/.test(message) ? 400 : 503).json({ error: message });
   }
-
-  res.json({
-    message: "Report validated",
-    status,
-    is_verified: is_verified ?? false,
-  });
 };
 
 export const createReport = async (req: AuthRequest, res: Response) => {
@@ -224,14 +71,6 @@ export const createReport = async (req: AuthRequest, res: Response) => {
     console.error("Create report failed:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
-};
-
-const severityToPriority = (
-  severity: string | null | undefined
-): "Low" | "Medium" | "High" => {
-  if (severity === "Critical" || severity === "High") return "High";
-  if (severity === "Low") return "Low";
-  return "Medium";
 };
 
 const createReportImpl = async (req: AuthRequest, res: Response) => {
@@ -731,17 +570,21 @@ export const getAdminAnalytics = async (req: AuthRequest, res: Response) => {
     return res.status(403).json({ error: "Admin access only" });
   }
 
+  const start = Date.now();
+  try {
+  const cached = await analysisSnapshots.read(JSON.stringify([user.id, profile.role, "sentiment", new Date().toISOString().slice(0, 10)]), async () => {
   const { data, error } = await reportService.getAdminAnalytics();
-
-  if (error) return res.status(500).json({ error });
-  if (!data) return res.status(500).json({ error: "No analytics data" });
-
-  res.json({
+  if (error || !data) throw new Error(error || "No analytics data");
+  return {
     summary: data.summary,
     sentimentTrend: data.sentimentTrend,
     forecast: data.forecast,
     forecastSummary: data.forecastSummary,
+  };
   });
+  res.setHeader?.("Server-Timing", `sentiment;dur=${Date.now() - start}`);
+  return res.json({ ...cached.value, snapshot: cached.snapshot });
+  } catch { return res.status(503).json({ error: "Analytics unavailable. Please retry." }); }
 };
 
 export const getAdminBlotters = async (_req: AuthRequest, res: Response) => {

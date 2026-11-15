@@ -249,7 +249,7 @@ export default function Admin_Hotspot_Detection() {
   // LOAD REPORTS
   // =====================================================
 
-  const { data, loading, refreshing, checkedAt, errorMessage } = useRetainedApiQuery({
+  const { data, loading, refreshing, checkedAt, errorMessage, reload } = useRetainedApiQuery({
     endpoint: "/admin/clusters",
     params: {
       period,
@@ -521,8 +521,8 @@ export default function Admin_Hotspot_Detection() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {!!checkedAt && <Text style={styles.filterResultsText} testID="hotspot-refresh-status">{refreshing ? "Checking for updates… · " : ""}{errorMessage ? "Refresh failed; showing previous results · " : ""}Last checked {new Date(checkedAt).toLocaleTimeString()}</Text>}
-        {!!errorMessage && (
+        {!!checkedAt && <Text style={styles.filterResultsText} testID="hotspot-refresh-status">{refreshing || data?.snapshot?.refreshing ? "Refreshing in background · " : ""}{errorMessage || data?.snapshot?.error ? "Refresh failed; showing previous results · " : ""}Updated {new Date(data?.snapshot?.updatedAt || checkedAt).toLocaleString()}</Text>}
+        {!!(errorMessage || data?.snapshot?.error) && (
           <View style={styles.errorBox}>
             <Ionicons
               name="alert-circle-outline"
@@ -530,8 +530,11 @@ export default function Admin_Hotspot_Detection() {
               color="#B93838"
             />
             <Text style={styles.errorText}>
-              {errorMessage}
+              {errorMessage || data?.snapshot?.error}
             </Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Retry hotspot analysis" onPress={reload} disabled={refreshing}>
+              <Text style={{ color: "#294880" }}>Retry</Text>
+            </Pressable>
           </View>
         )}
 

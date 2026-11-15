@@ -7,7 +7,8 @@ import { profileService } from "./services/authService.js";
 import { reportService } from "./services/reportService.js";
 import { loadAdminOverview } from "./services/adminFetchService.js";
 import { compileValidationGroups, loadValidationGroups, validationReport } from "./services/validationGroupsService.js";
-import { getAdminOverview, getAdminMapReports, getAdminReportDetails, getValidationGroups } from "./controllers/adminFetchController.js";
+import { getAdminOverview, getAdminMapReports, getAdminReportDetails, getValidationGroups, getAdminBrowsePage } from "./controllers/adminFetchController.js";
+import { decodeBrowseCursor, loadAdminBrowsePage } from "./services/adminBrowseService.js";
 
 type Row = Record<string, unknown>;
 const uuid = (i: number) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
@@ -72,11 +73,11 @@ const request = (query = {}) => ({ user: { id: "admin" }, query }) as unknown as
 const day = { dayStart: "2026-11-09T00:00:00Z", dayEnd: "2026-11-10T00:00:00Z" };
 
 test("dashboard uses complete database counts, but hydrates only twelve recent feed rows", async t => {
-  const reports = Array.from({ length: 1205 }, (_, i) => ({ ...baseRow(i), status: i < 5 ? "Archived" : i < 10 ? "Resolved" : "Pending Review" }));
+  const reports = Array.from({ length: 1205 }, (_, i) => ({ ...baseRow(i), status: i < 5 ? "Archived" : i < 10 ? "Verified" : i < 15 ? "Resolved" : "Pending Review" }));
   const calls = database(t, { reports, report_credibility_analysis: [{ report_id: uuid(20), severity: "High", ai_score: 90 }] });
   const result = await loadAdminOverview({ superAdmin: false, ...day });
   assert.equal(result.summary.total, 1200);
-  assert.equal(result.summary.pending, 1195);
+  assert.equal(result.summary.pending, 1190);
   assert.equal(result.summary.verified, 5);
   assert.equal(result.summary.hotspots, 1);
   assert.equal(result.reports.length, 12);
@@ -139,7 +140,7 @@ test("report inspection paginates busy comment threads and retains every image",
 
 test("new endpoints independently enforce admin roles and validate before accessing report data", async t => {
   const load = t.mock.method(reportService, "getAdminDashboard", async () => { throw new Error("Must not load reports"); });
-  for (const endpoint of [getAdminOverview, getAdminMapReports, getAdminReportDetails, getValidationGroups]) {
+  for (const endpoint of [getAdminOverview, getAdminMapReports, getAdminReportDetails, getValidationGroups, getAdminBrowsePage]) {
     let result = response();
     await endpoint({ query: {} } as Request, result.res);
     assert.equal(result.output.status, 401);
@@ -157,6 +158,49 @@ test("new endpoints independently enforce admin roles and validate before access
   }
   const result = response(); await getAdminOverview(request({ dayStart: "invalid" }), result.res); assert.equal(result.output.status, 400);
   assert.equal(load.mock.callCount(), 0);
+});
+
+test("browse validates filters and cursors before calling its database RPC", async t => {
+  t.mock.method(profileService, "getProfile", async () => ({ data: { role: "admin" }, error: null }));
+  const rpc = t.mock.method(supabaseAdmin, "rpc", (() => { throw new Error("Must not query"); }) as never);
+  for (const query of [{ view: "unknown" }, { view: ["logs"] }, { view: "records", page: "0" }, { view: "logs", pageSize: "51" },
+    { view: "logs", from: "invalid" }, { view: "logs", from: "2026-11-12", to: "2026-11-01" },
+    { view: "records", kind: "unknown" }, { view: "logs", actorRole: "root" }, { view: "logs", focusReport: "bad" },
+    { view: "records", exportAll: "true" }, { view: "logs", cursor: "bad" }]) {
+    const result = response(); await getAdminBrowsePage(request(query), result.res); assert.equal(result.output.status, 400);
+  }
+  assert.equal(rpc.mock.callCount(), 0);
+  assert.throws(() => decodeBrowseCursor("a".repeat(513)), /Invalid/);
+});
+
+test("browse forwards database filters, exports and precise cursors for both admin roles", async t => {
+  const cursor = { created_at: "2026-11-12T12:00:00.123456+00:00", kind: "Activity", id: uuid(10) };
+  const encoded = Buffer.from(JSON.stringify(cursor)).toString("base64url");
+  const rpc = t.mock.method(supabaseAdmin, "rpc", (async () => ({ data: { items: [{ id: uuid(9) }], total: 1234, hasMore: true, stats: { activities: 1234 }, cursor }, error: null })) as never);
+  for (const role of ["admin", "super_admin"]) {
+    t.mock.method(profileService, "getProfile", async () => ({ data: { role }, error: null }));
+    const result = response();
+    await getAdminBrowsePage(request({ view: "logs", page: "2", pageSize: "10", actorRole: "super_admin", status: "Report Verified", cursor: encoded, focusReport: uuid(99) }), result.res);
+    assert.equal(result.output.status, 200); assert.equal(result.output.body.total, 1234);
+    assert.deepEqual(decodeBrowseCursor(String(result.output.body.nextCursor)), cursor);
+    assert.ok(result.output.headers["Server-Timing"]);
+  }
+  const call = rpc.mock.calls[0]!.arguments as unknown as [string, Record<string, unknown>];
+  assert.equal(call[0], "admin_browse_page");
+  assert.equal(call[1].p_before_time, cursor.created_at); assert.equal(call[1].p_actor_role, "super_admin");
+  assert.equal(call[1].p_status, "Report Verified"); assert.equal(call[1].p_focus_report, uuid(99));
+  await loadAdminBrowsePage({ view: "records", page: 1, pageSize: 10, exportAll: true });
+  const exported = rpc.mock.calls.at(-1)!.arguments as unknown as [string, Record<string, unknown>];
+  assert.equal(exported[1].p_export, true);
+});
+
+test("browse fails explicitly for missing migration, incomplete data and broken cursors", async t => {
+  t.mock.method(supabaseAdmin, "rpc", (async () => ({ data: null, error: { code: "PGRST202" } })) as never);
+  await assert.rejects(loadAdminBrowsePage({ view: "records", page: 1, pageSize: 10 }), /admin_view_more.sql/);
+  t.mock.method(supabaseAdmin, "rpc", (async () => ({ data: { items: [], total: 10, hasMore: true, stats: {} }, error: null })) as never);
+  await assert.rejects(loadAdminBrowsePage({ view: "records", page: 1, pageSize: 10 }), /cursor/);
+  t.mock.method(supabaseAdmin, "rpc", (async () => ({ data: { items: [] }, error: null })) as never);
+  await assert.rejects(loadAdminBrowsePage({ view: "records", page: 1, pageSize: 10 }), /unavailable/);
 });
 
 test("whole-group pagination preserves off-page totals, notification targets and complete exports", async t => {

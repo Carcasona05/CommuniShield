@@ -23,6 +23,7 @@ import ToastProvider, { useToast } from "../../components/Toast";
 import { isValidEmail } from "../../services/validation";
 import useDeviceLogin from "../../hooks/useDeviceLogin";
 import LoginVerificationModal from "../../components/modals/LoginVerificationModal";
+import AccountDisabledNotice from "../../components/modals/AccountDisabledNotice";
 
 const { width, height } = Dimensions.get("window");
 
@@ -83,7 +84,6 @@ function Admin_LoginInner() {
   const [sendingOtp, setSendingOtp] = useState(false);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
-  const [disabledMessage, setDisabledMessage] = useState("");
   const [disabledModalVisible, setDisabledModalVisible] = useState(false);
   const { beginLogin, verificationModalProps } = useDeviceLogin(async (data) => {
     const user = data.user;
@@ -152,7 +152,6 @@ function Admin_LoginInner() {
       const status = error.response?.status;
 
       if (status === 403 && /disabled/i.test(errMsg)) {
-        setDisabledMessage(errMsg);
         setDisabledModalVisible(true);
         return;
       }
@@ -645,31 +644,7 @@ function Admin_LoginInner() {
           </View>
         </Modal>
 
-        <Modal
-          visible={disabledModalVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setDisabledModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <TouchableOpacity
-                style={styles.modalCloseButton}
-                onPress={() => setDisabledModalVisible(false)}
-                activeOpacity={0.75}
-              >
-                <Ionicons name="close-outline" size={24} color="#294880" />
-              </TouchableOpacity>
-
-              <View style={styles.modalIconCircle}>
-                <Ionicons name="ban-outline" size={28} color="#FFFFFF" />
-              </View>
-
-              <Text style={[styles.forgotTitle, { textAlign: "center" }]}>Account Disabled</Text>
-              <Text style={[styles.forgotSubtitle, { textAlign: "center" }]}>{disabledMessage}</Text>
-            </View>
-          </View>
-        </Modal>
+        <AccountDisabledNotice visible={disabledModalVisible} email={email.trim()} onConfirm={() => setDisabledModalVisible(false)} />
       </View>
     </SafeAreaView>
   );

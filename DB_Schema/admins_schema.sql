@@ -34,7 +34,7 @@ create table if not exists public.report_validations (
   report_id uuid not null references public.reports(id) on delete cascade,
   admin_id uuid references auth.users(id) on delete set null,
   action text not null
-    check (action in ('Under Verification', 'Resolved', 'Rejected', 'Archived', 'Marked Fake')),
+    check (action in ('Under Verification', 'Verified', 'Resolved', 'Rejected', 'Archived', 'Marked Fake')),
   previous_status text,
   new_status text not null,
   remarks text not null default '',
@@ -82,22 +82,12 @@ create table if not exists public.system_settings (
 );
 
 insert into public.system_settings (key, value) values
-  ('map_auto_map_verified', 'true'),
-  ('map_cluster_overlay', 'true'),
-  ('map_heatmap_overlay', 'true'),
-  ('map_default_zoom', '13'),
-  ('map_center', 'Argao, Cebu'),
-  ('notification_email', 'true'),
-  ('notification_push', 'false'),
   ('ai_model_version', 'CommuniShield-AI v1.0'),
-  ('ai_api_endpoint', ''),
   ('ai_ollama_url', 'http://localhost:11434'),
   ('ai_model_name', 'gemini-3.6-flash'),
   ('ai_temperature', '0.1'),
   ('ai_timeout', '30000'),
   ('ai_scoring_enabled', 'true'),
-  ('ai_high_threshold', '85'),
-  ('ai_medium_threshold', '60'),
   ('sentiment_local_model_enabled', 'true'),
   ('sentiment_gemini_enabled', 'true'),
   ('sentiment_cebuano_mode', 'gemini')

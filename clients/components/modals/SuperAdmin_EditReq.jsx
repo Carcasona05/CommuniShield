@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Modal,
   View,
@@ -13,6 +13,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useToast } from "../Toast";
 import { digitsOnly, isValidEmail, isValidPhone } from "../../services/validation";
+import { adminEditChanges, adminEditValues } from "../../services/adminAccountEdit";
 
 const COLORS = {
   primary: "#294880",
@@ -31,6 +32,7 @@ function InputField({
   placeholder,
   icon,
   keyboardType,
+  editable = true,
 }) {
   return (
     <View style={styles.inputGroup}>
@@ -46,6 +48,7 @@ function InputField({
           placeholderTextColor={COLORS.textMuted}
           keyboardType={keyboardType}
           style={styles.textInput}
+          editable={editable}
         />
       </View>
     </View>
@@ -59,6 +62,8 @@ export default function Admin_EditAdminReq({
   onSave,
 }) {
   const toast = useToast();
+  const [original, setOriginal] = useState(null);
+  const savingRef = useRef(false);
   const [formData, setFormData] = useState({
     id: "",
     name: "",
@@ -70,7 +75,8 @@ export default function Admin_EditAdminReq({
   });
 
   useEffect(() => {
-    if (admin) {
+    if (visible && admin) {
+      setOriginal({ ...admin });
       setFormData({
         id: admin.id,
         name: admin.name || "",
@@ -81,7 +87,7 @@ export default function Admin_EditAdminReq({
         status: admin.status || "Active",
       });
     }
-  }, [admin]);
+  }, [admin, visible]);
 
   const showMessage = (title, message) => {
     const fullMessage = `${title}. ${message}`;
@@ -101,25 +107,29 @@ export default function Admin_EditAdminReq({
   };
 
   const [saving, setSaving] = useState(false);
+  const changes = adminEditChanges(original, formData);
+  const hasChanges = Object.keys(changes).length > 0;
 
   const handleSave = async () => {
+    if (!hasChanges || savingRef.current) return;
+    const normalized = adminEditValues(formData);
     if (
-      !formData.name ||
-      !formData.email ||
-      !formData.role ||
-      !formData.department ||
-      !formData.phone
+      !normalized.name ||
+      !normalized.email ||
+      !normalized.role ||
+      !normalized.department ||
+      !normalized.phone
     ) {
       showMessage("Missing Details", "Please complete all required fields.");
       return;
     }
 
-    if (!isValidEmail(formData.email)) {
+    if (!isValidEmail(normalized.email)) {
       showMessage("Invalid Email", "Please enter a valid email address.");
       return;
     }
 
-    if (!isValidPhone(formData.phone)) {
+    if (!isValidPhone(normalized.phone)) {
       showMessage(
         "Invalid Phone Number",
         "Phone number must be exactly 11 digits."
@@ -127,10 +137,14 @@ export default function Admin_EditAdminReq({
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
     try {
-      await onSave(formData);
+      await onSave({ id: formData.id, ...changes });
+    } catch (error) {
+      showMessage("Save Failed", error?.message || "Could not save the admin edit request.");
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -144,7 +158,7 @@ export default function Admin_EditAdminReq({
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={() => { if (!savingRef.current) onClose(); }}
     >
       <View style={styles.overlay}>
         <View style={styles.modalCard}>
@@ -162,7 +176,7 @@ export default function Admin_EditAdminReq({
               </View>
             </View>
 
-            <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+            <TouchableOpacity style={styles.closeButton} onPress={() => { if (!savingRef.current) onClose(); }} disabled={saving}>
               <Ionicons name="close" size={22} color={COLORS.textMuted} />
             </TouchableOpacity>
           </View>
@@ -215,6 +229,7 @@ export default function Admin_EditAdminReq({
               <View style={styles.inputGrid}>
                 <InputField
                   label="Full Name"
+                  editable={!saving}
                   value={formData.name}
                   onChangeText={(text) =>
                     setFormData({
@@ -228,6 +243,7 @@ export default function Admin_EditAdminReq({
 
                 <InputField
                   label="Email Address"
+                  editable={!saving}
                   value={formData.email}
                   onChangeText={(text) =>
                     setFormData({
@@ -242,6 +258,7 @@ export default function Admin_EditAdminReq({
 
                 <InputField
                   label="Role"
+                  editable={!saving}
                   value={formData.role}
                   onChangeText={(text) =>
                     setFormData({
@@ -255,6 +272,7 @@ export default function Admin_EditAdminReq({
 
                 <InputField
                   label="Department"
+                  editable={!saving}
                   value={formData.department}
                   onChangeText={(text) =>
                     setFormData({
@@ -268,6 +286,7 @@ export default function Admin_EditAdminReq({
 
                 <InputField
                   label="Phone Number"
+                  editable={!saving}
                   value={formData.phone}
                   onChangeText={(text) =>
                     setFormData({
@@ -286,16 +305,18 @@ export default function Admin_EditAdminReq({
           <View style={styles.footerActions}>
             <TouchableOpacity
               style={[styles.cancelButton, saving && styles.buttonDisabled]}
-              onPress={onClose}
+              onPress={() => { if (!savingRef.current) onClose(); }}
               disabled={saving}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.saveButton, saving && styles.buttonDisabled]}
+              style={[styles.saveButton, (!hasChanges || saving) && styles.buttonDisabled]}
               onPress={handleSave}
-              disabled={saving}
+              disabled={!hasChanges || saving}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !hasChanges || saving }}
             >
               {saving ? (
                 <ActivityIndicator size="small" color={COLORS.white} />

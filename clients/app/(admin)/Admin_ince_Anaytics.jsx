@@ -1,16 +1,10 @@
-import React, { useCallback, useState } from "react";
-import { View, Text, ScrollView, Platform, useWindowDimensions } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import React, { useState } from "react";
+import { View, ScrollView, Platform, useWindowDimensions } from "react-native";
 import { useFonts } from "expo-font";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import Svg, { Line, Polyline, Circle } from "react-native-svg";
 import Admin_Layout from "../../components/Admin_compo/Admin_Layout";
-import { AnalyticsSkeleton } from "../../components/PageSkeletons";
-import apiClient from "../../services/apiClient";
-import useAutoRefresh from "../../hooks/useAutoRefresh";
-import { getCache, setCache } from "../../services/dataStore";
 import SentimentDatasetManager from "../../components/Admin_compo/SentimentDatasetManager";
 import SentimentDistributionCard from "../../components/Admin_compo/SentimentDistributionCard";
+import SentimentOverviewCard from "../../components/Admin_compo/SentimentOverviewCard";
 
 const TRAINING_SCROLLBAR_CSS = `
   #sentiment-training-scroll {
@@ -45,69 +39,9 @@ const TRAINING_SCROLLBAR_CSS = `
   }
 `;
 
-const SentimentChart = ({ data = [] }) => {
-  const W = 320;
-  const H = 120;
-  const max = 100;
-  const step = data.length > 1 ? W / (data.length - 1) : W;
-
-  const clamp = (v) => Math.min(max, Math.max(0, Number(v) || 0));
-
-  const points = data
-    .map((d, i) => `${(i * step).toFixed(1)},${(H - (clamp(d.value) / max) * H).toFixed(1)}`)
-    .join(" ");
-
-  return (
-    <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
-      {[0, 30, 60, 90].map((y) => (
-        <Line key={y} x1={0} y1={y} x2={W} y2={y} stroke="#DCE5F1" strokeWidth={1} />
-      ))}
-
-      {points ? (
-        <Polyline
-          points={points}
-          fill="none"
-          stroke="#2F8DE4"
-          strokeWidth={2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      ) : null}
-
-      {data.map((d, i) => (
-        <Circle
-          key={i}
-          cx={i * step}
-          cy={H - (clamp(d.value) / max) * H}
-          r={2.5}
-          fill="#2F8DE4"
-        />
-      ))}
-    </Svg>
-  );
-};
-
 export default function Admin_Analytics() {
   const { width } = useWindowDimensions();
   const [overviewHeight, setOverviewHeight] = useState(500);
-  const [loading, setLoading] = useState(() => getCache("api:/admin/analytics") === undefined);
-
-  const [summary, setSummary] = useState(() => {
-    const cached = getCache("api:/admin/analytics");
-    return cached?.summary || {
-      activeIncidents: 0,
-      criticalHotspots: 0,
-      avgSentiment: "N/A",
-      sentimentLabel: "No analyzed data",
-      sentimentAnalyzed: 0,
-      sentimentTotal: 0,
-      sentimentDistribution: [],
-    };
-  });
-  const [sentimentTrend, setSentimentTrend] = useState(() => {
-    const cached = getCache("api:/admin/analytics");
-    return cached?.sentimentTrend || [];
-  });
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -115,53 +49,10 @@ export default function Admin_Analytics() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const loadAnalytics = useCallback(async () => {
-    try {
-      const token = await AsyncStorage.getItem("access_token");
-      if (!token) return;
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const cachedAnalytics = getCache("api:/admin/analytics");
-      if (cachedAnalytics) {
-        if (cachedAnalytics.summary) {
-          setSummary((prev) => ({ ...prev, ...cachedAnalytics.summary }));
-        }
-        if (Array.isArray(cachedAnalytics.sentimentTrend)) {
-          setSentimentTrend(cachedAnalytics.sentimentTrend);
-        }
-      }
-
-      const res = await apiClient.get("/admin/analytics", { headers });
-      setCache("api:/admin/analytics", res.data ?? {});
-
-      const data = res.data ?? {};
-
-      if (data.summary) {
-        setSummary((prev) => ({ ...prev, ...data.summary }));
-      }
-      if (Array.isArray(data.sentimentTrend)) {
-        setSentimentTrend(data.sentimentTrend);
-      }
-    } catch {
-      // keep last loaded data on failure
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useAutoRefresh(loadAnalytics, 60000);
-
   if (!fontsLoaded) {
     return null;
   }
 
-  if (loading) {
-    return (
-      <Admin_Layout>
-        <AnalyticsSkeleton />
-      </Admin_Layout>
-    );
-  }
 
   return (
     <Admin_Layout>
@@ -181,77 +72,9 @@ export default function Admin_Analytics() {
                 style={styles.emphasizedSentimentCard}
                 onLayout={(event) => setOverviewHeight(event.nativeEvent.layout.height)}
               >
-                <View style={styles.emphasizedHeader}>
-                  <View style={styles.emphasizedHeaderTitleRow}>
-                    <Ionicons name="pulse" size={18} color="#294880" />
-                    <Text style={styles.emphasizedTitle}>Sentiment Analysis Overview</Text>
-                  </View>
-                  <Text style={styles.sentimentCoverage}>
-                    {summary.sentimentAnalyzed ?? 0}/{summary.sentimentTotal ?? 0} Analyzed
-                  </Text>
-                </View>
-
-                <View style={styles.chartContent}>
-                  {/* SUMMARY METRICS MINI-BANNER */}
-                  <View style={styles.metricsBanner}>
-                    <View style={styles.metricBox}>
-                      <Text style={styles.metricLabel}>Reports & Comments</Text>
-                      <Text style={styles.metricValue}>{summary.sentimentTotal ?? 0}</Text>
-                    </View>
-                    <View style={styles.metricDivider} />
-                    <View style={styles.metricBox}>
-                      <Text style={styles.metricLabel}>AI Analyzed</Text>
-                      <Text style={[styles.metricValue, { color: "#3DBB74" }]}>
-                        {summary.sentimentAnalyzed ?? 0}
-                      </Text>
-                    </View>
-                    <View style={styles.metricDivider} />
-                    <View style={styles.metricBox}>
-                      <Text style={styles.metricLabel}>No Successful Result</Text>
-                      <Text style={[styles.metricValue, { color: "#E5A12F" }]}>
-                        {(summary.sentimentTotal || 0) - (summary.sentimentAnalyzed || 0)}
-                      </Text>
-                    </View>
-                    <View style={styles.metricDivider} />
-                    <View style={styles.metricBox}>
-                      <Text style={styles.metricLabel}>Avg. Health</Text>
-                      <Text style={[styles.metricValue, { color: "#2F8DE4" }]}>
-                        {summary.avgSentiment || "—"} / 5.0
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* 24HR TREND CHART */}
-                  <Text style={[styles.chartSubhead, { marginBottom: 20 }]}>24hr Trend</Text>
-                  <View style={styles.lineChartBox}>
-                    <View style={styles.yAxisLabels}>
-                      <Text style={styles.axisText}>100</Text>
-                      <Text style={styles.axisText}>75</Text>
-                      <Text style={styles.axisText}>50</Text>
-                      <Text style={styles.axisText}>25</Text>
-                      <Text style={styles.axisText}>0</Text>
-                    </View>
-
-                    <View style={styles.svgWrap}>
-                      <SentimentChart data={sentimentTrend} />
-                    </View>
-
-                    <View style={styles.rightLabels}>
-                      <Text style={styles.anxiousLabel}>Anxious</Text>
-                      <Text style={styles.neutralLabel}>Neutral</Text>
-                      <Text style={styles.calmLabel}>Calm</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.xAxisRow}>
-                    <Text style={styles.axisText}>00:00</Text>
-                    <Text style={styles.axisText}>06:00</Text>
-                    <Text style={styles.axisText}>12:00</Text>
-                    <Text style={styles.axisText}>18:00</Text>
-                    <Text style={styles.axisText}>23:00</Text>
-                  </View>
-
-                  <SentimentDistributionCard summary={summary} />
+                <SentimentOverviewCard />
+                <View style={[styles.chartContent, { paddingTop: 0 }]}>
+                  <SentimentDistributionCard />
                 </View>
               </View>
             </View>
