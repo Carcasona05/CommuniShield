@@ -27,6 +27,7 @@ import { useToast } from "../Toast";
 import { normalizeReportStatus } from "../../services/reportPresentation";
 import usePaginatedComments from "../../hooks/usePaginatedComments";
 import usePrependScroll from "../../hooks/usePrependScroll";
+import ReportPhotoGallery from "../ReportPhotoGallery";
 
 const PRIMARY = "#294880";
 
@@ -280,28 +281,7 @@ const MyUser_RepPostView_Layout = ({ report }) => {
 
           {report.images?.length > 0 ? (
             <View style={styles.imageSection}>
-              {report.images.length === 1 ? (
-                <Image
-                  source={getImageSource(report.images[0])}
-                  style={styles.singleImage}
-                  cachePolicy="memory-disk"
-                  priority="high"
-                  transition={300}
-                />
-              ) : (
-                <View style={styles.imageRow}>
-                  {report.images.slice(0, 2).map((image, index) => (
-                    <Image
-                      key={index}
-                      source={getImageSource(image)}
-                      style={styles.doubleImage}
-                      cachePolicy="memory-disk"
-                      priority="high"
-                      transition={300}
-                    />
-                  ))}
-                </View>
-              )}
+              <ReportPhotoGallery images={report.images} />
             </View>
           ) : (
             <View style={styles.singleImagePlaceholder}>

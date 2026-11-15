@@ -488,10 +488,6 @@ const User_Home = () => {
         </View>
 
         <View style={styles.feedList}>
-          {loadError ? <View style={styles.emptyCard}>
-            <ThemedText accessibilityRole="alert" style={styles.emptyText}>{loadError}</ThemedText>
-            <TouchableOpacity accessibilityRole="button" onPress={handleRefresh}><ThemedText style={styles.viewMoreText}>Retry loading reports</ThemedText></TouchableOpacity>
-          </View> : null}
           {visibleReports.map((report, index) => {
             const cardSpacing =
               index !== visibleReports.length - 1

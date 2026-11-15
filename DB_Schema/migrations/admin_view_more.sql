@@ -2,6 +2,7 @@
 -- table permissions, authentication rules or local blotters are changed.
 -- Updated ordering: records use status -> incident severity -> oldest first.
 -- Logs/archives retain newest-first ordering; cursors preserve all sort keys.
+-- Records include user incidents and exclude Rejected/Marked Fake/Archived.
 begin;
 create index if not exists reports_admin_browse_idx on public.reports(role, created_at desc, id desc) where status <> 'Archived';
 create index if not exists audit_logs_browse_idx on public.audit_logs(created_at desc, id desc);
@@ -29,21 +30,24 @@ begin
   with eligible as materialized (
     select r.id as raw_id, 'Incident'::text as kind, r.created_at, r.status, coalesce(r.role, 'user') as actor_role
     from public.reports r
-    where (p_view = 'records' and r.role in ('admin', 'super_admin') and r.status <> 'Archived')
+    where (p_view = 'records' and coalesce(r.role,'user') in ('user','admin','super_admin')
+      and r.status not in ('Archived','Rejected','Marked Fake'))
        or (p_view = 'archived' and r.status = 'Archived')
     union all
     select a.id, 'Announcement', a.created_at, 'Published', coalesce(p.role, 'admin')
     from public.admin_announcement a left join public.profiles p on p.id = a.admin_id
-    where p_view = 'records' and p_status is null
+    where p_view = 'records' and p_status is null and p_actor_role is distinct from 'user'
     union all
     select l.id, 'Activity', l.created_at, l.action_type, coalesce(p.role, 'system')
     from public.audit_logs l left join public.profiles p on p.id = l.actor_id
-    where p_view = 'logs' or (p_view = 'records' and p_status is null
-      and coalesce(l.action_type, '') !~* '^report archived(\s*:|\s*$)'
-      and coalesce(l.title, '') !~* '^report archived(\s*:|\s*$)')
+    where p_view = 'logs' or (p_view = 'records' and p_status is null and p_actor_role is distinct from 'user'
+      and coalesce(l.action_type, '') !~* '^report (archived|rejected|marked fake)(\s*:|\s*$)'
+      and coalesce(l.title, '') !~* '^report (archived|rejected|marked fake)(\s*:|\s*$)'
+      and not exists (select 1 from public.reports excluded where excluded.id=l.report_id and excluded.status in ('Archived','Rejected','Marked Fake')))
   ), filtered as materialized (
     select * from eligible e where (p_from is null or e.created_at >= p_from) and (p_to is null or e.created_at <= p_to)
-      and (p_status is null or e.status = p_status) and (p_kind is null or e.kind = p_kind)
+      and (p_status is null or e.status = p_status)
+      and (case when p_view='records' and p_actor_role='user' then e.kind='Incident' else p_kind is null or e.kind = p_kind end)
       and (p_actor_role is null or e.actor_role = p_actor_role)
    ), ranked as materialized (
     select e.*,

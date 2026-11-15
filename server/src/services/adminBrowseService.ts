@@ -20,6 +20,10 @@ export function decodeBrowseCursor(value: string) {
   } catch { throw new Error("Invalid record cursor"); }
 }
 export async function loadAdminBrowsePage(filters: AdminBrowseFilters) {
+  if (filters.view === "records") {
+    filters = { ...filters, actorRole: filters.actorRole || "admin",
+      ...((filters.actorRole || "admin") === "user" ? { kind: "Incident" } : {}) };
+  }
   if (filters.view === "records" && filters.cursor && !filters.cursor.priority) throw new Error("Record order changed. Refresh the list before loading more.");
   const { data, error } = await supabaseAdmin.rpc("admin_browse_page", {
     p_view: filters.view, p_page: filters.page, p_page_size: filters.pageSize,

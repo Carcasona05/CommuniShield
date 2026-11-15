@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   View,
   TextInput,
@@ -15,7 +15,7 @@ import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
 import ActionSheetModal from "../../components/ActionSheetModal";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useFonts } from "expo-font";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -25,10 +25,10 @@ import ThemedText from "../../components/ThemedText";
 import Dropdown from "../../components/Dropdown";
 import ToastProvider, { useToast } from "../../components/Toast";
 import apiClient from "../../services/apiClient";
-import { ensureCompleteProfile } from "../../services/profileCompletion";
-import { uploadImages } from "../../services/imageUpload";
 import { getCache, setCache } from "../../services/dataStore";
-import { triggerRefresh } from "../../services/refreshBus";
+import { sessionData } from "../../services/sessionData";
+import { appendReportPhotos, MAX_REPORT_PHOTOS } from "../../services/reportPhotos";
+import { reportPosting } from "../../services/reportPosting";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -110,8 +110,11 @@ function UserPostReportInner() {
     PoppinsSemiBold: require("../../assets/fonts/Poppins-SemiBold.ttf"),
   });
 
-  const [fullName, setFullName] = useState("");
-  const [username, setUsername] = useState("");
+  const [fullName, setFullName] = useState(() => {
+    const profile = getCache("api:/profile");
+    return profile?.name || [profile?.first_name, profile?.middle_name, profile?.last_name].filter(Boolean).join(" ");
+  });
+  const [username, setUsername] = useState(() => getCache("api:/profile")?.user_name || "");
   const [displayNameType, setDisplayNameType] = useState("Fullname");
 
   const [location, setLocation] = useState("");
@@ -120,16 +123,69 @@ function UserPostReportInner() {
 
   const [incidentCategory, setIncidentCategory] = useState("");
   const [incidentType, setIncidentType] = useState("");
-  const [categoryOptions, setCategoryOptions] = useState(FALLBACK_CATEGORIES);
+  const [categoryOptions, setCategoryOptions] = useState(() => getCache("api:/incidents/options")?.categories || FALLBACK_CATEGORIES);
   const [details, setDetails] = useState("");
   const [photos, setPhotos] = useState([]);
   const [loadingLocation, setLoadingLocation] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const submitLockRef = useRef(false);
-  const navigationTimerRef = useRef(null);
+  const photoPickerBusyRef = useRef(false);
+  const locationSequenceRef = useRef(0);
+  const restoredLocationRef = useRef(false);
+  const scrollRef = useRef(null);
+  const lastCompletionRef = useRef(0);
+  const freshLocationRef = useRef(false);
   const [submitStage, setSubmitStage] = useState("");
-  useEffect(() => () => clearTimeout(navigationTimerRef.current), []);
+  const postingJob = useSyncExternalStore(reportPosting.subscribe, reportPosting.snapshot, reportPosting.snapshot);
+  const postingBlocked = !["idle", "success", "editing"].includes(postingJob.status);
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
+  // A retained tab can miss the transient success status because the global
+  // toast dismisses it. The monotonic revision survives that dismissal.
+  const resetCompletedDraft = useCallback(() => {
+    const revision = reportPosting.snapshot().completionRevision || 0;
+    if (revision === lastCompletionRef.current) return;
+    lastCompletionRef.current = revision;
+    locationSequenceRef.current++;
+    const profile = getCache("api:/profile") || {};
+    setFullName(profile.name || [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" "));
+    setUsername(profile.user_name || "");
+    setDisplayNameType("Fullname");
+    setLocation(""); setLatitude(""); setLongitude("");
+    setIncidentCategory(""); setIncidentType(""); setDetails(""); setPhotos([]);
+    setActionSheetVisible(false); setSubmitStage(""); setSubmitting(false);
+    setLoadingLocation(true);
+    freshLocationRef.current = true;
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, []);
+  useEffect(resetCompletedDraft, [postingJob.completionRevision, resetCompletedDraft]);
+  // The + button owns the entry preflight. Submission authorization remains on
+  // the backend; focusing this draft must not repeat the access requests.
+  useFocusEffect(useCallback(() => {
+    resetCompletedDraft();
+    const draft = reportPosting.takeDraft();
+    if (draft) {
+      restoredLocationRef.current = true;
+      locationSequenceRef.current++;
+      setFullName(draft.fullName);
+      setUsername(draft.username);
+      setDisplayNameType(draft.displayNameType);
+      setLocation(draft.location);
+      setLatitude(draft.latitude);
+      setLongitude(draft.longitude);
+      setIncidentCategory(draft.incidentCategory);
+      setIncidentType(draft.incidentType);
+      setDetails(draft.details);
+      setPhotos([...draft.photos]);
+      setLoadingLocation(false);
+      freshLocationRef.current = false;
+    }
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+    if (freshLocationRef.current && !draft) {
+      freshLocationRef.current = false;
+      restoredLocationRef.current = true;
+      void getCurrentLocation();
+    }
+  }, [resetCompletedDraft, postingJob.completionRevision]));
 
   const incidentOptions = categoryOptions.length
     ? categoryOptions
@@ -201,7 +257,8 @@ function UserPostReportInner() {
   }, []);
 
   useEffect(() => {
-    getCurrentLocation();
+    if (!restoredLocationRef.current) void getCurrentLocation();
+    return () => { locationSequenceRef.current++; };
   }, []);
 
   useEffect(() => {
@@ -275,10 +332,12 @@ function UserPostReportInner() {
   };
 
   const getCurrentLocation = async () => {
+    const sequence = ++locationSequenceRef.current;
     try {
       setLoadingLocation(true);
 
       const { status } = await Location.requestForegroundPermissionsAsync();
+      if (sequence !== locationSequenceRef.current) return;
 
       if (status !== "granted") {
         setLocation("Location permission denied");
@@ -291,6 +350,7 @@ function UserPostReportInner() {
       const currentLocation = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
+      if (sequence !== locationSequenceRef.current) return;
 
       const lat = currentLocation.coords.latitude;
       const lng = currentLocation.coords.longitude;
@@ -302,19 +362,21 @@ function UserPostReportInner() {
       setLongitude(fetchedLongitude);
 
       const placeName = await fetchPlaceName(lat, lng);
+      if (sequence !== locationSequenceRef.current) return;
       setLocation(placeName || `Location near ${fetchedLatitude}, ${fetchedLongitude}`);
     } catch {
+      if (sequence !== locationSequenceRef.current) return;
       setLocation("Unable to fetch current location");
       setLatitude("");
       setLongitude("");
     } finally {
-      setLoadingLocation(false);
+      if (sequence === locationSequenceRef.current) setLoadingLocation(false);
     }
   };
 
   const handlePickPhoto = () => {
-    if (submitLockRef.current) return;
-    if (photos.length >= 3) {
+    if (submitLockRef.current || photoPickerBusyRef.current) return;
+    if (photos.length >= MAX_REPORT_PHOTOS) {
       toast.error("You can only upload up to 3 photos.");
       return;
     }
@@ -322,34 +384,45 @@ function UserPostReportInner() {
   };
 
   const handleActionSheetSelect = async (index) => {
-    if (index === 0) {
-      // Camera
-      const camPerm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!camPerm.granted) {
-        toast.error("Please allow camera access to take a photo.");
-        return;
+    if (submitLockRef.current || photoPickerBusyRef.current || photos.length >= MAX_REPORT_PHOTOS) return;
+    photoPickerBusyRef.current = true;
+    const epoch = sessionData.epoch();
+    const acceptPhotos = result => {
+      if (!result.canceled && result.assets?.length && sessionData.current(epoch) && !submitLockRef.current) {
+        setPhotos(prev => appendReportPhotos(prev, result.assets));
       }
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        quality: 0.8,
-      });
-      if (!result.canceled && result.assets?.length) {
-        setPhotos((prev) => [...prev, result.assets[0].uri]);
+    };
+    try {
+      if (index === 0) {
+        const camPerm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!camPerm.granted) {
+          toast.error("Please allow camera access to take a photo.");
+          return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+          allowsEditing: true,
+          quality: 0.8,
+        });
+        acceptPhotos(result);
+      } else if (index === 1) {
+        const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!libPerm.granted) {
+          toast.error("Please allow access to your photo library.");
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsMultipleSelection: true,
+          selectionLimit: MAX_REPORT_PHOTOS - photos.length,
+          allowsEditing: false,
+          quality: 0.8,
+        });
+        acceptPhotos(result);
       }
-    } else if (index === 1) {
-      const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!libPerm.granted) {
-        toast.error("Please allow access to your photo library.");
-        return;
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.8,
-      });
-      if (!result.canceled && result.assets?.length) {
-        setPhotos((prev) => [...prev, result.assets[0].uri]);
-      }
+    } catch {
+      if (sessionData.current(epoch)) toast.error("Could not open the photo picker. Please try again.");
+    } finally {
+      photoPickerBusyRef.current = false;
     }
   };
 
@@ -359,115 +432,38 @@ function UserPostReportInner() {
   };
 
   const handlePostReport = async () => {
-    if (submitLockRef.current) return;
-    let postingProfile;
+    if (postingBlocked || submitLockRef.current) return;
     submitLockRef.current = true;
+    setSubmitting(true);
+    setSubmitStage("Preparing report…");
+    const epoch = sessionData.epoch();
+    const draft = { fullName, username, displayNameType, location, latitude, longitude,
+      incidentCategory, incidentType, details, photos: [...photos] };
     try {
-      if (!await ensureCompleteProfile()) return;
-      const { data: profile } = await apiClient.get("/profile", { cacheMode: "network" });
-      postingProfile = profile;
+      if (!draft.location.trim() || !draft.latitude || !draft.longitude || !draft.incidentCategory || !draft.incidentType || !draft.details.trim()) {
+        toast.error("Please complete the location, category, incident type, and details.");
+        return;
+      }
+      const profile = getCache("api:/profile") || {};
       const name = [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ");
       if (name) setFullName(name);
       if (profile.user_name) setUsername(profile.user_name);
-    } catch (error) {
-      toast.error(error.response?.data?.error || "Could not verify your profile. Please try again.");
-      return;
-    } finally { submitLockRef.current = false; }
-    const selectedDisplayName =
-      displayNameType === "Fullname"
-        ? [postingProfile?.first_name, postingProfile?.middle_name, postingProfile?.last_name].filter(Boolean).join(" ") || fullName
-        : postingProfile?.user_name?.trim() || username.trim();
-
-    if (
-      !selectedDisplayName ||
-      !latitude ||
-      !longitude ||
-      !incidentCategory ||
-      !incidentType ||
-      !details.trim()
-    ) {
-      toast.error(
-        "Please complete the display name, location, category, incident type, and details."
-      );
-      return;
-    }
-
-    submitLockRef.current = true;
-    setSubmitting(true);
-    setSubmitStage("Preparing report...");
-    let posted = false;
-    try {
+      const posterName = draft.displayNameType === "Fullname" ? name || draft.fullName : profile.user_name?.trim() || draft.username.trim();
+      if (!posterName) { toast.error("Please complete your display name."); return; }
       const token = await AsyncStorage.getItem("access_token");
-      if (!token) {
-        toast.error("Please sign in to post a report.");
+      if (!sessionData.current(epoch)) return;
+      if (!reportPosting.start({ ...draft, posterName }, { token, epoch })) {
+        toast.error("Another report needs your attention. Check its posting status on Home.");
         return;
       }
-
-      const photoUrls = await uploadImages(photos, {
-        onProgress: ({ completed, total }) => {
-          if (total) setSubmitStage(`Uploading photos ${completed}/${total}...`);
-        },
-      });
-      setSubmitStage("Saving report...");
-
-      await apiClient.post(
-        "/reports",
-        {
-          poster_name: selectedDisplayName,
-          display_name_type: displayNameType,
-          location,
-          latitude,
-          longitude,
-          incident_category: incidentCategory,
-          incident_type: incidentType,
-          details,
-          photos: photoUrls,
-          status: "Pending Review",
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      posted = true;
-      triggerRefresh();
-      setSubmitStage("Report posted");
-
-      resetForm();
-
-      toast.success(
-        "Report submitted successfully. It is now pending review."
-      );
-
-      navigationTimerRef.current = setTimeout(() => {
-        submitLockRef.current = false;
-        setSubmitting(false);
-        setSubmitStage("");
-        router.replace("/User_Home");
-      }, 1200);
+      router.replace("/User_Home");
     } catch (error) {
-      toast.error(
-        error.response?.data?.error || error.message || "Could not submit your report. Please try again."
-      );
+      if (sessionData.current(epoch)) toast.error(error.response?.data?.error || error.message || "Could not prepare your report. Please try again.");
     } finally {
-      if (!posted) {
-        submitLockRef.current = false;
-        setSubmitting(false);
-        setSubmitStage("");
-      }
+      submitLockRef.current = false;
+      setSubmitting(false);
+      setSubmitStage("");
     }
-  };
-
-  const resetForm = () => {
-    setDisplayNameType("Fullname");
-    setLocation("");
-    setLatitude("");
-    setLongitude("");
-    setIncidentCategory("");
-    setIncidentType("");
-    setDetails("");
-    setPhotos([]);
-    setLoadingLocation(true);
-    getCurrentLocation();
   };
 
   if (!fontsLoaded) {
@@ -482,6 +478,8 @@ function UserPostReportInner() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
         <ScrollView
+        ref={scrollRef}
+        testID="post-report-scroll"
         contentContainerStyle={[
           styles.scrollContainer,
           { paddingBottom: bottomPadding },
@@ -490,6 +488,10 @@ function UserPostReportInner() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.formCard}>
+          {postingBlocked && <TouchableOpacity style={styles.accessNotice} accessibilityRole="button" onPress={() => router.replace("/User_Home")}>
+            <ThemedText style={styles.accessNoticeText}>Your previous report is posting or needs attention. View posting status on Home.</ThemedText>
+            <Ionicons name="arrow-forward" size={20} color={COMMUNISHIELD_BLUE} />
+          </TouchableOpacity>}
           <View style={styles.fieldContainer}>
             <ThemedText style={styles.label}>Display Name</ThemedText>
 
@@ -502,6 +504,7 @@ function UserPostReportInner() {
                 ]}
                 activeOpacity={0.85}
                 onPress={() => setDisplayNameType("Fullname")}
+                disabled={submitting}
               >
                 <Ionicons
                   name={
@@ -534,6 +537,7 @@ function UserPostReportInner() {
                 ]}
                 activeOpacity={0.85}
                 onPress={() => setDisplayNameType("Username")}
+                disabled={submitting}
               >
                 <Ionicons
                   name={
@@ -571,6 +575,7 @@ function UserPostReportInner() {
                 style={styles.input}
                 value={username}
                 onChangeText={setUsername}
+                editable={!submitting}
                 placeholder="Enter username or nickname"
                 placeholderTextColor="#8A94A6"
               />
@@ -589,8 +594,8 @@ function UserPostReportInner() {
               <TouchableOpacity
                 style={styles.refreshButton}
                 activeOpacity={0.85}
-                onPress={getCurrentLocation}
-                disabled={loadingLocation}
+                onPress={() => { if (!submitLockRef.current) void getCurrentLocation(); }}
+                disabled={loadingLocation || submitting}
               >
                 <Ionicons
                   name="refresh-outline"
@@ -613,19 +618,21 @@ function UserPostReportInner() {
               <TextInput
                 style={styles.locationInput}
                 value={location}
-                editable={false}
-                pointerEvents="none"
+                onChangeText={(text) => { if (!submitLockRef.current) setLocation(text); }}
+                editable={!loadingLocation && !submitting}
+                accessibilityLabel="Report location address"
                 placeholder={
                   loadingLocation
                     ? "Fetching current location..."
-                    : "Location will be fetched automatically"
+                    : "Enter or correct the address"
                 }
                 placeholderTextColor="#8A94A6"
               />
             </View>
 
             <ThemedText style={styles.helperText}>
-              Location is automatically fetched and cannot be edited manually.
+              You can correct the address. The map pin stays at your fetched GPS
+              location. Refresh replaces both the address and coordinates.
             </ThemedText>
           </View>
 
@@ -640,6 +647,7 @@ function UserPostReportInner() {
                 value: option.category,
               }))}
               onChange={setIncidentCategory}
+              disabled={submitting}
             />
           </View>
 
@@ -658,7 +666,7 @@ function UserPostReportInner() {
                 value: type,
               }))}
               onChange={setIncidentType}
-              disabled={!incidentCategory}
+              disabled={!incidentCategory || submitting}
             />
           </View>
 
@@ -669,6 +677,7 @@ function UserPostReportInner() {
               style={styles.textArea}
               value={details}
               onChangeText={setDetails}
+              editable={!submitting}
               placeholder="Describe what happened..."
               placeholderTextColor="#8A94A6"
               multiline
@@ -722,13 +731,13 @@ function UserPostReportInner() {
           </View>
 
           <TouchableOpacity
-            style={[styles.postButton, { opacity: submitting ? 0.6 : 1 }]}
+            style={[styles.postButton, { opacity: submitting || postingBlocked ? 0.6 : 1 }]}
             onPress={handlePostReport}
             activeOpacity={0.88}
-            disabled={submitting}
+            disabled={submitting || postingBlocked}
             accessibilityRole="button"
             accessibilityLabel={submitting ? submitStage : "Post Report"}
-            accessibilityState={{ disabled: submitting, busy: submitting }}
+            accessibilityState={{ disabled: submitting || postingBlocked, busy: submitting }}
           >
             {submitting ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -755,6 +764,10 @@ function UserPostReportInner() {
 }
 
 const styles = StyleSheet.create({
+  accessNotice: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 10, backgroundColor: "#EEF4FF", marginBottom: 18 },
+  accessNoticeText: { flex: 1, fontSize: 12, lineHeight: 19, color: "#405677" },
+  accessRetry: { padding: 8 },
+  accessRetryText: { color: "#294880", fontFamily: "PoppinsSemiBold", fontSize: 12 },
   container: {
     flex: 1,
     backgroundColor: "#F3F6FB",

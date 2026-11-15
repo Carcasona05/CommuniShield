@@ -825,10 +825,6 @@ const MyReportsInner = () => {
             />
           </View>
 
-          {loadError ? <View style={styles.emptyCard}>
-            <ThemedText accessibilityRole="alert" style={styles.emptySubtitle}>{loadError}</ThemedText>
-            <TouchableOpacity accessibilityRole="button" onPress={handleRefresh}><ThemedText style={styles.viewMoreText}>Retry loading reports</ThemedText></TouchableOpacity>
-          </View> : null}
           {filteredReports.length === 0 && !loadError ? (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIcon}>

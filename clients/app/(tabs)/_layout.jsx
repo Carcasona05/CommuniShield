@@ -25,6 +25,7 @@ import useSessionEpoch from "../../hooks/useSessionEpoch";
 import { getCache, setCache } from "../../services/dataStore";
 import { saveLastPage, getLastPage } from "../../services/lastPage";
 import BrowserSessionGate from "../../components/BrowserSessionGate";
+import ReportPostingStatus from "../../components/ReportPostingStatus";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -313,6 +314,7 @@ function TabLayoutInner() {
       </View>
 
       {showBottomNav && <BottomNavBar visible={navVisible} />}
+      <ReportPostingStatus />
     </View>
     </ErrorBoundary>
   );

@@ -26,5 +26,5 @@ test("announcements and blotters follow incidents and keep newest-first without 
   const blotter = localBlotterRecord({ id: "local", created_at: "2026-11-15" });
   const announcement = { id: "announcement", kind: "Announcement", severity: "Critical", created_at: "2026-11-14" };
   assert.deepEqual([announcement, blotter, incident].sort(compareRecords).map(row => row.id), ["incident", "local", "announcement"]);
-  assert.equal(recordFilters({}).sort, "status-priority-v1", "Discard retained pages from the old chronological ordering");
+  assert.equal(recordFilters({}).sort, "status-priority-v2", "Discard retained pages from the previous eligibility policy");
 });

@@ -1,372 +1,85 @@
-import React, { useRef, useState } from "react";
-import {
-  Modal,
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  FlatList,
-  Animated,
-  useWindowDimensions,
-  Platform,
-} from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Modal, View, Text, TouchableOpacity, StyleSheet, Animated, useWindowDimensions, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import ReportImage from "./ReportImage";
+import { reportImageList } from "../services/reportImageSource";
+import { createPhotoGestures } from "../services/photoGestures";
 
-const getImageSource = (img) =>
-  typeof img === "string" ? { uri: img } : img;
-
-const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-
-const getDistance = (touches) => {
-  const [a, b] = touches;
-  return Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
-};
-
-const getMidpoint = (touches) => {
-  const [a, b] = touches;
-  return { x: (a.pageX + b.pageX) / 2, y: (a.pageY + b.pageY) / 2 };
-};
-
-const ZoomableImage = ({ image, width, height, onZoomChange }) => {
+function ZoomableImage({ image, width, height, onSwipe, controls }) {
+  const surface = useRef(null);
   const scale = useRef(new Animated.Value(1)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
+  const x = useRef(new Animated.Value(0)).current;
+  const y = useRef(new Animated.Value(0)).current;
+  const swipeRef = useRef(onSwipe); swipeRef.current = onSwipe;
+  const gestures = useMemo(() => createPhotoGestures({ width, height,
+    onChange: value => { scale.setValue(value.scale); x.setValue(value.x); y.setValue(value.y); },
+    onSwipe: direction => swipeRef.current(direction),
+  }), [width, height, scale, x, y]);
+  useEffect(() => { controls.current = gestures; return () => { controls.current = null; }; }, [gestures, controls]);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = surface.current;
+    const wheel = event => { event.preventDefault(); gestures.zoom(event.deltaY < 0 ? 1.15 : 1 / 1.15); };
+    node?.addEventListener("wheel", wheel, { passive: false });
+    return () => node?.removeEventListener("wheel", wheel);
+  }, [gestures]);
+  const touches = event => Array.from(event.nativeEvent.touches || []);
+  return <View ref={surface} testID="photo-zoom-surface" style={[styles.page, { width, height }, Platform.OS === "web" && { touchAction: "none", userSelect: "none" }]}
+    onStartShouldSetResponder={() => true}
+    onStartShouldSetResponderCapture={event => touches(event).length >= 2}
+    onMoveShouldSetResponderCapture={event => touches(event).length >= 2 || gestures.snapshot().scale > 1}
+    onResponderTerminationRequest={() => false}
+    onTouchStart={event => gestures.start(touches(event))}
+    onResponderGrant={event => gestures.start(touches(event))}
+    onResponderMove={event => gestures.move(touches(event))}
+    onResponderRelease={event => gestures.end(touches(event))}
+    onTouchEnd={event => gestures.end(touches(event))}
+    onResponderTerminate={() => gestures.end()}>
+    <Animated.View testID="photo-zoom-transform" style={{ width, height, transform: [{ translateX: x }, { translateY: y }, { scale }] }}>
+      <ReportImage image={image} style={{ width, height, backgroundColor: "#0B0F19" }} resizeMode="contain" dark />
+    </Animated.View>
+  </View>;
+}
 
-  const scaleRef = useRef(1);
-  const txRef = useRef(0);
-  const tyRef = useRef(0);
-  const gestureRef = useRef(null);
-
-  const applyTransform = (s, x, y) => {
-    scaleRef.current = s;
-    txRef.current = x;
-    tyRef.current = y;
-    scale.setValue(s);
-    translateX.setValue(x);
-    translateY.setValue(y);
-    onZoomChange?.(s > 1.01);
-  };
-
-  const clampX = (x, s) => clamp(x, -((s - 1) * width) / 2, ((s - 1) * width) / 2);
-  const clampY = (y, s) => clamp(y, -((s - 1) * height) / 2, ((s - 1) * height) / 2);
-
-  const snapBack = () => {
-    Animated.parallel([
-      Animated.timing(scale, {
-        toValue: 1,
-        duration: 180,
-        useNativeDriver: false,
-      }),
-      Animated.timing(translateX, {
-        toValue: 0,
-        duration: 180,
-        useNativeDriver: false,
-      }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 180,
-        useNativeDriver: false,
-      }),
-    ]).start(() => {
-      scaleRef.current = 1;
-      txRef.current = 0;
-      tyRef.current = 0;
-      onZoomChange?.(false);
-    });
-  };
-
-  const onStartShouldSetResponder = (event) =>
-    event.nativeEvent.touches.length >= 2;
-
-  const onMoveShouldSetResponder = (event) => {
-    const touches = event.nativeEvent.touches;
-    return touches.length >= 2 || scaleRef.current > 1.01;
-  };
-
-  const onResponderGrant = (event) => {
-    const touches = event.nativeEvent.touches;
-
-    if (touches.length >= 2) {
-      gestureRef.current = {
-        mode: "pinch",
-        startDistance: getDistance(touches),
-        startMidpoint: getMidpoint(touches),
-        baseScale: scaleRef.current,
-        baseTx: txRef.current,
-        baseTy: tyRef.current,
-      };
-    } else if (touches.length === 1) {
-      gestureRef.current = {
-        mode: "pan",
-        startX: touches[0].pageX,
-        startY: touches[0].pageY,
-        baseTx: txRef.current,
-        baseTy: tyRef.current,
-      };
-    }
-  };
-
-  const onResponderMove = (event) => {
-    const gesture = gestureRef.current;
-    const touches = event.nativeEvent.touches;
-    if (!gesture) return;
-
-    if (touches.length >= 2) {
-      gesture.mode = "pinch";
-      const currentDistance = getDistance(touches);
-      const currentMidpoint = getMidpoint(touches);
-
-      let nextScale = gesture.baseScale * (currentDistance / gesture.startDistance);
-      nextScale = clamp(nextScale, 1, 4);
-
-      let nextTx = gesture.baseTx;
-      let nextTy = gesture.baseTy;
-
-      if (nextScale > 1) {
-        const dx = currentMidpoint.x - gesture.startMidpoint.x;
-        const dy = currentMidpoint.y - gesture.startMidpoint.y;
-        nextTx = gesture.baseTx + dx;
-        nextTy = gesture.baseTy + dy;
-      }
-
-      applyTransform(
-        nextScale,
-        clampX(nextTx, nextScale),
-        clampY(nextTy, nextScale)
-      );
-    } else if (touches.length === 1) {
-      if (gesture.mode === "pan" && scaleRef.current > 1) {
-        const dx = touches[0].pageX - gesture.startX;
-        const dy = touches[0].pageY - gesture.startY;
-
-        applyTransform(
-          scaleRef.current,
-          clampX(gesture.baseTx + dx, scaleRef.current),
-          clampY(gesture.baseTy + dy, scaleRef.current)
-        );
-      }
-    }
-  };
-
-  const onResponderRelease = () => {
-    gestureRef.current = null;
-
-    if (scaleRef.current <= 1) {
-      snapBack();
-    }
-  };
-
-  return (
-    <View
-      style={[styles.page, { width, height }]}
-      onStartShouldSetResponder={onStartShouldSetResponder}
-      onMoveShouldSetResponder={onMoveShouldSetResponder}
-      onResponderGrant={onResponderGrant}
-      onResponderMove={onResponderMove}
-      onResponderRelease={onResponderRelease}
-      onResponderTerminate={onResponderRelease}
-    >
-      <Animated.Image
-        source={getImageSource(image)}
-        style={[
-          styles.fullImage,
-          {
-            width,
-            height,
-            transform: [
-              { translateX },
-              { translateY },
-              { scale },
-            ],
-          },
-        ]}
-        resizeMode="contain"
-      />
-    </View>
-  );
-};
-
-export default function FullscreenImageViewer({
-  images = [],
-  initialIndex = 0,
-  visible,
-  onClose,
-}) {
+export default function FullscreenImageViewer({ images = [], initialIndex = 0, visible, onClose }) {
   const { width, height } = useWindowDimensions();
-  const [activeIndex, setActiveIndex] = useState(initialIndex);
-  const [scrollEnabled, setScrollEnabled] = useState(true);
-
-  const handleScrollEnd = (event) => {
-    const index = Math.round(event.nativeEvent.contentOffset.x / width);
-    setActiveIndex(index);
-    setScrollEnabled(true);
-  };
-
-  const renderPage = ({ item }) => {
-    return (
-      <ZoomableImage
-        image={item}
-        width={width}
-        height={height}
-        onZoomChange={setScrollEnabled}
-      />
-    );
-  };
-
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <View style={styles.container}>
-        <View style={styles.topBar}>
-          <TouchableOpacity
-            style={styles.closeButton}
-            activeOpacity={0.8}
-            onPress={onClose}
-          >
-            <Ionicons name="close" size={26} color="#FFFFFF" />
-          </TouchableOpacity>
-
-          {images.length > 1 ? (
-            <Text style={styles.counter}>
-              {activeIndex + 1} / {images.length}
-            </Text>
-          ) : null}
-        </View>
-
-        <FlatList
-          data={images}
-          keyExtractor={(item, index) => `${index}`}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          scrollEnabled={scrollEnabled}
-          initialScrollIndex={Math.min(initialIndex, images.length - 1)}
-          getItemLayout={(_, index) => ({
-            length: width,
-            offset: width * index,
-            index,
-          })}
-          onMomentumScrollEnd={handleScrollEnd}
-          renderItem={renderPage}
-          style={styles.list}
-        />
-
-        {images.length > 1 ? (
-          <View style={styles.dotsRow}>
-            {images.map((_, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.dot,
-                  index === activeIndex && styles.dotActive,
-                ]}
-              />
-            ))}
-          </View>
-        ) : null}
-
-        <View style={styles.hintBar}>
-          <Ionicons name="expand-outline" size={15} color="rgba(255,255,255,0.7)" />
-          <Text style={styles.hintText}>
-            {images.length > 1
-              ? "Swipe to browse · Pinch to zoom"
-              : "Pinch to zoom"}
-          </Text>
+  const list = reportImageList(images);
+  const startIndex = Math.max(0, Math.min(initialIndex, list.length - 1));
+  const [activeIndex, setActiveIndex] = useState(startIndex);
+  const controls = useRef(null);
+  useEffect(() => { if (visible) setActiveIndex(startIndex); }, [visible, startIndex]);
+  const index = Math.min(activeIndex, Math.max(0, list.length - 1));
+  const browse = direction => setActiveIndex(current => Math.max(0, Math.min(list.length - 1, current + direction)));
+  if (!visible || !list.length) return null;
+  return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <View style={styles.container}>
+      <ZoomableImage key={`${index}:${width}:${height}`} image={list[index]} width={width} height={height} controls={controls} onSwipe={browse} />
+      <View style={styles.topBar}>
+        <TouchableOpacity style={styles.button} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close photo viewer"><Ionicons name="close" size={26} color="#FFFFFF" /></TouchableOpacity>
+        {list.length > 1 && <Text style={styles.counter}>{index + 1} / {list.length}</Text>}
+        <View style={styles.tools}>
+          <TouchableOpacity style={styles.button} accessibilityRole="button" accessibilityLabel="Zoom out" onPress={() => controls.current?.zoom(1 / 1.4)}><Ionicons name="remove" size={22} color="#FFFFFF" /></TouchableOpacity>
+          <TouchableOpacity style={styles.button} accessibilityRole="button" accessibilityLabel="Reset photo zoom" onPress={() => controls.current?.reset()}><Ionicons name="refresh" size={20} color="#FFFFFF" /></TouchableOpacity>
+          <TouchableOpacity style={styles.button} accessibilityRole="button" accessibilityLabel="Zoom in" onPress={() => controls.current?.zoom(1.4)}><Ionicons name="add" size={22} color="#FFFFFF" /></TouchableOpacity>
         </View>
       </View>
-    </Modal>
-  );
+      {list.length > 1 && <View style={styles.browseBar} pointerEvents="box-none">
+        <TouchableOpacity style={styles.button} disabled={index === 0} accessibilityRole="button" accessibilityLabel="Previous photo" onPress={() => browse(-1)}><Ionicons name="chevron-back" size={26} color={index === 0 ? "#64748B" : "#FFFFFF"} /></TouchableOpacity>
+        <TouchableOpacity style={styles.button} disabled={index === list.length - 1} accessibilityRole="button" accessibilityLabel="Next photo" onPress={() => browse(1)}><Ionicons name="chevron-forward" size={26} color={index === list.length - 1 ? "#64748B" : "#FFFFFF"} /></TouchableOpacity>
+      </View>}
+      <View style={styles.hintBar} pointerEvents="none"><Text style={styles.hintText}>Pinch to zoom · Drag when zoomed{list.length > 1 ? " · Swipe when unzoomed" : ""}</Text></View>
+    </View>
+  </Modal>;
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0B0F19",
-    justifyContent: "center",
-  },
-
-  topBar: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? 52 : 28,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-  },
-
-  closeButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "rgba(255,255,255,0.14)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  counter: {
-    fontSize: 14,
-    fontFamily: "PoppinsMedium",
-    color: "#FFFFFF",
-  },
-
-  list: {
-    flexGrow: 0,
-  },
-
-  page: {
-    justifyContent: "center",
-    alignItems: "center",
-    overflow: "hidden",
-  },
-
-  fullImage: {
-    backgroundColor: "#0B0F19",
-  },
-
-  dotsRow: {
-    position: "absolute",
-    bottom: 70,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: "rgba(255,255,255,0.35)",
-    marginHorizontal: 4,
-  },
-
-  dotActive: {
-    width: 18,
-    backgroundColor: "#FFFFFF",
-  },
-
-  hintBar: {
-    position: "absolute",
-    bottom: 32,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  hintText: {
-    marginLeft: 6,
-    fontSize: 12,
-    fontFamily: "PoppinsRegular",
-    color: "rgba(255,255,255,0.7)",
-  },
+  container: { flex: 1, backgroundColor: "#0B0F19", justifyContent: "center" },
+  page: { justifyContent: "center", alignItems: "center", overflow: "hidden" },
+  topBar: { position: "absolute", top: Platform.OS === "ios" ? 52 : 28, left: 0, right: 0, zIndex: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 12, gap: 8 },
+  tools: { flexDirection: "row", gap: 6 },
+  button: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.14)", alignItems: "center", justifyContent: "center" },
+  counter: { fontSize: 14, color: "#FFFFFF" },
+  browseBar: { position: "absolute", bottom: 78, left: 16, right: 16, flexDirection: "row", justifyContent: "space-between" },
+  hintBar: { position: "absolute", bottom: 32, left: 16, right: 16, alignItems: "center" },
+  hintText: { fontSize: 11, color: "rgba(255,255,255,0.8)", textAlign: "center" },
 });

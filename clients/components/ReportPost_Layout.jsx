@@ -11,6 +11,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import FullscreenImageViewer from "./FullscreenImageViewer";
+import ReportPhotoGrid from "./ReportPhotoGrid";
+import { reportImageList } from "../services/reportImageSource";
 import formatRelativeTime from "../services/formatRelativeTime";
 import formatDisplayLocation from "../services/formatDisplayLocation";
 import censorText from "../services/censorText";
@@ -57,7 +59,7 @@ const ReportPost_Layout = ({
   const iconSize = isSmallScreen ? 18 : 20;
   const mediaHeight = isSmallScreen ? 140 : 165;
 
-  const imageList = Array.isArray(images) ? images.filter(Boolean) : [];
+  const imageList = reportImageList(images);
   const imageCount = imageList.length;
 
   const relativeDate = formatRelativeTime(datePosted);
@@ -171,27 +173,7 @@ const ReportPost_Layout = ({
       return null;
     }
 
-    const remainingCount = imageCount - 1;
-
-    return (
-      <TouchableOpacity
-        activeOpacity={0.95}
-        onPress={() => setViewerIndex(0)}
-        style={[styles.singleImage, { height: mediaHeight }]}
-      >
-        <Image
-          source={getImageSource(imageList[0])}
-          style={[styles.singleImage, { height: mediaHeight }]}
-        />
-
-        {remainingCount > 0 ? (
-          <View style={styles.imageCountOverlay}>
-            <Ionicons name="images" size={15} color="#FFFFFF" />
-            <Text style={styles.imageCountText}>+{remainingCount}</Text>
-          </View>
-        ) : null}
-      </TouchableOpacity>
-    );
+    return <ReportPhotoGrid images={imageList} onPress={setViewerIndex} height={imageCount > 1 ? mediaHeight + 55 : mediaHeight} />;
   };
 
   return (

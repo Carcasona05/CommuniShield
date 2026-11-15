@@ -49,15 +49,15 @@ after(() => db.close());
 
 test("mixed records return ten rows, complete metrics and no archived records/actions", async () => {
   const first = await rpc();
-  assert.equal(first.items.length, 10); assert.equal(first.total, 448);
-  assert.deepEqual(first.stats, { reports: 35, announcements: 13, activities: 400, verified: 200, rejected: 100, ai: 100 });
+  assert.equal(first.items.length, 10); assert.equal(first.total, 348);
+  assert.deepEqual(first.stats, { reports: 35, announcements: 13, activities: 300, verified: 200, rejected: 0, ai: 100 });
   const seen = new Set(); let page = first, number = 1;
   do {
     for (const row of page.items) { assert.equal(seen.has(row.id), false); seen.add(row.id); assert.notEqual(row.status, "Archived"); assert.notEqual(row.status, "Report Archived"); }
     if (!page.hasMore) break;
     page = await rpc({ page: ++number, cursor: page.cursor });
   } while (true);
-  assert.equal(seen.size, 448);
+   assert.equal(seen.size, 348);
 });
 
 test("database filtering happens before page selection, including roles and local-only kind", async () => {
@@ -101,8 +101,8 @@ test("exports include all matching rows and full narratives, not the visible ten
   const page = await rpc({ kind: "Incident" });
   assert.equal(page.items[0].details.length, 240); assert.equal(page.items[0].previewOnly, true);
   const exported = await rpc({ kind: "Incident", exportAll: true });
-  assert.equal(exported.items.length, 35); assert.equal(exported.hasMore, false);
-  assert.equal(exported.items[0].details.length, 800); assert.equal(exported.items[0].previewOnly, false);
+  assert.equal(exported.items.length, 36); assert.equal(exported.hasMore, false);
+  assert.ok(exported.items.some(row => row.details.length === 800)); assert.equal(exported.items[0].previewOnly, false);
 });
 
 test("only service_role can call the pagination function; ordinary clients gain no new access", async () => {
@@ -126,25 +126,25 @@ test("record hierarchy and severity ordering apply globally before View more and
   await db.query("insert into admin_announcement(id,admin_id,type,title,created_at) values($1,$2,'Announcement','Future announcement','2030-02-01T00:00:00Z')", [id(11000), id(9001)]);
   const filters = { from: "2030-01-01", to: "2030-12-31", pageSize: 7 };
   const exported = await rpc({ ...filters, exportAll: true });
-  assert.equal(exported.items.length, 31);
+  assert.equal(exported.items.length, 21);
   assert.deepEqual(exported.items.slice(0, 5).map(row => row.severity), ["Critical", "High", "Medium", "Low", "Unknown"]);
-  assert.deepEqual([...new Set(exported.items.filter(row => row.kind === "Incident").map(row => row.status))], statuses);
+  assert.deepEqual([...new Set(exported.items.filter(row => row.kind === "Incident").map(row => row.status))], statuses.slice(0, 4));
   assert.equal(exported.items.at(-1).kind, "Announcement", "Non-incidents do not jump ahead on recency or severity");
   assert.deepEqual([...exported.items].sort(compareRecords), exported.items, "Local-record merge uses exactly the database order");
   const collected = []; let cursor; let page = 1;
   do {
     const result = await rpc({ ...filters, page: page++, cursor });
     collected.push(...result.items);
-    assert.equal(result.total, 31);
+    assert.equal(result.total, 21);
     if (!result.hasMore) break;
     assert.equal(result.cursor.priority.version, 1);
     cursor = result.cursor;
   } while (page < 20);
   assert.deepEqual(collected.map(row => row.id), exported.items.map(row => row.id));
-  assert.equal(new Set(collected.map(row => row.id)).size, 31);
+  assert.equal(new Set(collected.map(row => row.id)).size, 21);
 });
 
-test("a rejected top report moves down on prefix refresh; oldest-first preserves microsecond ties", async () => {
+test("a rejected top report disappears on refresh; oldest-first preserves microsecond ties", async () => {
   const filters = { from: "2030-01-01", to: "2030-12-31", kind: "Incident", pageSize: 1 };
   const first = await rpc(filters);
   assert.equal(first.items[0].id, id(10000));
@@ -153,7 +153,7 @@ test("a rejected top report moves down on prefix refresh; oldest-first preserves
   assert.equal(refreshed.items[0].id, id(10001));
   const all = await rpc({ ...filters, exportAll: true });
   const rejected = all.items.findIndex(row => row.id === id(10000));
-  assert.ok(rejected > all.items.findIndex(row => row.status === "Resolved"));
+  assert.equal(rejected, -1);
   await db.query("insert into reports(id,role,status,created_at) values($1,'admin','Under Verification','2030-01-02T12:00:00.123455Z'),($2,'admin','Under Verification','2030-01-02T12:00:00.123456Z')", [id(12000), id(12001)]);
   await db.query("insert into report_credibility_analysis values($1,'Critical',80),($2,'Critical',80)", [id(12000), id(12001)]);
   const scope = { ...filters, status: "Under Verification" };
@@ -161,4 +161,31 @@ test("a rejected top report moves down on prefix refresh; oldest-first preserves
   const b = await rpc({ ...scope, page: 2, cursor: a.cursor });
   const c = await rpc({ ...scope, page: 3, cursor: b.cursor });
   assert.deepEqual([a.items[0].id, b.items[0].id, c.items[0].id], [id(12000), id(12001), id(10010)]);
+});
+
+test("user incidents use complete pagination, counts and exports without rejected/fake/archive leakage", async () => {
+  for (let n = 0; n < 26; n++) {
+    const status = n < 23 ? "Verified" : ["Rejected", "Marked Fake", "Archived"][n - 23];
+    await db.query("insert into reports(id,user_id,role,status,created_at,details) values($1,$2,'user',$3,$4,'User narrative')",
+      [id(20000 + n), id(9003), status, `2040-01-01T12:00:${String(n).padStart(2, "0")}Z`]);
+  }
+  const filters = { actorRole: "user", from: "2040-01-01", kind: "Announcement" };
+  const exported = await rpc({ ...filters, exportAll: true });
+  assert.equal(exported.total, 23);
+  assert.equal(exported.stats.reports, 23);
+  assert.equal(exported.stats.announcements, 0);
+  assert.equal(exported.stats.activities, 0);
+  assert.ok(exported.items.every(row => row.actorRole === "user" && row.kind === "Incident" && row.status === "Verified"));
+  const items = []; let cursor;
+  do {
+    const page = await rpc({ ...filters, cursor });
+    items.push(...page.items);
+    if (!page.hasMore) break;
+    cursor = page.cursor;
+  } while (items.length < 50);
+  assert.deepEqual(items.map(row => row.id), exported.items.map(row => row.id));
+  assert.equal(new Set(items.map(row => row.id)).size, 23);
+  for (const status of ["Rejected", "Marked Fake", "Archived"]) assert.equal((await rpc({ ...filters, status })).total, 0);
+  const archives = await rpc({ view: "archived", actorRole: "user", from: "2040-01-01" });
+  assert.equal(archives.total, 1, "Archived view remains independent");
 });

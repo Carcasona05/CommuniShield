@@ -13,6 +13,7 @@ import { aiService } from "./services/aiService.js";
 import { sentimentService } from "./services/sentimentService.js";
 import { supabaseAdmin } from "./config/supabaseAdmin.js";
 import { uploadService } from "./services/uploadService.js";
+import sharp from "sharp";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -150,8 +151,36 @@ test("parallel uploads cannot overwrite same-named photos and share bucket initi
     getPublicUrl: (path: string) => ({ data: { publicUrl: `https://example.test/${path}` } }),
   });
   t.mock.method(supabaseAdmin.storage, "from", from as unknown as typeof supabaseAdmin.storage.from);
-  const result = await Promise.all(Array.from({ length: 3 }, () => uploadService.uploadImage("aGVsbG8=", "same.jpg", "image/jpeg")));
+  const photo = await sharp({ create: { width: 4, height: 4, channels: 3, background: "red" } }).jpeg().toBuffer();
+  const result = await Promise.all(Array.from({ length: 3 }, () => uploadService.uploadImage(photo.toString("base64"), "same.jpg", "image/jpeg")));
   assert.equal(bucket.mock.callCount(), 1);
   assert.equal(new Set(paths).size, 3);
   assert.ok(result.every((value) => value.data?.url));
+});
+
+test("invalid image bytes cannot be stored as a successful photo upload", async t => {
+  const storage = t.mock.method(supabaseAdmin.storage, "from", (() => { throw new Error("Invalid bytes must not reach storage"); }) as never);
+  for (const base64 of ["aGVsbG8=", "blob:temporary-photo", "data:image/jpeg;base64,AAAA"]) {
+    const result = await uploadService.uploadImage(base64, "photo.jpg", "image/jpeg");
+    assert.match(result.error || "", /not a readable image/);
+  }
+  assert.equal(storage.mock.callCount(), 0);
+});
+
+test("upload content type and extension match the actual encoded image", async t => {
+  const png = await sharp({ create: { width: 3, height: 2, channels: 3, background: "blue" } }).png().toBuffer();
+  let uploaded = false;
+  t.mock.method(supabaseAdmin.storage, "from", (() => ({
+    async upload(path: string, bytes: Buffer, options: { contentType: string }) {
+      assert.ok(path.endsWith(".png"));
+      assert.equal(options.contentType, "image/png");
+      assert.deepEqual(bytes, png);
+      uploaded = true;
+      return { error: null };
+    },
+    getPublicUrl: () => ({ data: { publicUrl: "https://example.test/photo.png" } }),
+  })) as never);
+  const result = await uploadService.uploadImage(png.toString("base64"), "wrong.jpg", "image/jpeg");
+  assert.equal(uploaded, true);
+  assert.equal(result.error, null);
 });

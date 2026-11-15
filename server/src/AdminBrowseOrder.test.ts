@@ -37,3 +37,16 @@ test("obsolete record cursors must be refreshed, while chronological log cursors
   const args = rpc.mock.calls[0]!.arguments as unknown as [string, Record<string, unknown>];
   assert.equal(args[1].p_before_sort, null);
 });
+
+test("record service defaults to Admin and forces user records to Incident before SQL/export", async t => {
+  const rpc = t.mock.method(supabaseAdmin, "rpc", (async () => ({ data: { items: [], total: 0, stats: {}, hasMore: false }, error: null })) as never);
+  await loadAdminBrowsePage({ view: "records", page: 1, pageSize: 10 });
+  await loadAdminBrowsePage({ view: "records", page: 1, pageSize: 10, actorRole: "user", kind: "Announcement", exportAll: true });
+  await loadAdminBrowsePage({ view: "logs", page: 1, pageSize: 10 });
+  const args = rpc.mock.calls.map(call => (call.arguments as unknown as [string, Record<string, unknown>])[1]);
+  assert.equal(args[0]!.p_actor_role, "admin");
+  assert.equal(args[1]!.p_actor_role, "user");
+  assert.equal(args[1]!.p_kind, "Incident");
+  assert.equal(args[1]!.p_export, true);
+  assert.equal(args[2]!.p_actor_role, null);
+});

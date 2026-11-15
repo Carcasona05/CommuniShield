@@ -50,7 +50,7 @@ export async function getAdminBrowsePage(req: AuthRequest, res: Response) {
       (value("actorRole") && !["user", "admin", "super_admin", "system"].includes(value("actorRole"))) ||
       (value("focusReport") && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value("focusReport"))) ||
       (value("exportAll") && value("exportAll") !== "1") ||
-      (value("sort") && value("sort") !== "status-priority-v1")) return res.status(400).json({ error: "Invalid pagination or record filters" });
+      (value("sort") && !["status-priority-v1", "status-priority-v2"].includes(value("sort")))) return res.status(400).json({ error: "Invalid pagination or record filters" });
     const fields: Record<string, string> = {};
     for (const key of ["from", "to", "status", "kind", "actorRole", "focusReport"]) if (value(key)) fields[key] = value(key);
     let cursor;

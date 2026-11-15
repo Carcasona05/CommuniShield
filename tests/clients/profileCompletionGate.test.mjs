@@ -40,5 +40,6 @@ test("every comment form preflights profile and preserves comment drafts on a bl
   }
   const report = text("app/(tabs)/User_PostReport.jsx");
   const handler = report.slice(report.indexOf("const handlePostReport ="));
-  assert.ok(handler.indexOf("ensureCompleteProfile()") < handler.indexOf("uploadImages("));
+  assert.doesNotMatch(handler, /ensureCompleteProfile\(\)/);
+  assert.match(text("components/BottomNavBar.jsx"), /await ensureParticipationReady\(\)/);
 });

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Modal,
   View,
@@ -12,6 +12,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import useAdminReportDetails from "../../hooks/useAdminReportDetails";
 import QueryErrorNotice from "../QueryErrorNotice";
+import FullscreenImageViewer from "../FullscreenImageViewer";
+import { reportImageList } from "../../services/reportImageSource";
 
 const COMMUNISHIELD_BLUE = "#294880";
 
@@ -31,6 +33,8 @@ export default function Admin_ViewSimilarReportsModal({
   validating = false,
 }) {
   const [openMenuReportId, setOpenMenuReportId] = useState(null);
+  const [photoViewer, setPhotoViewer] = useState(null);
+  useEffect(() => { setPhotoViewer(null); }, [visible, compiledGroup?.id]);
   const detailQuery = useAdminReportDetails((compiledGroup?.reports || []).map(report => report.id), visible);
 
   if (!compiledGroup) return null;
@@ -191,7 +195,7 @@ export default function Admin_ViewSimilarReportsModal({
       images.push(report.photo);
     }
 
-    return images.filter(Boolean);
+    return reportImageList(images);
   };
 
   const getSubmittedByName = (report) => {
@@ -462,8 +466,11 @@ export default function Admin_ViewSimilarReportsModal({
                             if (!imageSource) return null;
 
                             return (
-                              <View
-                                key={`${report.id}-image-${index}`}
+                               <TouchableOpacity
+                                 key={`${report.id}-image-${index}`}
+                                 accessibilityRole="button"
+                                 accessibilityLabel={`Open report photo ${index + 1}`}
+                                 onPress={() => setPhotoViewer({ images: reportImageList(reportImages), index })}
                                 style={[
                                   styles.reportImageSlot,
                                   reportImages.length === 1 &&
@@ -486,7 +493,7 @@ export default function Admin_ViewSimilarReportsModal({
                                     {index + 1}/{reportImages.length}
                                   </Text>
                                 </View>
-                              </View>
+                              </TouchableOpacity>
                             );
                           })}
                         </View>
@@ -881,6 +888,7 @@ export default function Admin_ViewSimilarReportsModal({
           </View>
         </View>
       </View>
+      {photoViewer && <FullscreenImageViewer images={photoViewer.images} initialIndex={photoViewer.index} visible onClose={() => setPhotoViewer(null)} />}
     </Modal>
   );
 }

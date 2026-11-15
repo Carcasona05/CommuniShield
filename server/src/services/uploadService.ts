@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { randomUUID } from "node:crypto";
+import sharp from "sharp";
 
 const BUCKET = "report-images";
 
@@ -25,6 +26,19 @@ const sanitizeName = (name: string) =>
 export const uploadService = {
   async uploadImage(base64: string, filename: string, contentType: string) {
     if (!base64) return { error: "No image data provided" };
+    let buffer: Buffer;
+    let format: string;
+    try {
+      // Do not silently store a data URI, object URL or error page as image
+      // bytes. Such uploads otherwise succeed but render as empty gray tiles.
+      if (!/^[A-Za-z0-9+/\r\n]+={0,2}$/.test(base64)) throw new Error("Invalid encoding");
+      buffer = Buffer.from(base64, "base64");
+      const metadata = await sharp(buffer).metadata();
+      if (!metadata.width || !metadata.height || !["jpeg", "png", "webp", "gif"].includes(metadata.format || "")) throw new Error("Invalid image");
+      format = metadata.format!;
+    } catch {
+      return { error: "The uploaded photo is not a readable image. Please select it again." };
+    }
 
     try {
       await ensureBucket();
@@ -33,18 +47,14 @@ export const uploadService = {
     }
 
     const raw = (filename || "photo").replace(/[^\w.-]/g, "_");
-    const ext = /\.(png|jpg|jpeg|webp|gif)$/i.test(raw)
-      ? raw.match(/\.(\w+)$/)?.[1] ?? "jpg"
-      : "jpg";
+    const ext = format === "jpeg" ? "jpg" : format;
     // Parallel uploads can have the same timestamp and original filename.
     const path = `${randomUUID()}_${sanitizeName(raw).replace(/\.\w+$/, '.')}${ext}`;
-
-    const buffer = Buffer.from(base64, "base64");
 
     const { error } = await supabaseAdmin.storage
       .from(BUCKET)
       .upload(path, buffer, {
-        contentType: contentType || `image/${ext}`,
+        contentType: `image/${format}`,
         upsert: false,
       });
 

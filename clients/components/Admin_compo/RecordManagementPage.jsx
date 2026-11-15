@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -23,7 +23,6 @@ import { buildPoliceCertificationHtml } from "../../utils/policeCertification";
 import { buildFormalReportHtml, getReportImages } from "../../utils/formalReport";
 import { printReportInFrame } from "../../utils/printReportInFrame";
 import {
-  BatchDateRangeDropdown,
   BatchFilterDropdown,
 } from "../../components/Admin_compo/AdminBatchFilters";
 import ToastProvider, { useToast } from "../../components/Toast";
@@ -35,10 +34,13 @@ import useManagedRecords from "../../hooks/useManagedRecords";
 import QueryErrorNotice from "../QueryErrorNotice";
 import { sessionData } from "../../services/sessionData";
 import useSmoothScrollToTop from "../../hooks/useSmoothScrollToTop";
+import { canManageRecord, recordListTitle } from "../../services/adminBrowsing";
+import { MAP_DATE_PERIODS } from "../../services/mapDateFilter";
+import useAutoRefresh from "../../hooks/useAutoRefresh";
 
-const FILTER_STATUSES = ["All", "Pending Review", "Under Verification", "Verified", "Resolved", "Rejected", "Marked Fake"];
+const FILTER_STATUSES = ["All", "Pending Review", "Under Verification", "Verified", "Resolved"];
 const REPORT_TYPES = ["All", "Incident", "Announcement", "Blotter"];
-const POST_BY_OPTIONS = ["All", "Admin", "Super Admin"];
+const POST_BY_OPTIONS = ["Admin", "Super Admin", "User"];
 
 const csvValue = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
 
@@ -236,11 +238,23 @@ function RecordManagementContent({ Layout, superAdmin }) {
   const { scrollToTop, trackScroll, stopScrollAnimation } = useSmoothScrollToTop(scrollRef);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [datePeriod, setDatePeriod] = useState("All dates");
+  const [dateAnchor, setDateAnchor] = useState(() => new Date());
+  // Refresh rolling bounds when returning to the screen or on its normal poll,
+  // while keeping timestamps stable between renders and pagination requests.
+  useAutoRefresh(useCallback(() => {
+    setDateAnchor(previous => {
+      const now = new Date();
+      return now.getTime() - previous.getTime() < 30000 ? previous : now;
+    });
+  }, []), 60000);
   const [status, setStatus] = useState("All");
   const [reportType, setReportType] = useState("All");
-  const [postBy, setPostBy] = useState("All");
+  const [postBy, setPostBy] = useState("Admin");
+  const changePostBy = value => {
+    setPostBy(value);
+    setReportType(value === "User" ? "Incident" : "All");
+  };
   const [addReportVisible, setAddReportVisible] = useState(false);
   const [addAnnouncementVisible, setAddAnnouncementVisible] = useState(false);
   const [addBlotterVisible, setAddBlotterVisible] = useState(false);
@@ -256,7 +270,7 @@ function RecordManagementContent({ Layout, superAdmin }) {
   const previewSequence = useRef(0);
   useEffect(() => () => { previewSequence.current++; }, []);
   const { data, loading, loadingMore, refreshing, errorMessage, hasMore, loadMore, loadRecords, exportRecords,
-    setBlotters, filteredRecords, displayedRecords, totalRecords, metrics } = useManagedRecords({ from, to, status, reportType, postBy });
+     setBlotters, filteredRecords, displayedRecords, totalRecords, metrics } = useManagedRecords({ datePeriod, dateAnchor, status, reportType, postBy });
 
   const [fontsLoaded] = useFonts({
     PoppinsRegular: require("../../assets/fonts/Poppins-Regular.ttf"),
@@ -298,7 +312,7 @@ function RecordManagementContent({ Layout, superAdmin }) {
   };
 
   const handleArchiveRecord = async () => {
-    if (!previewRecord || previewRecord.kind !== "Incident" || archiving) return;
+    if (!canManageRecord(previewRecord) || previewRecord.kind !== "Incident" || archiving) return;
     setArchiving(true);
     try {
       const token = await AsyncStorage.getItem("access_token");
@@ -461,6 +475,7 @@ function RecordManagementContent({ Layout, superAdmin }) {
   };
 
   const startEditing = (record) => {
+    if (!canManageRecord(record)) return;
     setPreviewVisible(false);
     setPreviewRecord(null);
     setEditingRecord(record);
@@ -471,13 +486,14 @@ function RecordManagementContent({ Layout, superAdmin }) {
   };
 
   const openDeleteConfirm = (record) => {
+    if (!canManageRecord(record)) return;
     deleteTargetRef.current = record;
     setDeleteTarget(record);
   };
 
   const handleDeleteRecord = async () => {
     const target = deleteTargetRef.current;
-    if (!target || deleting) return;
+    if (!canManageRecord(target) || deleting) return;
     deleteTargetRef.current = null;
     setDeleting(true);
     try {
@@ -539,13 +555,13 @@ function RecordManagementContent({ Layout, superAdmin }) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "communishield-admin-records.csv";
+      link.download = "communishield-records.csv";
       link.click();
       URL.revokeObjectURL(url);
       return;
     }
 
-    await Share.share({ title: "CommuniShield admin records CSV", message: content });
+    await Share.share({ title: "CommuniShield records CSV", message: content });
     } catch (error) {
       if (error.code !== "ERR_CANCELED") showError(error?.response?.data?.error || error.message || "Could not export records.");
     } finally { setExporting(false); }
@@ -640,7 +656,7 @@ function RecordManagementContent({ Layout, superAdmin }) {
                   <Ionicons name="options-outline" size={20} color="#294880" />
                 </View>
                 <View style={styles.filterTitleText}>
-                  <Text style={styles.filterMainTitle}>Filter Admin Records</Text>
+                  <Text style={styles.filterMainTitle}>Filter Records</Text>
                   <Text style={styles.filterMainSubtitle}>
                     Filter and export database records
                   </Text>
@@ -672,13 +688,14 @@ function RecordManagementContent({ Layout, superAdmin }) {
                 label="Post by"
                 value={postBy}
                 options={POST_BY_OPTIONS}
-                onChange={setPostBy}
+                onChange={changePostBy}
               />
               <BatchFilterDropdown
                 label="Type of Report"
                 value={reportType}
                 options={REPORT_TYPES}
                 onChange={setReportType}
+                disabled={postBy === "User"}
               />
               <BatchFilterDropdown
                 label="Status"
@@ -686,18 +703,18 @@ function RecordManagementContent({ Layout, superAdmin }) {
                 options={FILTER_STATUSES}
                 onChange={setStatus}
               />
-              <BatchDateRangeDropdown
-                from={from}
-                to={to}
-                onChangeFrom={setFrom}
-                onChangeTo={setTo}
+              <BatchFilterDropdown
+                label="Date"
+                value={datePeriod}
+                options={MAP_DATE_PERIODS}
+                onChange={value => { setDateAnchor(new Date()); setDatePeriod(value); }}
               />
             </View>
           </View>
 
           <View style={styles.recordsCard}>
             <View style={styles.listHeader}>
-              <Text style={styles.listTitle}>Admin-Created Records</Text>
+              <Text style={styles.listTitle}>{recordListTitle(postBy, reportType)}</Text>
               <Text style={styles.count}>{totalRecords} records</Text>
             </View>
             <QueryErrorNotice message={errorMessage} onRetry={loadRecords} refreshing={refreshing} hasData={Boolean(data)} />
@@ -850,7 +867,7 @@ function RecordManagementContent({ Layout, superAdmin }) {
               </ScrollView>
 
               <View style={[styles.previewFooter, superAdmin && { flexWrap: "wrap", flexShrink: 0 }]}>
-                {!superAdmin && previewRecord.kind === "Incident" && previewRecord.status !== "Archived" ? (
+                {!superAdmin && canManageRecord(previewRecord) && previewRecord.kind === "Incident" && previewRecord.status !== "Archived" ? (
                   <TouchableOpacity
                     style={styles.previewArchiveButton}
                     onPress={handleArchiveRecord}
@@ -863,7 +880,7 @@ function RecordManagementContent({ Layout, superAdmin }) {
                     <Text style={styles.previewPrimaryButtonText}>{archiving ? "Archiving..." : "Move to Archived"}</Text>
                   </TouchableOpacity>
                 ) : null}
-                {["Incident", "Announcement", "Blotter"].includes(previewRecord.kind) ? (
+                {canManageRecord(previewRecord) ? (
                   <>
                     <TouchableOpacity
                       style={styles.previewSecondaryButton}

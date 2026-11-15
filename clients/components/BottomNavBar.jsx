@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   TouchableOpacity,
@@ -7,12 +7,14 @@ import {
   useWindowDimensions,
   Platform,
   Animated,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scrollToTop } from "../services/scrollToTopBus";
 import { ensureParticipationReady } from "../services/profileCompletion";
+import { sessionData } from "../services/sessionData";
 
 const COMMUNISHIELD_BLUE = "#294880";
 const INACTIVE = "#6C7A96";
@@ -23,6 +25,21 @@ const BottomNavBar = ({ visible = true }) => {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const openingRef = useRef(false);
+  const [openingReport, setOpeningReport] = useState(false);
+  const openReport = async () => {
+    if (openingRef.current) return;
+    openingRef.current = true;
+    setOpeningReport(true);
+    const epoch = sessionData.epoch();
+    try {
+      const allowed = await ensureParticipationReady();
+      if (allowed && sessionData.current(epoch)) router.push("/User_PostReport");
+    } finally {
+      openingRef.current = false;
+      setOpeningReport(false);
+    }
+  };
 
   useEffect(() => {
     Animated.timing(slideAnim, {
@@ -185,9 +202,11 @@ const BottomNavBar = ({ visible = true }) => {
         {showPlusButton && (
           <TouchableOpacity
             activeOpacity={0.85}
-            onPress={async () => {
-              if (await ensureParticipationReady()) router.push("/User_PostReport");
-            }}
+            onPress={openReport}
+            disabled={openingReport}
+            accessibilityRole="button"
+            accessibilityLabel={openingReport ? "Checking posting access" : "Create report"}
+            accessibilityState={{ disabled: openingReport, busy: openingReport }}
             style={[
               styles.plusButton,
               {
@@ -200,7 +219,7 @@ const BottomNavBar = ({ visible = true }) => {
               },
             ]}
           >
-            <Ionicons name="add" size={plusIconSize} color="#FFFFFF" />
+            {openingReport ? <ActivityIndicator color="#FFFFFF" /> : <Ionicons name="add" size={plusIconSize} color="#FFFFFF" />}
           </TouchableOpacity>
         )}
         </View>
