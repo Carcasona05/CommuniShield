@@ -1,8 +1,210 @@
 -- Final functions and required private protocol helpers. Private helper grants remain revoked.
 
+CREATE OR REPLACE FUNCTION public.active_admin_analysis(p_actor uuid)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  select coalesce(jsonb_agg(public.admin_analysis_progress(b.id)),'[]'::jsonb) from (
+    select b.id from admin_analysis_batches b where b.actor_id=p_actor and exists(
+      select 1 from admin_analysis_batch_jobs l join admin_analysis_jobs j on j.id=l.job_id
+      where l.batch_id=b.id and j.state in ('queued','running')) order by b.created_at desc
+  ) b
+$function$;
+
+CREATE OR REPLACE FUNCTION public.admin_analysis_progress(p_batch uuid)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  select jsonb_build_object('id',b.id,'createdAt',b.created_at,'total',count(j.id),
+    'done',count(*) filter(where j.state in ('succeeded','failed','skipped')),
+    'failed',count(*) filter(where j.state='failed'),'skipped',count(*) filter(where j.state='skipped'),
+    'state',case when bool_or(j.state='running') then 'running' when bool_or(j.state='queued') then 'queued'
+      when bool_or(j.state='failed') then 'failed' when bool_or(j.state='skipped') then 'partial' else 'succeeded' end,
+    'reports',coalesce((select jsonb_agg(x) from (select j2.report_id as id,count(*) as total,
+      count(*) filter(where j2.state in ('succeeded','failed','skipped')) as done,
+      count(*) filter(where j2.state='failed') as failed from admin_analysis_batch_jobs l2 join admin_analysis_jobs j2 on j2.id=l2.job_id
+      where l2.batch_id=b.id group by j2.report_id) x),'[]'::jsonb))
+  from admin_analysis_batches b join admin_analysis_batch_jobs l on l.batch_id=b.id
+    join admin_analysis_jobs j on j.id=l.job_id where b.id=p_batch group by b.id
+$function$;
+
+CREATE OR REPLACE FUNCTION public.admin_browse_page(p_view text, p_from timestamp with time zone DEFAULT NULL::timestamp with time zone, p_to timestamp with time zone DEFAULT NULL::timestamp with time zone, p_status text DEFAULT NULL::text, p_kind text DEFAULT NULL::text, p_actor_role text DEFAULT NULL::text, p_page integer DEFAULT 1, p_page_size integer DEFAULT 10, p_focus_report uuid DEFAULT NULL::uuid, p_export boolean DEFAULT false, p_before_time timestamp with time zone DEFAULT NULL::timestamp with time zone, p_before_kind text DEFAULT NULL::text, p_before_id uuid DEFAULT NULL::uuid, p_before_sort jsonb DEFAULT NULL::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+declare result jsonb;
+begin
+  if p_view not in ('records', 'logs', 'archived') or p_page < 1 or p_page_size < 1 or p_page_size > 50 then
+    raise exception 'Invalid browsing request';
+  end if;
+  if p_view='records' and p_before_time is not null and
+    (p_before_sort is null or (p_before_sort->>'version')::integer is distinct from 1) then
+    raise exception 'Record order changed. Refresh the list before loading more.';
+  end if;
+  with eligible as materialized (
+    select r.id as raw_id, 'Incident'::text as kind, r.created_at, r.status, coalesce(r.role, 'user') as actor_role
+    from public.reports r
+    where (p_view = 'records' and coalesce(r.role,'user') in ('user','admin','super_admin')
+      and r.status not in ('Archived','Rejected','Marked Fake'))
+       or (p_view = 'archived' and r.status = 'Archived')
+    union all
+    select a.id, 'Announcement', a.created_at, 'Published', coalesce(p.role, 'admin')
+    from public.admin_announcement a left join public.profiles p on p.id = a.admin_id
+    where p_view = 'records' and p_status is null and p_actor_role is distinct from 'user'
+    union all
+    select l.id, 'Activity', l.created_at, l.action_type, coalesce(p.role, 'system')
+    from public.audit_logs l left join public.profiles p on p.id = l.actor_id
+    where p_view = 'logs' or (p_view = 'records' and p_status is null and p_actor_role is distinct from 'user'
+      and coalesce(l.action_type, '') !~* '^report (archived|rejected|marked fake)(\s*:|\s*$)'
+      and coalesce(l.title, '') !~* '^report (archived|rejected|marked fake)(\s*:|\s*$)'
+      and not exists (select 1 from public.reports excluded where excluded.id=l.report_id and excluded.status in ('Archived','Rejected','Marked Fake')))
+  ), filtered as materialized (
+    select * from eligible e where (p_from is null or e.created_at >= p_from) and (p_to is null or e.created_at <= p_to)
+      and (p_status is null or e.status = p_status)
+      and (case when p_view='records' and p_actor_role='user' then e.kind='Incident' else p_kind is null or e.kind = p_kind end)
+      and (p_actor_role is null or e.actor_role = p_actor_role)
+   ), ranked as materialized (
+    select e.*,
+      case when p_view<>'records' then 0 when e.kind<>'Incident' then 7 else
+        case e.status when 'Pending Review' then 0 when 'Under Verification' then 1 when 'Verified' then 2
+          when 'Resolved' then 3 when 'Rejected' then 4 when 'Marked Fake' then 5 else 6 end end as status_rank,
+      case when p_view<>'records' or e.kind<>'Incident' then 4 else
+        case a.severity when 'Critical' then 0 when 'High' then 1 when 'Medium' then 2 when 'Low' then 3 else 4 end end as severity_rank,
+      case when p_view='records' and e.kind='Incident' then extract(epoch from e.created_at)
+        else -extract(epoch from e.created_at) end as sort_time
+    from filtered e left join public.report_credibility_analysis a on e.kind='Incident' and a.report_id=e.raw_id
+   ), remaining as materialized (
+    select * from ranked e where p_export or p_before_time is null or
+      (e.status_rank,e.severity_rank,e.sort_time,e.kind) >
+        (case when p_view='records' then (p_before_sort->>'status_rank')::integer else 0 end,
+         case when p_view='records' then (p_before_sort->>'severity_rank')::integer else 4 end,
+         case when p_view='records' then (p_before_sort->>'sort_time')::numeric else -extract(epoch from p_before_time) end,p_before_kind)
+      or ((e.status_rank,e.severity_rank,e.sort_time,e.kind) =
+        (case when p_view='records' then (p_before_sort->>'status_rank')::integer else 0 end,
+         case when p_view='records' then (p_before_sort->>'severity_rank')::integer else 4 end,
+         case when p_view='records' then (p_before_sort->>'sort_time')::numeric else -extract(epoch from p_before_time) end,p_before_kind)
+         and e.raw_id < p_before_id)
+   ), selected as (
+    select * from remaining order by status_rank, severity_rank, sort_time, kind, raw_id desc
+    limit (case when p_export then 50001 else p_page_size end)
+    offset (case when p_export or p_before_time is not null then 0 else (p_page::bigint - 1) * p_page_size end)
+  ), focused as (
+    select e.* from ranked e join public.audit_logs l on l.id = e.raw_id
+    where p_view = 'logs' and e.kind = 'Activity' and l.report_id = p_focus_report
+    order by e.created_at desc, e.raw_id desc limit 1
+  ), wanted as (
+    select *, false as focus_only from selected
+    union all select *, true from focused
+  ), payloads as (
+    select e.created_at, e.kind, e.raw_id, e.focus_only, e.status_rank, e.severity_rank, e.sort_time,
+      case when e.kind = 'Incident' then jsonb_build_object(
+        'id', r.id, 'kind', 'Incident', 'reportType', 'Incident', 'status', r.status,
+        'title', coalesce(t.name, 'Incident') || case when coalesce(r.location, '') <> '' then ' in ' || r.location else '' end,
+        'incident_type', coalesce(t.name, 'Incident'), 'incident_category', coalesce(c.name, ''),
+        'location', coalesce(r.location, ''), 'latitude', r.latitude, 'longitude', r.longitude,
+        'details', case when p_export or p_view = 'archived' then coalesce(r.details, '') else left(coalesce(r.details, ''), 240) end,
+        'previewOnly', not p_export and p_view = 'records', 'created_at', r.created_at, 'is_verified', r.is_verified,
+        'poster_name', r.poster_name, 'reporter_name', coalesce(nullif(rp.fullname, ''), nullif(r.poster_name, ''), 'Anonymous User'),
+        'actor', coalesce(nullif(rp.fullname, ''), nullif(r.poster_name, ''), 'Admin'), 'actorRole', e.actor_role,
+        'severity', coalesce(analysis.severity, 'Unknown'), 'ai_score', analysis.ai_score)
+      when e.kind = 'Announcement' then jsonb_build_object(
+        'id', 'announcement-' || a.id, 'kind', 'Announcement', 'type', a.type, 'title', coalesce(nullif(a.title, ''), a.type),
+        'location', coalesce(a.location, ''), 'details', a.details, 'pic_url', a.pic_url, 'status', 'Published', 'severity', '',
+        'created_at', a.created_at, 'actor', coalesce(nullif(ap.fullname, ''), 'Admin'), 'actorRole', e.actor_role)
+      else jsonb_build_object(
+        'id', case when p_view = 'records' then 'activity-' || l.id else l.id::text end,
+        'kind', 'Activity', 'title', coalesce(nullif(l.title, ''), l.action_type, 'Admin activity'),
+        'location', '', 'details', coalesce(l.details, ''), 'status', coalesce(l.action_type, 'Recorded'), 'severity', '',
+        'created_at', l.created_at, 'dateTime', l.created_at, 'actionType', l.action_type,
+        'actor', coalesce(l.actor_name, 'System'), 'actorRole', e.actor_role, 'reportId', coalesce(l.report_id::text, ''),
+        'oldStatus', coalesce(l.old_value, ''), 'newStatus', coalesce(l.new_value, '')) end as item
+    from wanted e
+    left join public.reports r on e.kind = 'Incident' and r.id = e.raw_id
+    left join public.incident_types t on t.id = r.incident_type_id
+    left join public.incident_categories c on c.id = t.category_id
+    left join public.profiles rp on rp.id = r.user_id
+    left join public.report_credibility_analysis analysis on analysis.report_id = r.id
+    left join public.admin_announcement a on e.kind = 'Announcement' and a.id = e.raw_id
+    left join public.profiles ap on ap.id = a.admin_id
+    left join public.audit_logs l on e.kind = 'Activity' and l.id = e.raw_id
+  )
+  select jsonb_build_object(
+    'items', coalesce((select jsonb_agg(item order by status_rank, severity_rank, sort_time, kind, raw_id desc) from payloads where not focus_only), '[]'::jsonb),
+    'total', (select count(*) from filtered), 'page', p_page, 'pageSize', p_page_size,
+    'hasMore', not p_export and (select count(*) from remaining) > (case when p_before_time is not null then p_page_size else p_page::bigint * p_page_size end),
+    'cursor', (select jsonb_build_object('created_at', created_at, 'kind', kind, 'id', raw_id) ||
+      case when p_view='records' then jsonb_build_object('priority',jsonb_build_object('version',1,
+        'status_rank',status_rank,'severity_rank',severity_rank,'sort_time',sort_time::text)) else '{}'::jsonb end
+      from selected order by status_rank desc, severity_rank desc, sort_time desc, kind desc, raw_id limit 1),
+    'focusedItem', (select item from payloads where focus_only limit 1),
+    'stats', (select jsonb_build_object('reports', count(*) filter (where kind = 'Incident'),
+      'announcements', count(*) filter (where kind = 'Announcement'), 'activities', count(*) filter (where kind = 'Activity'),
+      'verified', count(*) filter (where status in ('Report Verified', 'Report Mapped')),
+      'rejected', count(*) filter (where status in ('Report Rejected', 'Report Deleted')),
+      'ai', count(*) filter (where status = 'AI Analysis Completed')) from filtered)
+  ) into result;
+  if p_export and (result->>'total')::bigint > 50000 then raise exception 'Export exceeds 50000 records. Select a smaller date range.'; end if;
+  return result;
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.audit_admin_analysis_completion()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+  if new.kind <> 'status_followup' and new.state in ('succeeded','failed','skipped') and old.state not in ('succeeded','failed','skipped') then
+    insert into audit_logs(actor_id,actor_name,action_type,title,details,report_id,new_value)
+      values(case when exists(select 1 from profiles where id=nullif(new.payload->>'actorId','')::uuid) then nullif(new.payload->>'actorId','')::uuid else null end,
+        coalesce(new.payload->>'actorName','Analysis worker'),
+        case new.state when 'succeeded' then 'AI Analysis Completed' when 'failed' then 'AI Analysis Failed' else 'AI Analysis Skipped' end,
+        new.kind||' analysis '||new.state,'Background analysis job '||new.id||'. '||coalesce(new.last_error,''),
+        case when exists(select 1 from reports where id=new.report_id) then new.report_id else null end,new.state);
+  end if;
+  return new;
+end $function$;
+
+CREATE OR REPLACE FUNCTION public.claim_admin_analysis_job()
+ RETURNS SETOF admin_analysis_jobs
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+  update admin_analysis_jobs set state='failed',last_error='Worker lease expired after three attempts',updated_at=now(),lease_token=null,lease_until=null
+    where state='running' and lease_until < now() and attempts>=3;
+  return query with candidate as (
+    select id from admin_analysis_jobs where attempts<3 and available_at<=now()
+      and (state='queued' or (state='running' and lease_until<now()))
+    order by case when kind='status_followup' then 0 else 1 end,created_at,id for update skip locked limit 1
+  ) update admin_analysis_jobs j set state='running',attempts=j.attempts+1,
+    lease_token=gen_random_uuid(),lease_until=now()+interval '5 minutes',updated_at=now()
+    from candidate c where j.id=c.id returning j.*;
+end $function$;
+
+CREATE OR REPLACE FUNCTION public.claim_comment_sentiment_job()
+ RETURNS SETOF comment_sentiment_jobs
+ LANGUAGE sql
+ SET search_path TO 'public'
+AS $function$
+  update comment_sentiment_jobs set attempts=attempts+1, lease_token=gen_random_uuid(), lease_until=now()+interval '10 minutes'
+  where comment_id=(select comment_id from comment_sentiment_jobs
+    where completed_at is null and available_at<=now() and (lease_until is null or lease_until<now())
+    order by available_at for update skip locked limit 1)
+  returning *;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.cleanup_sentiment_analysis()
  RETURNS trigger
  LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
 AS $function$
 begin
   if tg_table_name = 'reports' then
@@ -16,6 +218,40 @@ begin
 end;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.credibility_access(p_user uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare s numeric; r text; rl int; cl int; ru int; cu int; suspension credibility_suspensions;
+  blocked boolean; unlimited boolean;
+  day_start timestamptz:=date_trunc('day',now() at time zone 'Asia/Manila') at time zone 'Asia/Manila';
+begin
+  select role into r from profiles where id=p_user;
+  if r is null then raise exception 'Account unavailable'; end if;
+  if r in ('admin','super_admin') then
+    return jsonb_build_object('policyVersion','timed-v1','exempt',true,'score',100,'unlimited',true,
+      'suspended',false,'reportAllowed',true,'commentAllowed',true,'editAllowed',true);
+  end if;
+  perform refresh_credibility_suspension(p_user);
+  select score into s from user_credibility where user_id=p_user;
+  select * into suspension from credibility_suspensions where user_id=p_user and released_at is null;
+  blocked:=found;
+  unlimited:=not blocked and s=100;
+  rl:=case when blocked then 0 when unlimited then null when s>=60 then 3 when s>=20 then 1 else 0 end;
+  cl:=case when blocked then 0 when unlimited then null when s>=60 then 10 when s>=40 then 3 else 0 end;
+  select count(*) filter(where kind='report'),count(*) filter(where kind='comment') into ru,cu
+    from credibility_usage where user_id=p_user and used_at>=day_start;
+  return jsonb_build_object('policyVersion','timed-v1','exempt',false,'score',s,'unlimited',unlimited,
+    'reportLimit',rl,'commentLimit',cl,'reportsUsed',ru,'commentsUsed',cu,
+    'reportAllowed',not blocked and (unlimited or rl>ru),
+    'commentAllowed',not blocked and (unlimited or cl>cu),'editAllowed',not blocked and s>=20,
+    'suspended',blocked,'resetsAt',day_start+interval '1 day','timezone','Asia/Manila',
+    'suspension',case when blocked then jsonb_build_object('id',suspension.id,'occurrence',suspension.occurrence,
+      'durationDays',suspension.duration_days,'startedAt',suspension.started_at,'endsAt',suspension.ends_at,'reason',suspension.reason) else null end);
+end $function$;
+
 CREATE OR REPLACE FUNCTION public.current_user_role()
  RETURNS text
  LANGUAGE sql
@@ -24,6 +260,118 @@ CREATE OR REPLACE FUNCTION public.current_user_role()
 AS $function$
   select role from public.profiles where id = auth.uid()
 $function$;
+
+CREATE OR REPLACE FUNCTION public.delete_sentiment_supporting_with_datasets(p_actor uuid, p_model uuid, p_generation bigint, p_datasets jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare preview jsonb; item jsonb; linked jsonb; archived jsonb := '[]'::jsonb;
+begin
+  -- Same transaction lock as model activation, dataset mutation and training.
+  perform pg_advisory_xact_lock(72846102);
+  preview := public.sentiment_supporting_delete_preview(p_actor,p_model);
+  perform 1 from public.sentiment_model_state where id=1 for update;
+  if p_generation is distinct from (preview->>'generation')::bigint then
+    raise exception 'Model pool changed. Refresh first.' using errcode='40001';
+  end if;
+  if jsonb_typeof(p_datasets) is distinct from 'array' then
+    raise exception 'Provide the selected datasets' using errcode='22023';
+  end if;
+  if jsonb_array_length(p_datasets)>1000 or
+    (select count(distinct value->>'id') from jsonb_array_elements(p_datasets))<>jsonb_array_length(p_datasets) then
+    raise exception 'Invalid or duplicate dataset selection' using errcode='22023';
+  end if;
+  for item in select value from jsonb_array_elements(p_datasets) loop
+    select value into linked from jsonb_array_elements(preview->'datasets') where value->>'id'=item->>'id';
+    if linked is null or linked->>'status'='archived' or (linked->>'shared')::boolean or not (linked->>'unchanged')::boolean then
+      raise exception 'A selected dataset is shared, changed, archived or not linked. Refresh first.' using errcode='22023';
+    end if;
+    if item->>'version' is null or item->>'version' is distinct from linked->>'version' then
+      raise exception 'Dataset changed. Refresh first.' using errcode='40001';
+    end if;
+  end loop;
+  -- Same deletion guards as the original pool RPC, except disabled models no
+  -- longer need an intermediate archive step. Never disable/delete an enabled model.
+  if exists(select 1 from public.sentiment_training_jobs j where j.status in ('training','evaluating') and j.lease_until>now()
+     and (j.base_job_id=p_model or j.snapshot->'supporting_models' @> jsonb_build_array(jsonb_build_object('id',p_model)))) then
+    raise exception 'A live training/evaluation still references this model. Wait for it to finish.' using errcode='22023';
+  end if;
+  -- Logical removal retains private artifacts and history for in-flight inference.
+  update public.sentiment_supporting_models set status='deleted',deleted_at=now(),updated_at=now() where id=p_model;
+  update public.sentiment_model_state set generation=generation+1,updated_at=now() where id=1;
+  insert into public.sentiment_training_events(job_id,actor_id,action,details)
+    values(p_model,p_actor,'support_delete',jsonb_build_object('archive_datasets',p_datasets));
+  for item in select value from jsonb_array_elements(p_datasets) loop
+    perform public.manage_sentiment_dataset(p_actor,'archive',jsonb_build_object(
+      'dataset_id',item->>'id','version',(item->>'version')::integer,
+      'note','Archived when deleting supporting model '||p_model::text));
+    archived := archived || jsonb_build_array(item->>'id');
+  end loop;
+  return jsonb_build_object('id',p_model,'archivedDatasetIds',archived);
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.enforce_credibility_write()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare a jsonb; k text; allowed boolean;
+begin
+  insert into user_credibility(user_id) values(new.user_id) on conflict(user_id) do nothing;
+  perform 1 from user_credibility where user_id=new.user_id for update;
+  a:=credibility_access(new.user_id);
+  if (a->>'exempt')::boolean then return new; end if;
+  k:=case when tg_table_name='reports' then 'report' else 'comment' end;
+  allowed:=(a->>(k||'Allowed'))::boolean;
+  if not allowed then
+    raise exception using message=case when (a->>'suspended')::boolean then 'CREDIBILITY_SUSPENDED'
+      when k='comment' and (a->>'commentLimit')::int=0 then 'CREDIBILITY_COMMENTS_DISABLED'
+      else 'CREDIBILITY_DAILY_LIMIT' end,detail=a::text;
+  end if;
+  insert into credibility_usage(kind,source_id,user_id) values(k,new.id,new.user_id);
+  return new;
+end $function$;
+
+CREATE OR REPLACE FUNCTION public.enqueue_admin_analysis(p_actor uuid, p_reports uuid[])
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+declare batch uuid;
+begin
+  if cardinality(p_reports) is null or cardinality(p_reports) < 1 or cardinality(p_reports) > 50 then raise exception 'Select between 1 and 50 reports'; end if;
+  if exists(select 1 from unnest(p_reports) x where x is null or not exists(select 1 from reports r where r.id=x)) then raise exception 'Report not found'; end if;
+  -- One task per AI call, not a serverless request that must finish a whole thread.
+  if (select count(*) from report_comments where report_id=any(p_reports)) > 50000 then raise exception 'Thread too large; select fewer reports'; end if;
+  insert into admin_analysis_batches(actor_id,report_ids) values(p_actor,p_reports) returning id into batch;
+  with tasks as (
+    select distinct k.kind,r.id subject_id,r.id report_id from reports r
+      cross join (values ('credibility'),('report_sentiment')) k(kind) where r.id=any(p_reports)
+    union select 'comment_sentiment',c.id,c.report_id from report_comments c where c.report_id=any(p_reports)
+  ), queued as (
+    insert into admin_analysis_jobs(kind,subject_id,report_id,payload)
+    select kind,subject_id,report_id,jsonb_build_object('actorId',p_actor) from tasks order by kind,subject_id
+    on conflict (kind,subject_id) where state in ('queued','running') and kind <> 'status_followup'
+      do update set subject_id=excluded.subject_id
+    returning id
+  ) insert into admin_analysis_batch_jobs(batch_id,job_id) select batch,id from queued;
+  return batch;
+end $function$;
+
+CREATE OR REPLACE FUNCTION public.enqueue_comment_sentiment()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  insert into comment_sentiment_jobs(comment_id) values(new.id) on conflict do nothing;
+  return new;
+end $function$;
 
 CREATE OR REPLACE FUNCTION public.enqueue_sentiment_training(p_mode text DEFAULT 'continue'::text)
  RETURNS uuid
@@ -51,6 +399,52 @@ begin
   end if;
   return result;
 end $function$;
+
+CREATE OR REPLACE FUNCTION public.feed_page(p_owner uuid DEFAULT NULL::uuid, p_from timestamp with time zone DEFAULT NULL::timestamp with time zone, p_to timestamp with time zone DEFAULT NULL::timestamp with time zone, p_status text DEFAULT NULL::text, p_source text DEFAULT 'All'::text, p_before_time timestamp with time zone DEFAULT NULL::timestamp with time zone, p_before_id uuid DEFAULT NULL::uuid, p_before_source text DEFAULT 'User'::text)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  with eligible as (
+    select r.id, r.created_at, 'User'::text as source
+    from reports r where r.status <> 'Archived'
+      and (p_owner is null or r.user_id = p_owner)
+      and (p_from is null or r.created_at >= p_from) and (p_to is null or r.created_at <= p_to)
+      and (p_status is null or r.status = p_status) and p_source in ('All', 'User')
+    union all
+    select a.id, a.created_at, 'Admin'::text from admin_announcement a
+    where p_owner is null and p_status is null and p_source in ('All', 'Admin')
+      and (p_from is null or a.created_at >= p_from) and (p_to is null or a.created_at <= p_to)
+  ), page as (
+    select * from eligible where p_before_time is null
+      or (created_at, id, source) < (p_before_time, p_before_id, p_before_source)
+    order by created_at desc, id desc, source desc limit 11
+  ), status_totals as (
+    select status, count(*) as n from reports
+    where p_owner is not null and user_id = p_owner and status <> 'Archived' group by status
+  ) select jsonb_build_object(
+    'items', coalesce((select jsonb_agg(to_jsonb(page) order by created_at desc, id desc, source desc) from page), '[]'::jsonb),
+    'total', (select count(*) from eligible),
+    'statusCounts', coalesce((select jsonb_object_agg(status, n) from status_totals), '{}'::jsonb)
+      || jsonb_build_object('All Status', coalesce((select sum(n) from status_totals), 0))
+  );
+$function$;
+
+CREATE OR REPLACE FUNCTION public.feed_safety_reports(p_from timestamp with time zone, p_to timestamp with time zone)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  select coalesce(jsonb_agg(jsonb_build_object('id',r.id,'latitude',r.latitude,'longitude',r.longitude,
+    'status',r.status,'verified',r.is_verified,'created_at',r.created_at,
+    'incident_type',t.name,'severity',coalesce(a.severity,'Unknown'))), '[]'::jsonb)
+  from reports r left join incident_types t on t.id=r.incident_type_id
+    left join report_credibility_analysis a on a.report_id=r.id
+  where r.created_at between p_from and p_to and r.status in ('Pending Review','Under Verification','Verified')
+    and r.latitude is not null and r.longitude is not null;
+$function$;
 
 CREATE OR REPLACE FUNCTION public.get_sentiment_training_progress(p_jobs uuid[])
  RETURNS jsonb
@@ -299,7 +693,8 @@ CREATE OR REPLACE FUNCTION public.manage_sentiment_training(p_actor uuid, p_acti
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-declare actor public.profiles%rowtype; eligible uuid[]; selected uuid[]; retry public.sentiment_training_jobs%rowtype;
+declare actor public.profiles%rowtype; eligible uuid[]; selected uuid[];
+  retry public.sentiment_training_jobs%rowtype; versions jsonb;
   request jsonb := p_payload; result jsonb;
 begin
   select * into actor from public.profiles where id=p_actor;
@@ -318,37 +713,49 @@ begin
       or retry.snapshot is null or retry.data_revision is distinct from (select data_revision from public.sentiment_model_state where id=1)
       or retry.id is distinct from (select id from public.sentiment_training_jobs order by created_at desc,id desc limit 1) then
       raise exception 'This run cannot be retried. Refresh and queue newly approved data instead.' using errcode='22023'; end if;
-    select array_agg((d->>'id')::uuid) into selected from jsonb_array_elements(retry.snapshot->'datasets') d
+    if retry.selected_dataset_versions is null then
+      raise exception 'This older run has no exact dataset selection. Select the intended datasets and queue a new run.' using errcode='22023'; end if;
+    select array_agg((d->>'id')::uuid order by d->>'id') into selected
+      from jsonb_array_elements(retry.selected_dataset_versions) d
       where exists(select 1 from public.sentiment_datasets current where current.id=(d->>'id')::uuid
         and current.status='approved' and current.version=(d->>'version')::integer);
-    if selected is null or cardinality(selected) <> jsonb_array_length(retry.snapshot->'datasets') then
+    if selected is null or cardinality(selected) <> jsonb_array_length(retry.selected_dataset_versions) then
       raise exception 'Retry requires the original approved dataset versions.' using errcode='22023'; end if;
+    versions := retry.selected_dataset_versions;
     request := jsonb_build_object('mode',retry.training_mode,'dataset_ids',to_jsonb(selected));
   else
-    select array_agg(distinct d.id) into eligible from public.sentiment_datasets d
+    select array_agg(distinct d.id order by d.id) into eligible from public.sentiment_datasets d
       join public.sentiment_training_samples s on s.dataset_id=d.id and s.active
-      where d.status='approved' and not exists(select 1 from public.sentiment_training_jobs j
-        where (j.status='ready' or (j.status in ('training','evaluating') and j.lease_until>now())
-          or (j.status='failed' and jsonb_typeof(j.metrics->'training')='object'))
-        and j.snapshot->'datasets' @> jsonb_build_array(jsonb_build_object('id',d.id,'version',d.version)));
+      where d.status='approved' and public.sentiment_dataset_ready_to_queue(d.id,d.version);
     if eligible is null then
       raise exception 'No approved, untrained datasets are ready to queue.' using errcode='22023'; end if;
     if p_payload ? 'dataset_ids' then
-      if jsonb_typeof(p_payload->'dataset_ids') is distinct from 'array' or jsonb_array_length(p_payload->'dataset_ids')=0 then
+      if jsonb_typeof(p_payload->'dataset_ids') is distinct from 'array' then
         raise exception 'Select approved datasets ready to train.' using errcode='22023'; end if;
-      select array_agg(value::uuid) into selected from jsonb_array_elements_text(p_payload->'dataset_ids');
-      if not selected <@ eligible then raise exception 'Selected datasets are not approved and ready to train.' using errcode='22023'; end if;
-      request := p_payload || jsonb_build_object('dataset_ids',to_jsonb(selected));
+      if jsonb_array_length(p_payload->'dataset_ids')=0 then
+        raise exception 'Select approved datasets ready to train.' using errcode='22023'; end if;
+      select array_agg(distinct value::uuid order by value::uuid) into selected
+        from jsonb_array_elements_text(p_payload->'dataset_ids');
+      if selected is null or array_position(selected,null) is not null or not selected <@ eligible then
+        raise exception 'Selected datasets are not approved and ready to train.' using errcode='22023'; end if;
+    else
+      selected := eligible;
     end if;
-    -- With no explicit selection, preserve the language-scope protocol's choice
-    -- of newly approved datasets rather than broadening to older failed uploads.
+    select jsonb_agg(jsonb_build_object('id',d.id,'version',d.version) order by d.id)
+      into versions from public.sentiment_datasets d where d.id=any(selected);
+    -- Always pass the resolved selection, including the default "all ready" case.
+    request := p_payload || jsonb_build_object('dataset_ids',to_jsonb(selected));
   end if;
   result := public.manage_sentiment_training_eligibility_legacy(p_actor,p_action,p_job,p_generation,request);
+  update public.sentiment_training_jobs set selected_dataset_versions=versions
+    where id=(result->>'job_id')::uuid;
   if p_payload ? 'retry_job_id' then
     update public.sentiment_training_jobs set training_languages=retry.training_languages where id=(result->>'job_id')::uuid;
     result := result || jsonb_build_object('requested_languages',retry.training_languages);
   end if;
-  return result;
+  insert into public.sentiment_training_events(job_id,actor_id,action,details)
+    values((result->>'job_id')::uuid,p_actor,'dataset_selection',jsonb_build_object('datasets',versions));
+  return result || jsonb_build_object('selected_datasets',versions);
 end $function$;
 
 CREATE OR REPLACE FUNCTION public.manage_sentiment_training_eligibility_legacy(p_actor uuid, p_action text, p_job uuid DEFAULT NULL::uuid, p_generation bigint DEFAULT NULL::bigint, p_payload jsonb DEFAULT '{}'::jsonb)
@@ -387,6 +794,30 @@ begin
   return jsonb_build_object('job_id',target,'requested_languages',selected);
 end $function$;
 
+CREATE OR REPLACE FUNCTION public.protect_report_review_fields()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare jwt_role text;
+begin
+  jwt_role:=coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'role',current_setting('request.jwt.claim.role',true),'');
+  if jwt_role='authenticated' and not exists(select 1 from profiles where id=auth.uid() and role in ('admin','super_admin') and coalesce(status,'')<>'Disabled') then
+    if tg_op='INSERT' then new.status:='Pending Review'; new.is_verified:=false;
+    elsif new.status is distinct from old.status or new.is_verified is distinct from old.is_verified or new.user_id is distinct from old.user_id then
+      raise exception 'Only admins can change report review fields';
+    end if;
+  end if;
+  -- Keep older verification-only callers compatible with the new status.
+  if tg_op='UPDATE' and new.status is not distinct from old.status and new.is_verified is distinct from old.is_verified then
+    if new.is_verified and new.status in ('Pending Review','Under Verification') then new.status:='Verified';
+    elsif not new.is_verified and new.status='Verified' then new.status:='Under Verification'; end if;
+  end if;
+  new.is_verified:=new.status in ('Verified','Resolved');
+  return new;
+end $function$;
+
 CREATE OR REPLACE FUNCTION public.queue_approved_sentiment_training()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -409,6 +840,58 @@ CREATE OR REPLACE FUNCTION public.record_sentiment_support_usage(p_ids uuid[])
 AS $function$
   update public.sentiment_supporting_models set use_count=use_count+1,last_used_at=now()
   where id=any(p_ids) and status <> 'deleted';
+$function$;
+
+CREATE OR REPLACE FUNCTION public.refresh_credibility_suspension(p_user uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare s numeric; suspension credibility_suspensions; previous credibility_suspensions;
+  occurrence integer; days integer; reason_text text;
+begin
+  if not exists(select 1 from profiles where id=p_user and role='user') then return; end if;
+  insert into user_credibility(user_id) values(p_user) on conflict(user_id) do nothing;
+  select score into s from user_credibility where user_id=p_user for update;
+  select * into suspension from credibility_suspensions where user_id=p_user and released_at is null for update;
+  if found then
+    if suspension.ends_at>now() then return; end if;
+    -- Recovery is evaluated by authoritative server time, exactly once. Rewards
+    -- earned during the suspension are never reduced by expiry.
+    update credibility_suspensions set released_at=now() where id=suspension.id;
+    update user_credibility set score=greatest(s,20) where user_id=p_user;
+    insert into credibility_events(user_id,event_type,points,reason)
+      values(p_user,'system',greatest(s,20)-s,'Timed suspension expired; limited access restored');
+    insert into notifications(user_id,type_id,title,message,priority)
+      select p_user,id,'Your suspension has ended','Posting access is restored. Your credibility score is at least 20; daily limits still apply.','Low'
+      from notification_types where name='credibility_suspension';
+    return;
+  end if;
+  if s>=20 then return; end if;
+  select * into previous from credibility_suspensions where user_id=p_user order by started_at desc limit 1;
+  occurrence:=case when not found or previous.ends_at<=now()-interval '90 days' then 1 else previous.occurrence+1 end;
+  days:=case occurrence when 1 then 1 when 2 then 3 when 3 then 7 when 4 then 14 else 30 end;
+  select reason into reason_text from credibility_events where user_id=p_user and points<0 order by created_at desc limit 1;
+  reason_text:=coalesce(nullif(trim(reason_text),''),'Credibility score fell below 20.');
+  insert into credibility_suspensions(user_id,occurrence,duration_days,ends_at,reason)
+    values(p_user,occurrence,days,now()+make_interval(days=>days),reason_text) returning * into suspension;
+  insert into notifications(user_id,type_id,title,message,priority)
+    select p_user,id,'Temporary account suspension',
+      'Posting and commenting are suspended for '||days||' day(s), until '||to_char(suspension.ends_at at time zone 'Asia/Manila','YYYY-MM-DD HH24:MI')||' Philippine time. '||reason_text,'High'
+    from notification_types where name='credibility_suspension';
+end $function$;
+
+CREATE OR REPLACE FUNCTION public.report_engagement_counts(p_ids uuid[], p_viewer uuid)
+ RETURNS TABLE(id uuid, comments bigint, likes bigint, is_liked boolean)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  select r.id, (select count(*) from report_comments c where c.report_id=r.id),
+    (select count(*) from report_likes l where l.report_id=r.id),
+    exists(select 1 from report_likes l where l.report_id=r.id and l.user_id=p_viewer)
+  from reports r where r.id=any(p_ids);
 $function$;
 
 CREATE OR REPLACE FUNCTION public.report_sentiment_training_progress(p_job uuid, p_lease uuid, p_sequence bigint, p_completed numeric, p_total integer, p_stage text, p_language text DEFAULT NULL::text)
@@ -442,6 +925,163 @@ begin
   return result;
 end $function$;
 
+CREATE OR REPLACE FUNCTION public.restore_sentiment_dataset(p_actor uuid, p_payload jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  actor public.profiles%rowtype;
+  batch public.sentiment_datasets%rowtype;
+  note text := coalesce(p_payload->>'note', '');
+begin
+  select * into actor from public.profiles where id = p_actor;
+  if actor.id is null or actor.role <> 'super_admin' or actor.status = 'Disabled' then
+    raise exception 'Only super admins can restore datasets' using errcode = '42501';
+  end if;
+  perform pg_advisory_xact_lock(72846102);
+  select * into batch from public.sentiment_datasets where id = (p_payload->>'dataset_id')::uuid for update;
+  if batch.id is null then raise exception 'Dataset not found' using errcode = 'P0002'; end if;
+  if (p_payload->>'version') is null or batch.version <> (p_payload->>'version')::integer then
+    raise exception 'Dataset changed. Refresh and try again.' using errcode = '40001';
+  end if;
+  if batch.status <> 'archived' then raise exception 'Only archived datasets can be restored' using errcode = '22023'; end if;
+  if char_length(note) > 1000 then raise exception 'Review note is too long' using errcode = '22023'; end if;
+  update public.sentiment_training_samples set active = false where dataset_id = batch.id;
+  update public.sentiment_datasets set status = 'pending', reviewed_by = null, review_note = '',
+    version = version + 1, updated_at = now() where id = batch.id;
+  insert into public.sentiment_dataset_events(dataset_id, actor_id, actor_name, action, details)
+    values (batch.id, p_actor, coalesce(actor.fullname, actor.user_name, 'Admin'), 'restored',
+      jsonb_build_object('from', 'archived', 'to', 'pending', 'note', note,
+        'previous_reviewed_by', batch.reviewed_by, 'previous_review_note', batch.review_note,
+        'previous_version', batch.version));
+  return jsonb_build_object('id', batch.id, 'status', 'pending', 'version', batch.version + 1);
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.save_admin_report_status(p_report uuid, p_actor uuid, p_actor_name text, p_status text, p_verified boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+declare r reports%rowtype; next_status text; next_verified boolean; job uuid; incident text; action text;
+begin
+  select * into r from reports where id=p_report for update;
+  if not found then raise exception 'Report not found'; end if;
+  next_status:=coalesce(p_status,r.status); next_verified:=coalesce(p_verified,r.is_verified,false);
+  if next_status not in ('Pending Review','Under Verification','Verified','Resolved','Rejected','Marked Fake','Archived') then raise exception 'Invalid report status'; end if;
+  if p_status is null and p_verified and r.status in ('Archived','Rejected','Marked Fake') then raise exception 'Invalid verification: choose an active status first'; end if;
+  if p_status is null and p_verified and next_status not in ('Verified','Resolved') then next_status:='Verified'; end if;
+  if p_status is null and p_verified=false and next_status='Verified' then next_status:='Under Verification'; end if;
+  next_verified:=next_status in ('Verified','Resolved');
+  if next_status is not distinct from r.status and next_verified is not distinct from r.is_verified then
+    return jsonb_build_object('id',r.id,'status',next_status,'is_verified',next_verified,'jobId',null);
+  end if;
+  select name into incident from incident_types where id=r.incident_type_id;
+  update reports set status=next_status,is_verified=next_verified where id=r.id;
+  action:=case when next_status='Archived' then 'Report Archived' when next_status in ('Rejected','Marked Fake') then 'Report Rejected'
+    when next_status='Verified' then 'Report Verified' else 'Report Status Updated' end;
+  insert into audit_logs(actor_id,actor_name,action_type,title,details,report_id,old_value,new_value)
+    values(p_actor,p_actor_name,action,case when next_status='Archived' then 'Report archived: ' else 'Report status updated: ' end||coalesce(incident,'Incident'),
+      'Status changed from "'||r.status||'" to "'||next_status||'".',r.id,r.status,next_status);
+  insert into admin_analysis_jobs(kind,subject_id,report_id,payload)
+    values('status_followup',r.id,r.id,jsonb_build_object('actorId',p_actor,'actorName',p_actor_name,'ownerId',r.user_id,
+      'location',r.location,'status',next_status,'verified',next_verified)) returning id into job;
+  if next_verified then
+    insert into admin_analysis_jobs(kind,subject_id,report_id,payload)
+      values('credibility',r.id,r.id,jsonb_build_object('actorId',p_actor,'actorName',p_actor_name)),
+        ('report_sentiment',r.id,r.id,jsonb_build_object('actorId',p_actor,'actorName',p_actor_name))
+      on conflict (kind,subject_id) where state in ('queued','running') and kind <> 'status_followup' do nothing;
+  end if;
+  return jsonb_build_object('id',r.id,'status',next_status,'is_verified',next_verified,'jobId',job);
+end $function$;
+
+CREATE OR REPLACE FUNCTION public.score_reviewed_report()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare s numeric; n numeric; delta numeric; outcome text; effect record;
+begin
+  if new.status is not distinct from old.status and new.is_verified is not distinct from old.is_verified then return new; end if;
+  if new.user_id is null then return new; end if;
+  if exists(select 1 from profiles where id=new.user_id and role in ('admin','super_admin')) then return new; end if;
+  perform refresh_credibility_suspension(new.user_id);
+  select score into s from user_credibility where user_id=new.user_id for update;
+  outcome:=case when new.status='Marked Fake' then 'report_marked_fake' when new.status='Rejected' then 'report_rejected'
+    when new.is_verified then 'report_verified' else null end;
+  if outcome is not null then
+    for effect in select * from credibility_report_effects where report_id=new.id and active
+      and event_type in ('report_rejected','report_marked_fake') and event_type<>outcome for update loop
+      n:=least(100,greatest(0,s-effect.applied));
+      insert into credibility_events(user_id,event_type,points,reason,report_id)
+        values(new.user_id,'admin_adjustment',n-s,'Previous deduction replaced by reviewed outcome',new.id);
+      s:=n;
+      update credibility_report_effects set active=false where report_id=effect.report_id and event_type=effect.event_type;
+    end loop;
+    select * into effect from credibility_report_effects where report_id=new.id and event_type=outcome;
+    if not found or (not effect.active and not effect.corrected and outcome<>'report_verified') then
+      delta:=case outcome when 'report_verified' then 15 when 'report_rejected' then -10 else -30 end;
+      n:=least(100,greatest(0,s+delta));
+      insert into credibility_events(user_id,event_type,points,reason,report_id)
+        values(new.user_id,outcome,n-s,'Admin report review',new.id);
+      insert into credibility_report_effects(report_id,user_id,event_type,applied,active)
+        values(new.id,new.user_id,outcome,n-s,true)
+        on conflict(report_id,event_type) do update set applied=excluded.applied,active=true;
+      s:=n;
+    end if;
+  end if;
+  update user_credibility set score=s where user_id=new.user_id;
+  return new;
+end $function$;
+
+CREATE OR REPLACE FUNCTION public.sentiment_dataset_ready_to_queue(p_dataset uuid, p_version integer)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select not exists (
+    select 1 from public.sentiment_training_jobs j
+    where (j.status in ('queued','ready')
+      or (j.status in ('training','evaluating') and j.lease_until>now())
+      or (j.status='failed' and jsonb_typeof(j.metrics->'training')='object'))
+    and j.selected_dataset_versions @>
+      jsonb_build_array(jsonb_build_object('id',p_dataset,'version',p_version))
+  );
+$function$;
+
+CREATE OR REPLACE FUNCTION public.sentiment_supporting_delete_preview(p_actor uuid, p_model uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare actor public.profiles%rowtype; model public.sentiment_supporting_models%rowtype; items jsonb;
+begin
+  select * into actor from public.profiles where id=p_actor;
+  if actor.id is null or actor.role is distinct from 'super_admin' or actor.status is distinct from 'Active' then
+    raise exception 'Super admin access required' using errcode='42501';
+  end if;
+  perform pg_advisory_xact_lock(72846102);
+  select * into model from public.sentiment_supporting_models where id=p_model for update;
+  if model.id is null or model.status not in ('disabled','archived') then
+    raise exception 'Disable the model before deleting it from the pool' using errcode='22023';
+  end if;
+  select coalesce(jsonb_agg(jsonb_build_object('id',d.id,'name',d.name,'status',d.status,'version',d.version,
+    'shared',exists(select 1 from public.sentiment_supporting_models other
+      where other.id<>p_model and other.status<>'deleted'
+        and other.datasets @> jsonb_build_array(jsonb_build_object('id',d.id))),
+    'unchanged',model.datasets @> jsonb_build_array(jsonb_build_object('id',d.id,'version',d.version)))
+    order by d.created_at,d.id),'[]'::jsonb) into items
+  from public.sentiment_datasets d
+  where model.datasets @> jsonb_build_array(jsonb_build_object('id',d.id));
+  return jsonb_build_object('modelId',p_model,'generation',(select generation from public.sentiment_model_state where id=1),'datasets',items);
+end;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.sentiment_training_capabilities()
  RETURNS jsonb
  LANGUAGE sql
@@ -462,13 +1102,7 @@ AS $function$
     select s.*,d.version from public.sentiment_training_samples s
     join public.sentiment_datasets d on d.id=s.dataset_id where d.status='approved' and s.active
   ), pending as (
-    select a.* from approved a where not exists (
-      select 1 from public.sentiment_training_jobs j
-      where (j.status='ready'
-        or (j.status in ('training','evaluating') and j.lease_until>now())
-        or (j.status='failed' and jsonb_typeof(j.metrics->'training')='object'))
-      and j.snapshot->'datasets' @> jsonb_build_array(jsonb_build_object('id',a.dataset_id,'version',a.version))
-    )
+    select a.* from approved a where public.sentiment_dataset_ready_to_queue(a.dataset_id,a.version)
   ), distribution as (
     select language,jsonb_build_object('total',count(*),'negative',count(*) filter(where label='negative'),
       'neutral',count(*) filter(where label='neutral'),'positive',count(*) filter(where label='positive')) counts
@@ -481,7 +1115,7 @@ AS $function$
     group by d.id,d.name,d.version,d.updated_at,p.fullname,p.user_name
     order by d.updated_at desc,d.id limit 10
   )
-  select jsonb_build_object('queueSummaryVersion',1,
+  select jsonb_build_object('queueSummaryVersion',1,'datasetSelectionVersion',1,
     'approvedExamples',(select count(*) from approved),
     'approvedDatasets',(select count(*) from public.sentiment_datasets where status='approved'),
     'pendingDatasets',(select count(*) from public.sentiment_datasets where status='pending'),
@@ -830,6 +1464,17 @@ begin
 end;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.start_credibility_suspension()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+begin
+  perform refresh_credibility_suspension(new.user_id);
+  return new;
+end $function$;
+
 CREATE OR REPLACE FUNCTION public.valid_sentiment_independent_metrics(m jsonb)
  RETURNS boolean
  LANGUAGE plpgsql
@@ -943,11 +1588,37 @@ begin
 exception when invalid_text_representation or numeric_value_out_of_range then return false;
 end $function$;
 
+revoke all on function public."active_admin_analysis"(p_actor uuid) from public, anon, authenticated, service_role;
+
+revoke all on function public."admin_analysis_progress"(p_batch uuid) from public, anon, authenticated, service_role;
+
+revoke all on function public."admin_browse_page"(p_view text, p_from timestamp with time zone, p_to timestamp with time zone, p_status text, p_kind text, p_actor_role text, p_page integer, p_page_size integer, p_focus_report uuid, p_export boolean, p_before_time timestamp with time zone, p_before_kind text, p_before_id uuid, p_before_sort jsonb) from public, anon, authenticated, service_role;
+
+revoke all on function public."audit_admin_analysis_completion"() from public, anon, authenticated, service_role;
+
+revoke all on function public."claim_admin_analysis_job"() from public, anon, authenticated, service_role;
+
+revoke all on function public."claim_comment_sentiment_job"() from public, anon, authenticated, service_role;
+
 revoke all on function public."cleanup_sentiment_analysis"() from public, anon, authenticated, service_role;
+
+revoke all on function public."credibility_access"(p_user uuid) from public, anon, authenticated, service_role;
 
 revoke all on function public."current_user_role"() from public, anon, authenticated, service_role;
 
+revoke all on function public."delete_sentiment_supporting_with_datasets"(p_actor uuid, p_model uuid, p_generation bigint, p_datasets jsonb) from public, anon, authenticated, service_role;
+
+revoke all on function public."enforce_credibility_write"() from public, anon, authenticated, service_role;
+
+revoke all on function public."enqueue_admin_analysis"(p_actor uuid, p_reports uuid[]) from public, anon, authenticated, service_role;
+
+revoke all on function public."enqueue_comment_sentiment"() from public, anon, authenticated, service_role;
+
 revoke all on function public."enqueue_sentiment_training"(p_mode text) from public, anon, authenticated, service_role;
+
+revoke all on function public."feed_page"(p_owner uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_status text, p_source text, p_before_time timestamp with time zone, p_before_id uuid, p_before_source text) from public, anon, authenticated, service_role;
+
+revoke all on function public."feed_safety_reports"(p_from timestamp with time zone, p_to timestamp with time zone) from public, anon, authenticated, service_role;
 
 revoke all on function public."get_sentiment_training_progress"(p_jobs uuid[]) from public, anon, authenticated, service_role;
 
@@ -965,11 +1636,27 @@ revoke all on function public."manage_sentiment_training"(p_actor uuid, p_action
 
 revoke all on function public."manage_sentiment_training_eligibility_legacy"(p_actor uuid, p_action text, p_job uuid, p_generation bigint, p_payload jsonb) from public, anon, authenticated, service_role;
 
+revoke all on function public."protect_report_review_fields"() from public, anon, authenticated, service_role;
+
 revoke all on function public."queue_approved_sentiment_training"() from public, anon, authenticated, service_role;
 
 revoke all on function public."record_sentiment_support_usage"(p_ids uuid[]) from public, anon, authenticated, service_role;
 
+revoke all on function public."refresh_credibility_suspension"(p_user uuid) from public, anon, authenticated, service_role;
+
+revoke all on function public."report_engagement_counts"(p_ids uuid[], p_viewer uuid) from public, anon, authenticated, service_role;
+
 revoke all on function public."report_sentiment_training_progress"(p_job uuid, p_lease uuid, p_sequence bigint, p_completed numeric, p_total integer, p_stage text, p_language text) from public, anon, authenticated, service_role;
+
+revoke all on function public."restore_sentiment_dataset"(p_actor uuid, p_payload jsonb) from public, anon, authenticated, service_role;
+
+revoke all on function public."save_admin_report_status"(p_report uuid, p_actor uuid, p_actor_name text, p_status text, p_verified boolean) from public, anon, authenticated, service_role;
+
+revoke all on function public."score_reviewed_report"() from public, anon, authenticated, service_role;
+
+revoke all on function public."sentiment_dataset_ready_to_queue"(p_dataset uuid, p_version integer) from public, anon, authenticated, service_role;
+
+revoke all on function public."sentiment_supporting_delete_preview"(p_actor uuid, p_model uuid) from public, anon, authenticated, service_role;
 
 revoke all on function public."sentiment_training_capabilities"() from public, anon, authenticated, service_role;
 
@@ -991,6 +1678,8 @@ revoke all on function public."set_sentiment_analysis_updated_at"() from public,
 
 revoke all on function public."set_updated_at"() from public, anon, authenticated, service_role;
 
+revoke all on function public."start_credibility_suspension"() from public, anon, authenticated, service_role;
+
 revoke all on function public."valid_sentiment_independent_metrics"(m jsonb) from public, anon, authenticated, service_role;
 
 revoke all on function public."valid_sentiment_independent_policy"(policy jsonb) from public, anon, authenticated, service_role;
@@ -999,11 +1688,33 @@ revoke all on function public."valid_sentiment_independent_policy_all_languages"
 
 revoke all on function public."valid_sentiment_pool_policy"(policy jsonb) from public, anon, authenticated, service_role;
 
-grant EXECUTE on function public."cleanup_sentiment_analysis"() to public;
+grant EXECUTE on function public."active_admin_analysis"(p_actor uuid) to "service_role";
+
+grant EXECUTE on function public."admin_analysis_progress"(p_batch uuid) to "service_role";
+
+grant EXECUTE on function public."admin_browse_page"(p_view text, p_from timestamp with time zone, p_to timestamp with time zone, p_status text, p_kind text, p_actor_role text, p_page integer, p_page_size integer, p_focus_report uuid, p_export boolean, p_before_time timestamp with time zone, p_before_kind text, p_before_id uuid, p_before_sort jsonb) to "service_role";
+
+grant EXECUTE on function public."audit_admin_analysis_completion"() to "service_role";
+
+grant EXECUTE on function public."claim_admin_analysis_job"() to "service_role";
+
+grant EXECUTE on function public."claim_comment_sentiment_job"() to "service_role";
+
+grant EXECUTE on function public."cleanup_sentiment_analysis"() to "service_role";
+
+grant EXECUTE on function public."credibility_access"(p_user uuid) to "service_role";
 
 grant EXECUTE on function public."current_user_role"() to public;
 
+grant EXECUTE on function public."delete_sentiment_supporting_with_datasets"(p_actor uuid, p_model uuid, p_generation bigint, p_datasets jsonb) to "service_role";
+
+grant EXECUTE on function public."enqueue_admin_analysis"(p_actor uuid, p_reports uuid[]) to "service_role";
+
 grant EXECUTE on function public."enqueue_sentiment_training"(p_mode text) to "service_role";
+
+grant EXECUTE on function public."feed_page"(p_owner uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_status text, p_source text, p_before_time timestamp with time zone, p_before_id uuid, p_before_source text) to "service_role";
+
+grant EXECUTE on function public."feed_safety_reports"(p_from timestamp with time zone, p_to timestamp with time zone) to "service_role";
 
 grant EXECUTE on function public."get_sentiment_training_progress"(p_jobs uuid[]) to "service_role";
 
@@ -1021,7 +1732,17 @@ grant EXECUTE on function public."queue_approved_sentiment_training"() to "servi
 
 grant EXECUTE on function public."record_sentiment_support_usage"(p_ids uuid[]) to "service_role";
 
+grant EXECUTE on function public."report_engagement_counts"(p_ids uuid[], p_viewer uuid) to "service_role";
+
 grant EXECUTE on function public."report_sentiment_training_progress"(p_job uuid, p_lease uuid, p_sequence bigint, p_completed numeric, p_total integer, p_stage text, p_language text) to "service_role";
+
+grant EXECUTE on function public."restore_sentiment_dataset"(p_actor uuid, p_payload jsonb) to "service_role";
+
+grant EXECUTE on function public."save_admin_report_status"(p_report uuid, p_actor uuid, p_actor_name text, p_status text, p_verified boolean) to "service_role";
+
+grant EXECUTE on function public."sentiment_dataset_ready_to_queue"(p_dataset uuid, p_version integer) to "service_role";
+
+grant EXECUTE on function public."sentiment_supporting_delete_preview"(p_actor uuid, p_model uuid) to "service_role";
 
 grant EXECUTE on function public."sentiment_training_capabilities"() to "service_role";
 

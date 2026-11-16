@@ -605,11 +605,12 @@ local firewall; use HTTPS for deployed services.
 
 ### Database setup
 
-For a **new, empty project**, run `DB_Schema/finalized/01_schema.sql`, followed by
-the read-only `DB_Schema/finalized/03_verify.sql` checks. The schema is also split
-under `DB_Schema/finalized/tables/` and `shared/`; do not install both versions.
-Consult `manifest.json` for the combined schema's source migrations and check for
-newer feature migrations not yet included.
+For a **new, empty project**, follow the [finalized database guide](DB_Schema/finalized/README.md).
+It installs **39 separate table SQL files**, shared database objects, reference
+defaults and read-only verification through `DB_Schema/finalized/install.psql`.
+There is no combined SQL installer. `manifest.json` records the exact file order
+and hashes; [database organization and cleanup notes](DB_Schema/README.md) explain
+which historical scripts remain and why.
 
 > [!WARNING]
 > Do not run a fresh-install schema over an existing database. Apply only missing
@@ -622,6 +623,7 @@ newer feature migrations not yet included.
 | Verified reports | `verified_report_status.sql`; follow its [prerequisites](DB_Schema/migrations/verified_report_status.md). |
 | Report ordering / cursor pagination | `admin_view_more.sql`; see [ordering notes](DB_Schema/migrations/report_management_order.md). |
 | Sentiment traces | `sentiment_raw_confidence_decision.sql`. |
+| Own report/comment edit cleanup permissions | `sentiment_cleanup_trigger_permissions.sql`; changes permissions only, not stored rows. |
 | Retired settings cleanup | `remove_unused_super_admin_settings.sql` and `remove_ai_api_endpoint.sql`. |
 
 These files are under `DB_Schema/migrations/`. Do not run that directory in
@@ -709,12 +711,12 @@ participate in inference; that flag does not train or enable candidates.
 
 Before running, check:
 
-- Current training migrations are installed. Startup checks supporting-pool,
-  independent-admission and language-scoped capabilities. Follow prerequisite
-  chains in `sentiment_supporting_pool.sql`, `sentiment_independent_admission.sql`
-  and `sentiment_language_scoped_training.sql` under `DB_Schema/migrations/`.
-- `sentiment_training_progress.sql` supports percentage progress;
-  `sentiment_fresh_candidates.sql` supports fresh-challenger jobs.
+- Current training capabilities are installed. The finalized split schema includes
+  supporting-pool, independent admission, language-scoped/fresh training and
+  progress protocols. Run its read-only `03_verify.sql` checks. Some historical
+  source migrations are no longer present; do not treat their names in older
+  notes as an installable migration chain. Existing deployments need a reviewed
+  upgrade plan, not a replay of the fresh-install schema.
 - `datasets/processed/train.csv`, `validation.csv` and `test.csv` contain approved
   baseline splits with expected columns and disjoint held-out data.
 - The four runtime ONNX files exist in `server/models/`.

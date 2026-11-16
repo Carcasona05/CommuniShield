@@ -1,25 +1,13 @@
-// Development-only: materialize the migration chain in isolated PostgreSQL,
-// then export its final definitions. Never connects to Supabase or reads .env.
+// Development-only: validate/canonicalize the split fresh-install definitions.
+// Never connects to Supabase, reads .env, or replays migrations on live data.
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
+import { validateInventory } from './inventory.mjs';
 
 export const directory = dirname(fileURLToPath(import.meta.url));
 export const root = resolve(directory, '../..');
-export const sources = [
-  'profiles_schema.sql', 'reports_schema.sql', 'admins_schema.sql',
-  'credibility_schema.sql', 'notifications_schema.sql', 'emergency_facilities_schema.sql',
-  'user_terms_acceptance_schema.sql', 'ai_model_tracking_migration.sql',
-  'migrations/add_role_to_reports.sql', 'migrations/add_unified_sentiment_analysis.sql',
-  'migrations/report_archiving.sql', 'migrations/user_notification_preferences.sql',
-  'migrations/sentiment_datasets.sql', 'migrations/sentiment_training_jobs.sql',
-  'migrations/sentiment_continued_training.sql', 'migrations/sentiment_supporting_pool.sql',
-  'migrations/sentiment_fresh_candidates.sql', 'migrations/sentiment_independent_admission.sql',
-  'migrations/sentiment_pending_training_summary.sql', 'migrations/sentiment_language_scoped_training.sql',
-  'migrations/sentiment_training_progress.sql',
-  'migrations/sentiment_training_queue_eligibility.sql',
-];
 export const quote = value => '"' + value.replaceAll('"', '""') + '"';
 const literal = value => value === null ? 'null' : typeof value === 'boolean' || typeof value === 'number' ? String(value) : "'" + String(value).replaceAll("'", "''") + "'";
 const hash = text => createHash('sha256').update(text).digest('hex');
@@ -38,15 +26,13 @@ export async function postgres() {
   return db;
 }
 
-export async function applySources(db) {
-  const manifest = [];
-  for (const source of sources) {
-    const text = await readFile(resolve(root, 'DB_Schema', source), 'utf8');
-    manifest.push({ path: 'DB_Schema/' + source, sha256: hash(text) });
-    // PGlite has gen_random_uuid in core; production Supabase supplies pgcrypto.
-    await db.exec(text.replace(/create extension if not exists pgcrypto;/gi, ''));
-  }
-  return manifest;
+export async function applySources(db, { defaults = true } = {}) {
+  const manifest = JSON.parse(await readFile(resolve(directory,'manifest.json'),'utf8'));
+  const scripts = await Promise.all(manifest.schema_install_order.map(name => readFile(resolve(directory,name),'utf8')));
+  // Execute together: preflight opens a transaction closed by the finish file.
+  await db.exec(scripts.join('\n').replace(/\r\n/g,'\n').replace(/create extension if not exists pgcrypto;/gi, ''));
+  if (defaults) await db.exec(await readFile(resolve(directory,'02_reference_data.sql'),'utf8'));
+  return manifest.sources;
 }
 
 export async function catalog(db) {
@@ -106,6 +92,7 @@ export function renderSchemaParts(c) {
     '\n-- Tables: final columns, with constraints added after all tables exist.',
   ];
   parts['shared/00_preflight.sql'] = sql.splice(0).join('\n\n') + '\n';
+  parts['shared/00_types.sql'] = "create type public.user_role as enum ('user', 'admin', 'super_admin');\n";
   for (const table of c.tables) {
     const name = table.name;
     const statements = [
@@ -114,13 +101,19 @@ export function renderSchemaParts(c) {
       `create table public.${quote(name)} (\n${c.columns.filter(col => col.table_name === name)
         .map(col => `  ${quote(col.name)} ${col.type}${col.default_value !== null ? ' default ' + col.default_value : ''}${col.required ? ' not null' : ''}`).join(',\n')}\n);`,
     ];
-    for (const con of c.constraints.filter(con => con.table_name === name && con.type !== 'f')) {
+    for (const con of c.constraints.filter(con => con.table_name === name && !['f','n'].includes(con.type))) {
       statements.push(`alter table public.${quote(name)} add constraint ${quote(con.name)} ${con.definition};`);
     }
     for (const index of c.indexes.filter(index => index.table_name === name)) statements.push(index.definition + ';');
     if (table.rls) statements.push(`alter table public.${quote(name)} enable row level security;`);
     statements.push(`revoke all on table public.${quote(name)} from public, anon, authenticated, service_role;`);
-    for (const g of c.tableGrants.filter(g => g.table_name === name)) {
+    for (const g of c.tableGrants.filter(g => g.table_name === name && g.privilege !== 'MAINTAIN')) {
+      // Do not export the test fixture's broad defaults as application grants.
+      if (['anon','authenticated'].includes(g.grantee)) {
+        const policies = c.policies.filter(p => p.table_name === name && (p.roles.includes('public') || p.roles.includes(g.grantee)));
+        const readOnlyLookup = ['incident_categories','incident_types','notification_types'].includes(name) && g.privilege === 'SELECT';
+        if (!readOnlyLookup && !policies.some(p => p.cmd === g.privilege || p.cmd === 'ALL')) continue;
+      }
       statements.push(`grant ${g.privilege} on table public.${quote(name)} to ${g.grantee === 'PUBLIC' ? 'public' : quote(g.grantee)};`);
     }
     parts[`tables/${name}.sql`] = statements.join('\n\n') + '\n';
@@ -136,9 +129,10 @@ export function renderSchemaParts(c) {
   for (const g of c.functionGrants) sql.push(`grant ${g.privilege} on function public.${quote(g.name)}(${g.arguments}) to ${g.grantee === 'PUBLIC' ? 'public' : quote(g.grantee)};`);
   parts['shared/02_functions.sql'] = sql.splice(0).join('\n\n') + '\n';
   for (const trigger of c.triggers) sql.push(trigger.definition + ';');
+  parts['shared/03_triggers.sql'] = sql.splice(0).join('\n\n') + '\n';
   for (const p of c.policies) sql.push(`create policy ${quote(p.name)} on public.${quote(p.table_name)} as ${p.permissive}
     for ${p.cmd} to ${p.roles.map(r => r === 'public' ? 'public' : quote(r)).join(', ')}${p.qual ? ' using (' + p.qual + ')' : ''}${p.with_check ? ' with check (' + p.with_check + ')' : ''};`);
-  parts['shared/03_triggers_and_policies.sql'] = sql.splice(0).join('\n\n') + '\n';
+  parts['shared/03_policies.sql'] = sql.splice(0).join('\n\n') + '\n';
   sql.push("NOTIFY pgrst,'reload schema';", 'commit;', '');
   parts['shared/04_finish.sql'] = sql.join('\n\n');
   return parts;
@@ -152,6 +146,7 @@ export async function renderDefaults(db) {
   const sql = ['-- Reference/default data only; no users, sample reports or trained models.', 'begin;'];
   for (const [table, columns, conflict] of [
     ['incident_categories',['name'],'name'],
+    ['notification_types',['name'],'name'],
     ['system_settings',['key','value'],'key'],
     ['emergency_facilities',['name','type','latitude','longitude','address','phone'],'name'],
     ['sentiment_model_state',['id','generation','data_revision'],'id'],
@@ -174,12 +169,14 @@ export async function build({check = false} = {}) {
   try {
     const sourceManifest = await applySources(db);
     const c = await catalog(db);
+    validateInventory(c);
     const parts = renderSchemaParts(c);
-    const schema = renderSchema(c), defaults = await renderDefaults(db);
+    const defaults = await renderDefaults(db);
     const installer = '-- Fresh empty Supabase project only. Run with psql, not the Supabase SQL editor.\n\\set ON_ERROR_STOP on\n'
       + [...Object.keys(parts), '02_reference_data.sql', '03_verify.sql'].map(name => `\\ir ${name}`).join('\n') + '\n';
-    const outputs = { ...parts, '01_schema.sql': schema, '02_reference_data.sql': defaults, 'install.psql': installer };
-    const metadata = JSON.stringify({ format: 2, source: 'Repository schemas + ordered migrations, not a live database export',
+    const verification = (await readFile(resolve(directory,'03_verify.sql'),'utf8')).replace(/\r\n/g,'\n');
+    const outputs = { ...parts, '02_reference_data.sql': defaults, '03_verify.sql': verification, 'install.psql': installer };
+    const metadata = JSON.stringify({ format: 3, source: 'Canonical split definitions; sources record historical reconstruction provenance, not a replay chain. See README.md.',
       sources: sourceManifest, tables: c.tables.length, functions: c.functions.length,
       schema_install_order: Object.keys(parts),
       outputs: Object.fromEntries(Object.entries(outputs).map(([name, content]) => [name, hash(content)])) }, null, 2) + '\n';

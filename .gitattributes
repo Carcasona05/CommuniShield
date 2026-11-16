@@ -1,0 +1,2 @@
+# Generated split SQL and hashes must remain reproducible on Windows checkouts.
+DB_Schema/finalized/** text eol=lf

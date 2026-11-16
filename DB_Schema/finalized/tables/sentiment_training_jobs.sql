@@ -21,24 +21,15 @@ create table public."sentiment_training_jobs" (
   "training_mode" text default 'continue'::text not null,
   "training_languages" text[],
   "progress" jsonb,
-  "progress_lease_token" uuid
+  "progress_lease_token" uuid,
+  "selected_dataset_versions" jsonb
 );
-
-alter table public."sentiment_training_jobs" add constraint "sentiment_training_jobs_available_at_not_null" NOT NULL available_at;
-
-alter table public."sentiment_training_jobs" add constraint "sentiment_training_jobs_created_at_not_null" NOT NULL created_at;
-
-alter table public."sentiment_training_jobs" add constraint "sentiment_training_jobs_id_not_null" NOT NULL id;
 
 alter table public."sentiment_training_jobs" add constraint "sentiment_training_jobs_pkey" PRIMARY KEY (id);
 
 alter table public."sentiment_training_jobs" add constraint "sentiment_training_jobs_status_check" CHECK ((status = ANY (ARRAY['queued'::text, 'training'::text, 'evaluating'::text, 'ready'::text, 'failed'::text])));
 
-alter table public."sentiment_training_jobs" add constraint "sentiment_training_jobs_status_not_null" NOT NULL status;
-
 alter table public."sentiment_training_jobs" add constraint "sentiment_training_jobs_training_mode_check" CHECK ((training_mode = ANY (ARRAY['continue'::text, 'fresh'::text])));
-
-alter table public."sentiment_training_jobs" add constraint "sentiment_training_jobs_training_mode_not_null" NOT NULL training_mode;
 
 CREATE UNIQUE INDEX sentiment_one_queued_job ON public.sentiment_training_jobs USING btree ((true)) WHERE (status = 'queued'::text);
 
@@ -51,8 +42,6 @@ revoke all on table public."sentiment_training_jobs" from public, anon, authenti
 grant DELETE on table public."sentiment_training_jobs" to "service_role";
 
 grant INSERT on table public."sentiment_training_jobs" to "service_role";
-
-grant MAINTAIN on table public."sentiment_training_jobs" to "service_role";
 
 grant REFERENCES on table public."sentiment_training_jobs" to "service_role";
 

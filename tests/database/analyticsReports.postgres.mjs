@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { before, after, test } from 'node:test';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { postgres, root } from '../../DB_Schema/finalized/build.mjs';
+import { postgres, root, applySources } from '../../DB_Schema/finalized/build.mjs';
 
 const directory = resolve(root, 'DB_Schema/analytics');
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -17,8 +17,7 @@ before(async () => {
   db = await postgres();
   await db.exec(`alter table auth.users add column created_at timestamptz default now();
     alter table auth.users add column email_confirmed_at timestamptz;`);
-  const schema = await readFile(resolve(root, 'DB_Schema/finalized/01_schema.sql'), 'utf8');
-  await db.exec(schema.replace(/create extension if not exists pgcrypto;/gi, ''));
+   await applySources(db, { defaults: false });
   reports = new Map(await Promise.all((await readdir(directory)).filter(f => f.endsWith('.sql'))
     .map(async f => [f, await readFile(resolve(directory, f), 'utf8')])));
   emptyResults = new Map();
@@ -31,7 +30,9 @@ before(async () => {
       select (now() at time zone 'Asia/Manila')::date::timestamp at time zone 'Asia/Manila' as midnight;`);
   await db.query(`insert into auth.users(id, created_at, email_confirmed_at) values
     ($1, (select midnight from clock), now()),
-    ($2, (select midnight from clock) + interval '1 hour', null)`, [id(1), id(2)]);
+     ($2, (select midnight from clock) + interval '1 hour', null)`, [id(1), id(2)]);
+   // Analytics fixtures do not test posting quotas; all-good accounts are unlimited.
+   await db.query('update public.user_credibility set score=100 where user_id=any($1::uuid[])', [[id(1),id(2)]]);
   await db.query(`insert into public.reports(id,user_id,created_at,status) values
     ($1,$5,(select midnight from clock),'Resolved'),
     ($2,$5,(select midnight from clock) + interval '1 hour','Archived'),

@@ -74,7 +74,7 @@ test("Super Admin removes only the obsolete section and seeds no longer recreate
   assert.match(ui, /Local Sentiment Model/);
   assert.match(ui, /Gemini Sentiment/);
   assert.doesNotMatch(ui, /Map Settings/);
-  for (const file of ["../../DB_Schema/admins_schema.sql", "../../DB_Schema/demo_seed_data.sql"]) {
+  for (const file of ["../../DB_Schema/admins_schema.sql", "../../DB_Schema/finalized/02_reference_data.sql"]) {
     assert.doesNotMatch(readFileSync(new URL(file, import.meta.url), "utf8"), /\('ai_api_endpoint'/);
   }
 });
